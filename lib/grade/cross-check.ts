@@ -47,8 +47,6 @@ export type Facts = {
 export type CrossCheckFinding = {
   /** Machine-readable, so the interface can group findings without parsing prose. */
   code:
-    | "ARITHMETIC_MISMATCH"
-    | "REPORT_TEXT_SCORE_MISMATCH"
     | "INTERNAL_LABEL_IN_REPORT"
     | "SCORE_OUT_OF_RANGE"
     | "SCORE_POSSIBLE_MISMATCH"
@@ -110,24 +108,21 @@ export function crossCheck(report: GradingReport, facts: Facts): CrossCheckResul
 
   // ---- Arithmetic -------------------------------------------------------
   //
-  // This applies to every section, tested or not, and for an untested section it
-  // is the ONLY automatic check available. Worth remembering when weighing whether
-  // it is redundant with schema validation: it is not, because the schema cannot
-  // express numeric relationships on either provider.
-  const itemsEarned = sum(report.rubricItems.map((item) => item.scoreEarned));
-  const itemsPossible = sum(report.rubricItems.map((item) => item.scorePossible));
+  // The section's score is the sum of its rows, computed here rather than stated by the model,
+  // so a total cannot disagree with its rows. What remains to check is each row against its own
+  // maximum, and the sum against the section's — and for an untested section these are the ONLY
+  // automatic checks available. The schema cannot express either, because Claude's structured
+  // output rejects numeric constraints.
+  const scoreEarned = sum(report.rubricItems.map((item) => item.scoreEarned));
+  const scorePossible = sum(report.rubricItems.map((item) => item.scorePossible));
 
-  if (Math.abs(itemsEarned - report.scoreEarned) > EPSILON) {
-    findings.push({
-      code: "ARITHMETIC_MISMATCH",
-      detail: `The rubric items sum to ${itemsEarned} but the report claims ${report.scoreEarned}.`,
-    });
-  }
-  if (Math.abs(itemsPossible - report.scorePossible) > EPSILON) {
-    findings.push({
-      code: "ARITHMETIC_MISMATCH",
-      detail: `The rubric items are out of ${itemsPossible} but the report claims ${report.scorePossible}.`,
-    });
+  for (const item of report.rubricItems) {
+    if (item.scoreEarned < -EPSILON || item.scoreEarned - item.scorePossible > EPSILON) {
+      findings.push({
+        code: "SCORE_OUT_OF_RANGE",
+        detail: `"${item.label}" scores ${item.scoreEarned} out of ${item.scorePossible}.`,
+      });
+    }
   }
 
   // Staff labels that must never reach a student.
@@ -136,8 +131,12 @@ export function crossCheck(report: GradingReport, facts: Facts): CrossCheckResul
   // no recovery: approving a draft posts its markdown to the pull request, and a
   // "FLAG: MECHANICAL ERRORS" line that survived review has been delivered. Held here
   // rather than stripped, because silently editing a report would hide the fact that
-  // the model ignored an instruction.
-  const internalLabel = report.reportMarkdown.match(/FLAG:\s*[A-Z][A-Z _-]{3,}/);
+  // the model ignored an instruction. Every field the student reads is searched.
+  const studentText = [
+    report.summaryMarkdown,
+    ...report.rubricItems.flatMap((item) => [item.label, item.feedbackMarkdown]),
+  ].join("\n");
+  const internalLabel = studentText.match(/FLAG:\s*[A-Z][A-Z _-]{3,}/);
   if (internalLabel) {
     findings.push({
       code: "INTERNAL_LABEL_IN_REPORT",
@@ -148,47 +147,10 @@ export function crossCheck(report: GradingReport, facts: Facts): CrossCheckResul
     });
   }
 
-  // The headline score in the markdown against the structured one.
-  //
-  // These are written by the same call but are not the same field, and a real
-  // generation produced a report whose prose said 8/15 while its rubric items summed
-  // to 10. The student reads the markdown; the gradebook records the number. Nothing
-  // else compares them, so a disagreement would hand a student one score and keep
-  // another, with no error anywhere.
-  const stated = report.reportMarkdown.match(/^#{1,3}\s.*?Score:\s*([\d.]+)\s*\/\s*([\d.]+)/im);
-  if (stated) {
-    const statedEarned = Number(stated[1]);
-    const statedPossible = Number(stated[2]);
-    if (
-      Math.abs(statedEarned - report.scoreEarned) > EPSILON ||
-      Math.abs(statedPossible - report.scorePossible) > EPSILON
-    ) {
-      findings.push({
-        code: "REPORT_TEXT_SCORE_MISMATCH",
-        detail:
-          `The report text says ${statedEarned}/${statedPossible} but the recorded ` +
-          `score is ${report.scoreEarned}/${report.scorePossible}. The student would ` +
-          `read one number and the gradebook would hold the other.`,
-      });
-    }
-  }
-
-  if (report.scoreEarned < -EPSILON) {
+  if (scorePossible <= 0) {
     findings.push({
       code: "SCORE_OUT_OF_RANGE",
-      detail: `A negative score (${report.scoreEarned}) is not meaningful.`,
-    });
-  }
-  if (report.scorePossible <= 0) {
-    findings.push({
-      code: "SCORE_OUT_OF_RANGE",
-      detail: `The score is out of ${report.scorePossible}, which cannot be right.`,
-    });
-  }
-  if (report.scoreEarned - report.scorePossible > EPSILON) {
-    findings.push({
-      code: "SCORE_OUT_OF_RANGE",
-      detail: `The score ${report.scoreEarned} exceeds the maximum ${report.scorePossible}.`,
+      detail: `The rows are out of ${scorePossible} in total, which cannot be right.`,
     });
   }
 
@@ -198,8 +160,8 @@ export function crossCheck(report: GradingReport, facts: Facts): CrossCheckResul
     Every check above is the report against itself, and a report can be perfectly consistent
     about the wrong maximum: 0 out of 3 for a section worth 15 sums correctly, sits in range,
     and says nothing false about any test. The prompt is told the point value and the model is
-    expected to restate it, which makes a different number a contradiction of a fact rather
-    than a judgment — the same shape as a claim about a test outcome.
+    expected to make its rows add up to it, which makes a different number a contradiction of a
+    fact rather than a judgment — the same shape as a claim about a test outcome.
 
     This is the second half of a defence whose first half already exists. `generateReportForSubmission`
     refuses to grade a section with no `pointValue` at all, because a model told nothing about the
@@ -208,11 +170,11 @@ export function crossCheck(report: GradingReport, facts: Facts): CrossCheckResul
     `finalScorePossible`, so the gradebook records the invented denominator and computes completion
     against it.
   */
-  if (Math.abs(report.scorePossible - facts.pointValue) > EPSILON) {
+  if (Math.abs(scorePossible - facts.pointValue) > EPSILON) {
     findings.push({
       code: "SCORE_POSSIBLE_MISMATCH",
       detail:
-        `The report is scored out of ${report.scorePossible}, but this section is worth ` +
+        `The rows are out of ${scorePossible} in total, but this section is worth ` +
         `${facts.pointValue}. Every score in it describes a different maximum than the one ` +
         `the gradebook will record.`,
     });
@@ -305,11 +267,11 @@ export function crossCheck(report: GradingReport, facts: Facts): CrossCheckResul
     // failures were not accounted for anywhere. The reverse — withholding points
     // when everything passed — is legitimate judgment and is deliberately allowed.
     const failed = facts.tests.filter((test) => test.status === "failed");
-    if (failed.length > 0 && report.scorePossible - report.scoreEarned <= EPSILON) {
+    if (failed.length > 0 && scorePossible - scoreEarned <= EPSILON) {
       findings.push({
         code: "FULL_CREDIT_DESPITE_FAILURES",
         detail:
-          `The report awards full marks (${report.scoreEarned}/${report.scorePossible}) ` +
+          `The report awards full marks (${scoreEarned}/${scorePossible}) ` +
           `while ${failed.length} test${failed.length === 1 ? "" : "s"} failed.`,
       });
     }
@@ -339,7 +301,7 @@ export function crossCheck(report: GradingReport, facts: Facts): CrossCheckResul
 
   return {
     findings,
-    // Every finding is a contradiction — rubric points that do not sum to the score, a claim
+    // Every finding is a contradiction — a row scored above its maximum, a claim
     // about a test that never ran, full marks beside failures — so any of them is a reason a
     // draft must not be passed over.
     needsManualReview: findings.length > 0,

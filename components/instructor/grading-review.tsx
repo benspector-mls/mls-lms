@@ -8,7 +8,6 @@ import {
   ExternalLink,
   FolderGit2,
   GitPullRequest,
-  ListChecks,
   Loader2,
   RotateCcw,
   Users,
@@ -29,13 +28,7 @@ import { CommentsCard } from "@/components/instructor/review/comments-card";
 import { DraftBody } from "@/components/instructor/review/draft-body";
 import { DraftHistory } from "@/components/instructor/review/draft-history";
 import { Button, buttonVariants } from "@/components/ui/button";
-import { RubricBreakdown } from "@/components/instructor/review/section-editor";
-import {
-  DraftList,
-  QueueSubmission,
-  readRubricItems,
-  StateCard,
-} from "@/components/instructor/review/shared";
+import { DraftList, QueueSubmission, StateCard } from "@/components/instructor/review/shared";
 import { DiffPanel, TestEvidence } from "@/components/instructor/review/work-panels";
 import { SectionAnchor } from "@/components/instructor/review/section-nav";
 import { displayNameOf } from "@/lib/people";
@@ -293,16 +286,6 @@ export function GradingReview({
   });
 
   /*
-    The score's working: one card per section, and never anything the student sees.
-
-    Read straight from the draft rather than from inside the editor, because where these belong
-    depends on the room there is — see the column below.
-  */
-  const rubricSections = draft
-    ? draft.sections.filter((section) => readRubricItems(section.rubricItems).length > 0)
-    : [];
-
-  /*
     **What the student handed in.** One of three, and there is always one: what they attached, the
     diff of their pull request, or a card saying there is nothing yet.
 
@@ -358,7 +341,7 @@ export function GradingReview({
     );
 
   /*
-    **The column beside the grade: the work, and the working beneath it.**
+    **The column beside the grade: the work, and the test output beneath it.**
 
     One rule rather than a ranking between kinds — the left column is everything the grade is
     *about*, and the right is what is being said to the student and the conversation with them. An
@@ -366,29 +349,15 @@ export function GradingReview({
     which a ranking could not promise: the same person grading a Google Doc and a repository used
     to find them in different columns.
 
-    The working is the rubric breakdown and the suite output. It sits under the work rather than
-    beside it or under the report, because it is evidence about the same thing.
+    The suite output sits under the work rather than beside it or under the report, because it is
+    evidence about the same thing. The reasoning behind each score sits in the report itself, on
+    the row whose score it explains.
 
     Always present, so the pane always splits when there is room for it.
   */
   const aside = (
     <>
       {work}
-      {/*
-          One entry in the bar for all the rubric cards, because each carries the same icon and a
-          row of identical icons would not say which was which.
-        */}
-      {rubricSections.length > 0 && (
-        <SectionAnchor
-          label="How this score was reached"
-          icon={ListChecks}
-          className="flex flex-col gap-5"
-        >
-          {rubricSections.map((section) => (
-            <RubricBreakdown key={section.id} section={section} />
-          ))}
-        </SectionAnchor>
-      )}
       {testEvidence}
     </>
   );

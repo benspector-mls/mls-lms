@@ -27,6 +27,7 @@ import { crossCheck, type Facts } from "./cross-check";
 import { effectiveSection } from "./delivery";
 import { buildSystemPrompt, buildUserPrompt, type PreviousReview } from "./prompts";
 import { getReportGenerator, ProviderError } from "./provider";
+import { composeReport, rowTotals } from "./report-text";
 import { ReportValidationError } from "./schema";
 
 /**
@@ -605,13 +606,25 @@ export async function generateReportForSubmission(submissionId: string): Promise
       };
       const check = crossCheck(response.output, facts);
 
+      /*
+        The model returns the parts and this assembles the whole. The text and the score are stored
+        beside the parts rather than derived on every read, so the student's page, the digest and
+        approval read the same two columns they read for a hand grade.
+      */
+      const totals = rowTotals(response.output.rubricItems);
+
       await db.gradingDraftSection.create({
         data: {
           gradingDraftId: draft.id,
           sectionType,
-          reportMarkdown: response.output.reportMarkdown,
-          scoreEarned: response.output.scoreEarned,
-          scorePossible: response.output.scorePossible,
+          summaryMarkdown: response.output.summaryMarkdown,
+          reportMarkdown: composeReport({
+            sectionType,
+            summaryMarkdown: response.output.summaryMarkdown,
+            rows: response.output.rubricItems,
+          }),
+          scoreEarned: totals.earned,
+          scorePossible: totals.possible,
           rubricItems: response.output.rubricItems,
           flags: [
             ...response.output.flags,
@@ -706,10 +719,10 @@ export async function generateReportForSubmission(submissionId: string): Promise
  */
 /*
   Bumped when the prompt changes in a way that changes what comes back, so a stored report can be
-  traced to the wording that produced it. `2026-10-07.1` adds the resubmission rules to the system
-  half of every prompt, and a previous-review block to the user half of a resubmission's.
+  traced to the wording that produced it. `2026-10-10.1` asks for a summary and one row per scored
+  item, each carrying its own feedback, in place of a whole report written as one block of text.
 */
-const PROMPT_VERSION = "2026-10-07.1";
+const PROMPT_VERSION = "2026-10-10.1";
 
 /** Returns null when the file does not exist, which is an ordinary outcome. */
 async function fetchFile(

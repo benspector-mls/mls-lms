@@ -61,8 +61,17 @@ export type SectionTypeEntry = {
    * apply.
    */
   rubricHeading: string;
-  /** The sample report in `grading-toolkit/` that the model's output must be shaped like. */
+  /** The sample report in `grading-toolkit/` that shows the model what its fields become. */
   sampleFile: string;
+  /**
+   * The first line of the report, before the score the application appends to it.
+   *
+   * Here rather than in the sample report, because the application writes every heading in the
+   * posted comment: the model returns the summary and one row per scored item, and
+   * `composeReport` builds the document from them. A title copied from the sample by the model
+   * would be a second place the score could disagree with the rows.
+   */
+  reportTitle: string;
 };
 
 /**
@@ -84,12 +93,14 @@ export const SECTION_TYPE_REGISTRY = {
       prompt would quietly invalidate that test.
     */
     sampleFile: "sample-short-response-report-1.md",
+    reportTitle: "Short Response Score Report",
   },
   coding_algorithm: {
     label: "Algorithm Fluency",
     rubricName: "CODING_ALGORITHM_FLUENCY",
     rubricHeading: "CODING — ALGORITHM FLUENCY",
     sampleFile: "sample-coding-fluency-report.md",
+    reportTitle: "Coding Fluency Score Report",
   },
   coding_sql: {
     label: "SQL Fluency",
@@ -104,12 +115,14 @@ export const SECTION_TYPE_REGISTRY = {
       missing file that fails the run.
     */
     sampleFile: "sample-coding-frontend-report.md",
+    reportTitle: "SQL Coding Report",
   },
   coding_frontend: {
     label: "Frontend",
     rubricName: "CODING_FRONTEND",
     rubricHeading: "CODING — FRONTEND",
     sampleFile: "sample-coding-frontend-report.md",
+    reportTitle: "Frontend Coding Report",
   },
 } satisfies Record<SectionType, SectionTypeEntry>;
 

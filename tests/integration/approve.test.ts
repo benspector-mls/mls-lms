@@ -39,6 +39,7 @@
  */
 import { db } from "@/lib/prisma";
 import { approveDraft, ApprovalError } from "@/lib/grade/approve";
+import { composeReport } from "@/lib/grade/report-text";
 import { claimRun, CLAIM_EXPIRY_MS, ReportGenerationError } from "@/lib/grade/generate-report";
 import { createCallerFactory } from "@/trpc/init";
 import { appRouter } from "@/trpc/routers/_app";
@@ -222,6 +223,169 @@ describe("a report whose text contradicts the recorded score", () => {
       editedScoreEarned: null,
       editedAt: null,
       editedById: null,
+    });
+  });
+});
+
+/**
+ * A model-generated report, edited question by question.
+ *
+ * The score an instructor types on a question is the only number they change. Saving it has to
+ * move the title's total and the recorded score with it, because those are the two places the old
+ * single block of text made them edit by hand — and forgetting one was how a report came to state
+ * a different score than the gradebook.
+ */
+describe("a model-generated report edited question by question", () => {
+  const tx = withRollback();
+  let world: World;
+  let sectionId: string;
+
+  const rows = [
+    {
+      label: "Question 1: Scope",
+      group: null,
+      criterion: "technical",
+      scoreEarned: 2,
+      scorePossible: 3,
+      feedbackMarkdown: "- Accuracy: block scope is never named.",
+      modelReasoning: "Correct example, missing term.",
+    },
+    {
+      label: "Writing Quality Score (Entire Assignment)",
+      group: null,
+      criterion: "writing_quality",
+      scoreEarned: 3,
+      scorePossible: 3,
+      feedbackMarkdown: "- Praise: clear throughout.",
+      modelReasoning: null,
+    },
+  ];
+
+  beforeAll(async () => {
+    world = await makeWorld(tx());
+    const assignment = await makeAssignment(tx(), {
+      courseId: world.courseId,
+      courseUnitId: world.unitId,
+      pointValue: 6,
+    });
+    const submission = await makeSubmission(tx(), {
+      assignmentId: assignment.id,
+      studentId: world.student.studentId,
+      status: "SUBMITTED",
+    });
+    const draft = await tx().gradingDraft.create({
+      data: {
+        submissionId: submission.id,
+        status: "READY",
+        sections: {
+          create: [
+            {
+              sectionType: "short_response",
+              summaryMarkdown: "Nice work on this.",
+              rubricItems: rows,
+              reportMarkdown: composeReport({
+                sectionType: "short_response",
+                summaryMarkdown: "Nice work on this.",
+                rows,
+              }),
+              scoreEarned: 5,
+              scorePossible: 6,
+            },
+          ],
+        },
+      },
+      select: { sections: { select: { id: true } } },
+    });
+    sectionId = draft.sections[0]!.id;
+  });
+
+  it("moves the title's total and the recorded score with one question's score", async () => {
+    await createCaller(tx(), world.instructorId).gradingDrafts.updateSection({
+      sectionId,
+      reportMarkdown: null,
+      scoreEarned: null,
+      parts: {
+        summaryMarkdown: "Nice work on this.",
+        rows: [
+          { scoreEarned: 3, feedbackMarkdown: "- Praise: you name block scope." },
+          { scoreEarned: 3, feedbackMarkdown: "- Praise: clear throughout." },
+        ],
+      },
+    });
+
+    const saved = await tx().gradingDraftSection.findUniqueOrThrow({
+      where: { id: sectionId },
+      select: { editedReportMarkdown: true, editedScoreEarned: true, editedRubricItems: true },
+    });
+    expect(saved.editedScoreEarned).toBe(6);
+    expect(saved.editedReportMarkdown).toMatch(/^# Short Response Score Report: 6\/6 = 100%/);
+    expect(saved.editedReportMarkdown).toContain(
+      "## Question 1: Scope: 3/3\n\n- Praise: you name block scope.",
+    );
+    // The model's reasoning is kept on the edited rows, so the review screen still shows it.
+    expect(saved.editedRubricItems).toEqual([
+      { ...rows[0], scoreEarned: 3, feedbackMarkdown: "- Praise: you name block scope." },
+      rows[1],
+    ]);
+  });
+
+  it("refuses a question scored above its own maximum", async () => {
+    expect(
+      await refusal(() =>
+        createCaller(tx(), world.instructorId).gradingDrafts.updateSection({
+          sectionId,
+          reportMarkdown: null,
+          scoreEarned: null,
+          parts: {
+            summaryMarkdown: "",
+            rows: [
+              { scoreEarned: 4, feedbackMarkdown: "" },
+              { scoreEarned: 0, feedbackMarkdown: "" },
+            ],
+          },
+        }),
+      ),
+    ).toBe("BAD_REQUEST");
+  });
+
+  /*
+    A tab loaded before this release sends the whole text and a section score. Accepting it would
+    leave the rows saying one thing and the posted comment another.
+  */
+  it("refuses text written whole, as a tab from the previous release would send", async () => {
+    expect(
+      await refusal(() =>
+        createCaller(tx(), world.instructorId).gradingDrafts.updateSection({
+          sectionId,
+          reportMarkdown: "# Short Response Score Report\n\nRewritten.",
+          scoreEarned: 5,
+        }),
+      ),
+    ).toBe("BAD_REQUEST");
+  });
+
+  it("discarding the edit discards the edited rows as well", async () => {
+    await createCaller(tx(), world.instructorId).gradingDrafts.updateSection({
+      sectionId,
+      reportMarkdown: null,
+      scoreEarned: null,
+      parts: null,
+    });
+
+    const restored = await tx().gradingDraftSection.findUniqueOrThrow({
+      where: { id: sectionId },
+      select: {
+        editedReportMarkdown: true,
+        editedScoreEarned: true,
+        editedRubricItems: true,
+        editedSummaryMarkdown: true,
+      },
+    });
+    expect(restored).toEqual({
+      editedReportMarkdown: null,
+      editedScoreEarned: null,
+      editedRubricItems: null,
+      editedSummaryMarkdown: null,
     });
   });
 });

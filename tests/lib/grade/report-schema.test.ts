@@ -14,14 +14,44 @@ import type { GradingReport } from "@/lib/grade/schema";
 /** A report that is internally consistent, so each case varies one thing. */
 function report(overrides: Partial<GradingReport> = {}): GradingReport {
   return {
-    reportMarkdown: "# Report",
-    scoreEarned: 10,
-    scorePossible: 12,
+    summaryMarkdown: "Nice work.",
     rubricItems: [
-      { label: "Q1", criterion: "algorithm", scoreEarned: 3, scorePossible: 3, note: null },
-      { label: "Q1 style", criterion: "code_style", scoreEarned: 1, scorePossible: 1, note: null },
-      { label: "Q2", criterion: "algorithm", scoreEarned: 5, scorePossible: 7, note: "off by one" },
-      { label: "Q2 style", criterion: "code_style", scoreEarned: 1, scorePossible: 1, note: null },
+      {
+        label: "Q1",
+        criterion: "algorithm",
+        scoreEarned: 3,
+        scorePossible: 3,
+        group: null,
+        feedbackMarkdown: "",
+        modelReasoning: null,
+      },
+      {
+        label: "Q1 style",
+        criterion: "code_style",
+        scoreEarned: 1,
+        scorePossible: 1,
+        group: null,
+        feedbackMarkdown: "",
+        modelReasoning: null,
+      },
+      {
+        label: "Q2",
+        criterion: "algorithm",
+        scoreEarned: 5,
+        scorePossible: 7,
+        group: null,
+        feedbackMarkdown: "",
+        modelReasoning: "off by one",
+      },
+      {
+        label: "Q2 style",
+        criterion: "code_style",
+        scoreEarned: 1,
+        scorePossible: 1,
+        group: null,
+        feedbackMarkdown: "",
+        modelReasoning: null,
+      },
     ],
     flags: [],
     instructorNotes: [],
@@ -62,13 +92,13 @@ describe("the JSON Schema Claude receives", () => {
 
 describe("parseGradingReport", () => {
   it("rejects an incomplete report", () => {
-    expect(() => parseGradingReport({ reportMarkdown: "x" })).toThrow(
+    expect(() => parseGradingReport({ summaryMarkdown: "x" })).toThrow(
       expect.objectContaining({ name: "ReportValidationError" }),
     );
   });
 
   it("accepts a complete one", () => {
-    expect(parseGradingReport(report()).scoreEarned).toBe(10);
+    expect(parseGradingReport(report()).rubricItems).toHaveLength(4);
   });
 
   // Given `flags` as an unconstrained string array and no description, a real model used it as a

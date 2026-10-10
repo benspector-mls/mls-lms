@@ -337,6 +337,12 @@ export const FLAG_META: Record<string, FlagMeta> = {
     fault: false,
     description: "Recorded by an older grading run. The confidence pill says the same thing.",
   },
+  /*
+    No longer written, either of these two. The model returns one score per row and the section's
+    score is their sum, computed by the pipeline, so there is no separate total for the rows or the
+    report text to disagree with. The entries stay because drafts generated before that change
+    carry these codes in their stored flags.
+  */
   ARITHMETIC_MISMATCH: {
     label: "Arithmetic mismatch",
     kind: "pipeline",

@@ -64,8 +64,9 @@ the answer key.
 
 ## Arithmetic
 
-\`rubricItems\` must sum exactly to \`scoreEarned\`, and their \`scorePossible\`
-values must sum exactly to \`scorePossible\`. This is verified.
+The section's score is the sum of your \`rubricItems\`, added up by the application.
+Their \`scorePossible\` values must add up exactly to the section's point value, and no
+row may score more than its own \`scorePossible\`. Both are verified.
 
 **Band scores are whole numbers. Checklist scores may be halved.** The two scales work
 differently and the rule follows from that.
@@ -79,7 +80,8 @@ act on that; they cannot act on a number that hides the judgment inside an avera
 A *checklist* item is different. Items routinely ask for two things at once — a handler
 written and a listener wired, a method implemented and its edge case guarded — and half
 credit for one of the two is the honest score. Use halves where an item has parts and
-the student completed some of them. Say which part is missing in the item's note.
+the student completed some of them. Say which part is missing in the item's
+\`feedbackMarkdown\`.
 
 ## Confidence
 
@@ -92,7 +94,7 @@ judgment call.
 ## Flags and notes for the instructor
 
 These two fields go to the instructor reviewing your draft. Neither is shown to the
-student, and neither is part of \`reportMarkdown\`.
+student, and neither is part of the report.
 
 \`flags\` is a fixed vocabulary of codes recording **why a student lost points**. Each
 one corresponds to a bullet in a rubric score band. Raise a flag only where you
@@ -120,8 +122,8 @@ Writing Quality flags apply only to a section that carries a writing score. Wher
 single deduction has two causes — an answer both incomplete and vaguely worded —
 raise both.
 
-**Never write flag text into \`reportMarkdown\`.** No "FLAG: MECHANICAL" line, in the
-heading or anywhere else, for any of these codes. The report is posted to the student
+**Never write flag text into \`summaryMarkdown\` or any \`feedbackMarkdown\`.** No
+"FLAG: MECHANICAL" line anywhere, for any of these codes. The report is posted to the student
 once an instructor approves it, and a flag that survives into the posted text is an
 internal note delivered to the student by accident. Setting the \`flags\` array is what
 raises it — the instructor sees it in the review interface, and it reaches nobody else.
@@ -147,11 +149,10 @@ already received a report on an earlier version of this work and has read it, an
 is the next report in that series. Four rules apply, and none of them applies where that
 heading is absent.
 
-1. **Open with what changed.** Directly beneath the report title, before the first \`##\`
-   heading, write one short paragraph — three sentences at most — saying what the student
-   changed since the previous review and what that review asked for that is still
-   missing. Do not give this paragraph a heading of its own. Every heading after it
-   follows the sample verbatim, as always.
+1. **Open with what changed.** Begin \`summaryMarkdown\` with one short paragraph —
+   three sentences at most — saying what the student changed since the previous review
+   and what that review asked for that is still missing. Do not give this paragraph a
+   heading of its own.
 2. **Grade the whole work as it stands.** The score describes the work in the submission
    section, not the size of the improvement. A student who fixed everything earns what the
    fixed work earns, and a student who changed nothing earns what they earned before.
@@ -188,15 +189,10 @@ not per question. The total is therefore:
 > (3 technical points x number of questions) + 3 writing points
 
 A four-question assignment is out of 15. Put the writing score in \`rubricItems\` as
-one entry with \`criterion: "writing_quality"\`, and give each question its own entry
-with \`criterion: "technical"\`. Do not add a per-question writing score — that
-inflates the denominator.
-
-**Do not write the total score into the report.** No score heading, and no "Technical
-score" or "Writing score" line. The LMS shows the recorded score beside the report, so a
-number repeated in the text is a second place an instructor has to edit whenever they
-change the score. The per-question \`X/3\` lines and the Writing Quality \`X/3\` line
-stay — they are the breakdown, and the sample shows where they go.
+one entry with \`criterion: "writing_quality"\` and the label \`Writing Quality Score
+(Entire Assignment)\`, placed last. Give each question its own entry with
+\`criterion: "technical"\` and a label of the form \`Question 3: Flexbox vs. CSS Grid\`.
+Do not add a per-question writing score — that inflates the denominator.
 
 Markdown that does not render (a wrong code fence language, escaped characters) is a
 **writing** deduction, never a technical one. If the underlying content is correct,
@@ -211,8 +207,8 @@ instructor to ask for a clean resubmission.
 ## Scoring this section
 
 **Each question is worth 3 points, scored as a single number.** Give each question one
-entry in \`rubricItems\` with \`criterion: "algorithm"\` and \`scorePossible: 3\`. Ten
-questions means a 30-point assignment.
+entry in \`rubricItems\` with \`criterion: "algorithm"\`, \`scorePossible: 3\`, and a
+label of the form \`Question 2: is_even\`. Ten questions means a 30-point assignment.
 
 Code style is **part of that one score**, not a separate line item. The rubric's bands
 fold it in: a 3 requires clean code as well as passing tests, and linting errors or poor
@@ -222,7 +218,7 @@ separate code style entry — that inflates the denominator.
 **Commented-out code never costs points.** Note it once, in a bullet labelled
 \`Note (not scored)\`, and say what the student was trying to do with it or why it
 matters on a project. Where the same slip recurs across questions, say it once in a
-note beneath the summary and never under each question. Executed code that nothing
+note at the end of \`summaryMarkdown\` and never under each question. Executed code that nothing
 reads costs points only when it changes the program's behaviour or contradicts what the
 question asks for; otherwise note it the same way.
 
@@ -234,21 +230,25 @@ A question the student did not attempt scores 0.
 
 Each numbered query task is worth 1 point, awarded only when the query runs and
 produces the expected rows, columns, and ordering. Give each task its own entry in
-\`rubricItems\` with \`criterion: "query_task"\`.
+\`rubricItems\` with \`criterion: "query_task"\`, a label of the form
+\`Task 3: customers with no orders\`, and \`group\` set to null.
 `.trim(),
 
   coding_frontend: `
 ## Scoring this section
 
-This section is checklist-based. Copy each checklist item **verbatim** from the
-assignment README under its section heading — do not paraphrase the requirement, and
-do not fold your grading note into the checkbox line. Nest any note as a sub-bullet
-directly beneath the item it concerns.
+This section is checklist-based. Give each checklist item its own entry in
+\`rubricItems\` with \`criterion: "checklist"\`. Its \`label\` is the item copied
+**verbatim** from the assignment README — do not paraphrase the requirement, and do not
+fold your grading note into it. Its \`group\` is the README section the item is listed
+under, written as \`Section 3: Fetch Helpers\`, identical for every item in that
+section. The application writes each item as a checkbox under its section's heading,
+ticked when the item earns full marks.
 
-Only add a note where there is a deviation: a bug, missing behaviour, or a style
-issue. A correctly implemented item is a bare checked box with no note. For an item
-that was clearly not attempted, write \`- Note: not attempted\` rather than a longer
-explanation.
+Only write \`feedbackMarkdown\` where there is a deviation: a bug, missing behaviour, or
+a style issue, as bullets such as \`- Half Credit: …\` or \`- Note: …\`. A correctly
+implemented item has empty \`feedbackMarkdown\`. For an item that was clearly not
+attempted, write \`- Note: not attempted\` rather than a longer explanation.
 
 Award half credit when one checklist item bundles two distinguishable requirements and
 the student satisfied only one. Do not force a binary 0 or 1 onto an item that is
@@ -293,19 +293,27 @@ export function buildSystemPrompt(params: {
     "",
     "---",
     "",
-    "# The structure your report must follow",
+    "# How your report is assembled",
     "",
-    "Put the rendered report in the `reportMarkdown` field, following this sample",
-    "exactly.",
+    "You do not write the report as one document. You return its parts, and the",
+    "application assembles them into the comment the student reads. It writes the title",
+    "with the total, the `---` rule after the summary, one `##` heading per row carrying",
+    "that row's score, and the checkboxes of a checklist. Never write a title, a heading,",
+    "or a score into any field: the application adds every one of them, and a score you",
+    "wrote would appear twice.",
     "",
-    "**Copy its headings verbatim**, changing only the numbers — including the report",
-    "title. Do not substitute the assignment's name into the title, and do not add a",
-    "heading or a score line the sample does not have. An instructor reads many of these",
-    "side by side, and a report whose headings differ from the others is harder to scan.",
+    "- `summaryMarkdown` is the opening the student reads before the first scored row:",
+    "  the overall assessment, and any note that applies across several rows.",
+    "- Each entry in `rubricItems` is one scored row. `label` is its heading without the",
+    "  score. `feedbackMarkdown` is what the student reads beneath that heading, as",
+    "  bullets, and is empty when there is nothing to say. `modelReasoning` is why you",
+    "  gave the score, written for the instructor reviewing your draft — it is shown",
+    "  beside the feedback and never posted.",
     "",
-    "Match its ordering and its level of detail too: one line per graded item, with",
-    "notes nested beneath the specific item they concern rather than collected at the",
-    "end.",
+    "The sample below is a finished report, showing what these parts become once",
+    "assembled. Match its tone, its ordering and its level of detail: one row per graded",
+    "item, with notes beneath the specific row they concern rather than collected at the",
+    "end. Its title, headings and scores are written by the application, not by you.",
     "",
     params.assets.sampleReport,
     "",
@@ -595,8 +603,8 @@ export function buildUserPrompt(params: {
   parts.push("");
 
   parts.push(
-    `**This section is out of ${context.pointValue} points.** Set \`scorePossible\` ` +
-      `to exactly ${context.pointValue} and make \`rubricItems\` sum to it. Do not ` +
+    `**This section is out of ${context.pointValue} points.** The \`scorePossible\` ` +
+      `values of your \`rubricItems\` must add up to exactly ${context.pointValue}. Do not ` +
       `derive your own scale from the number of questions — use this number. This is ` +
       `what this section alone is worth; other sections of this assignment are graded ` +
       `separately and are not your concern.`,

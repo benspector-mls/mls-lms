@@ -22,6 +22,7 @@
 import { config as loadEnv } from "dotenv";
 
 import { money, priceUsage, type PricedUsage, type Usage } from "../lib/grade/pricing";
+import { composeReport, rowTotals } from "../lib/grade/report-text";
 
 loadEnv({ path: ".env.local", quiet: true });
 loadEnv({ quiet: true });
@@ -102,10 +103,11 @@ function parseExpected(markdown: string): ExpectedScores {
     });
   }
 
-  // A short response report states no total — the LMS shows the score beside the report —
-  // so the instructor's totals are rebuilt from the breakdown: the per-question lines are the
-  // technical score, the Writing Quality line is the writing score, and the two together are
-  // the total the pipeline must reproduce.
+  // The instructor's totals are rebuilt from the breakdown rather than read from the title:
+  // the per-question lines are the technical score, the Writing Quality line is the writing
+  // score, and the two together are the total the pipeline must reproduce. The breakdown is
+  // what the pipeline's rows are compared against line by line, so the total comes from the
+  // same lines.
   const technical =
     questions.length > 0
       ? {
@@ -270,6 +272,7 @@ async function main() {
 
     const actual = response.output;
     const items = actual.rubricItems;
+    const actualTotal = rowTotals(items);
 
     // The provider reports the two cache counts as optional, because a provider that does
     // not cache omits them rather than reporting zero. Zero is the right reading for
@@ -298,7 +301,7 @@ async function main() {
     const actualWriting = sumCriterion(items, (c) => c.includes("writing"));
     const actualFlag = actual.flags.includes("MECHANICAL");
 
-    const totalDelta = expected.total ? actual.scoreEarned - expected.total.earned : null;
+    const totalDelta = expected.total ? (actualTotal.earned ?? 0) - expected.total.earned : null;
 
     console.log(`${"═".repeat(74)}`);
     console.log(
@@ -307,7 +310,7 @@ async function main() {
     console.log(`${"═".repeat(74)}`);
     console.log(`                  instructor      model`);
     console.log(
-      `  total           ${formatPair(expected.total).padEnd(15)} ${actual.scoreEarned}/${actual.scorePossible}` +
+      `  total           ${formatPair(expected.total).padEnd(15)} ${actualTotal.earned}/${actualTotal.possible}` +
         (totalDelta === null ? "" : `   (${totalDelta >= 0 ? "+" : ""}${totalDelta})`),
     );
     console.log(
@@ -390,7 +393,12 @@ async function main() {
       for (const note of actual.instructorNotes) console.log(`    - ${note}`);
     }
 
-    console.log(`\n${"─".repeat(74)}\n${actual.reportMarkdown}\n`);
+    const assembled = composeReport({
+      sectionType: "short_response",
+      summaryMarkdown: actual.summaryMarkdown,
+      rows: items,
+    });
+    console.log(`\n${"─".repeat(74)}\n${assembled}\n`);
   }
 
   if (priced.length > 0) {

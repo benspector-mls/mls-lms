@@ -13,6 +13,7 @@ import * as React from "react";
 import { toast } from "sonner";
 import { useServerMutation } from "@/hooks/use-server-mutation";
 import { Card, CardContent } from "@/components/ui/card";
+import { readReportRows, type ReportRow } from "@/lib/grade/report-text";
 import { cn } from "@/lib/utils";
 import { useTRPC } from "@/trpc/client";
 import type { RouterOutputs } from "@/trpc/types";
@@ -44,30 +45,20 @@ export function listNames(members: { displayName: string | null; email: string |
   return `${names.slice(0, -1).join(", ")} and ${names[names.length - 1]}`;
 }
 
-export interface RubricItem {
-  label: string;
-  criterion: string;
-  scoreEarned: number;
-  scorePossible: number;
-  note: string | null;
-}
+/** The summary and rows an instructor edits on a report the application assembles from them. */
+export type ReportParts = { summaryMarkdown: string; rows: ReportRow[] };
 
-export function readRubricItems(value: unknown): RubricItem[] {
-  if (!Array.isArray(value)) return [];
-  return value.flatMap((entry) => {
-    if (typeof entry !== "object" || entry === null) return [];
-    const row = entry as Record<string, unknown>;
-    if (typeof row.label !== "string") return [];
-    return [
-      {
-        label: row.label,
-        criterion: typeof row.criterion === "string" ? row.criterion : "",
-        scoreEarned: typeof row.scoreEarned === "number" ? row.scoreEarned : 0,
-        scorePossible: typeof row.scorePossible === "number" ? row.scorePossible : 0,
-        note: typeof row.note === "string" ? row.note : null,
-      },
-    ];
-  });
+/**
+ * A model-generated section's parts, the instructor's where they have edited and the model's
+ * where they have not. Null for a section written as one block of text — a hand grade, a
+ * correction, or a report generated before reports had rows — which is edited as text.
+ */
+export function effectiveParts(section: Section): ReportParts | null {
+  if (section.summaryMarkdown === null) return null;
+  return {
+    summaryMarkdown: section.editedSummaryMarkdown ?? section.summaryMarkdown,
+    rows: readReportRows(section.editedRubricItems ?? section.rubricItems),
+  };
 }
 
 export function StateCard({

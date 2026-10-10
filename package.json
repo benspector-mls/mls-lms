@@ -43,6 +43,8 @@
     "setup:storage:deployment": "tsx scripts/with-deployment-env.ts npm run setup:storage",
     "verify:uploads": "tsx --conditions=react-server scripts/verify-uploads.ts",
     "reconcile:uploads": "tsx --conditions=react-server scripts/reconcile-uploads.ts",
+    "convert:drafts": "tsx --conditions=react-server scripts/convert-drafts.ts",
+    "convert:drafts:deployment": "tsx scripts/with-deployment-env.ts npm run convert:drafts --",
     "reconcile:uploads:deployment": "tsx scripts/with-deployment-env.ts npm run reconcile:uploads --",
     "verify:drive-embed": "tsx --conditions=react-server scripts/verify-drive-embed.ts",
     "verify:resubmission": "tsx --conditions=react-server scripts/verify-resubmission.ts",

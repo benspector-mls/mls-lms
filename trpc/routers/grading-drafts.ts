@@ -17,6 +17,7 @@ import { inTransaction } from "@/lib/prisma";
 import { GradingAssetsError } from "@/lib/grade/assets";
 import { generateReportForSubmission, ReportGenerationError } from "@/lib/grade/generate-report";
 import { ProviderError } from "@/lib/grade/provider";
+import { composeReport, readReportRows, rowTotals } from "@/lib/grade/report-text";
 import { ReportValidationError } from "@/lib/grade/schema";
 import { createTRPCRouter, instructorProcedure } from "../init";
 
@@ -65,6 +66,7 @@ const draftFields = {
       scoreEarned: true,
       scorePossible: true,
       rubricItems: true,
+      summaryMarkdown: true,
       flags: true,
       instructorNotes: true,
       confidence: true,
@@ -73,6 +75,8 @@ const draftFields = {
       // has to be able to say what the model wrote and offer a way back to it.
       editedReportMarkdown: true,
       editedScoreEarned: true,
+      editedRubricItems: true,
+      editedSummaryMarkdown: true,
       editedAt: true,
     },
   },
@@ -798,6 +802,12 @@ export const gradingDraftsRouter = createTRPCRouter({
    *
    * Passing null for a field discards the edit and restores the model's version, which
    * is why the inputs are nullable rather than optional.
+   *
+   * **A model-generated report is edited as parts.** Its summary and the score and feedback of
+   * each row arrive in `parts`, and this assembles the text and adds up the score — so the
+   * per-question score an instructor types is the only number they change, and the title and
+   * the gradebook follow it. `reportMarkdown` and `scoreEarned` are for a section written as one
+   * block of text: a hand grade, a correction, or a report generated before reports had rows.
    */
   updateSection: instructorProcedure
     .input(
@@ -805,6 +815,19 @@ export const gradingDraftsRouter = createTRPCRouter({
         sectionId: z.string().uuid(),
         reportMarkdown: z.string().trim().min(1).nullable(),
         scoreEarned: z.number().min(0).nullable(),
+        /*
+          Optional rather than only nullable, so a tab still running the previous release —
+          which sends no `parts` at all — can still discard its edits during a deploy.
+        */
+        parts: z
+          .object({
+            summaryMarkdown: z.string(),
+            rows: z.array(
+              z.object({ scoreEarned: z.number().min(0), feedbackMarkdown: z.string() }),
+            ),
+          })
+          .nullable()
+          .optional(),
       }),
     )
     .mutation(async ({ ctx, input }) => {
@@ -812,7 +835,10 @@ export const gradingDraftsRouter = createTRPCRouter({
         where: { id: input.sectionId },
         select: {
           id: true,
+          sectionType: true,
           scorePossible: true,
+          summaryMarkdown: true,
+          rubricItems: true,
           gradingDraft: { select: { submissionId: true, approvedAt: true } },
         },
       });
@@ -832,6 +858,66 @@ export const gradingDraftsRouter = createTRPCRouter({
         });
       }
 
+      const assembled = section.summaryMarkdown !== null;
+      const discarding =
+        !input.parts && input.reportMarkdown === null && input.scoreEarned === null;
+
+      /*
+        Text written whole onto a report assembled from rows would leave the rows saying one thing
+        and the posted comment another, and the next edit to a row would silently overwrite it. The
+        one way that happens is a tab loaded before this release, so the refusal says to reload.
+      */
+      if (assembled && !input.parts && !discarding) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message:
+            "This report is now edited question by question. Reload the page and make the " +
+            "change again — nothing you typed in this tab has been saved to this section.",
+        });
+      }
+
+      if (input.parts) {
+        const rows = readReportRows(section.rubricItems);
+        if (!assembled || input.parts.rows.length !== rows.length) {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message:
+              "These rows do not match the report being edited. Reload the page to see the " +
+              "current version.",
+          });
+        }
+
+        const edited = rows.map((row, index) => ({
+          ...row,
+          scoreEarned: input.parts!.rows[index].scoreEarned,
+          feedbackMarkdown: input.parts!.rows[index].feedbackMarkdown,
+        }));
+        const over = edited.find((row) => (row.scoreEarned ?? 0) > row.scorePossible);
+        if (over) {
+          throw new TRPCError({
+            code: "BAD_REQUEST",
+            message: `"${over.label}" is out of ${over.scorePossible} points.`,
+          });
+        }
+
+        return ctx.db.gradingDraftSection.update({
+          where: { id: section.id },
+          data: {
+            editedRubricItems: edited,
+            editedSummaryMarkdown: input.parts.summaryMarkdown,
+            editedReportMarkdown: composeReport({
+              sectionType: section.sectionType,
+              summaryMarkdown: input.parts.summaryMarkdown,
+              rows: edited,
+            }),
+            editedScoreEarned: rowTotals(edited).earned,
+            editedAt: new Date(),
+            editedById: ctx.profile.id,
+          },
+          select: { id: true, editedAt: true },
+        });
+      }
+
       if (
         input.scoreEarned !== null &&
         section.scorePossible !== null &&
@@ -848,6 +934,8 @@ export const gradingDraftsRouter = createTRPCRouter({
         data: {
           editedReportMarkdown: input.reportMarkdown,
           editedScoreEarned: input.scoreEarned,
+          // Discarding an edit to a report assembled from rows discards its rows as well.
+          ...(discarding ? { editedRubricItems: Prisma.DbNull, editedSummaryMarkdown: null } : {}),
           // Cleared alongside the edit, so a section restored to the model's version
           // does not keep claiming it was revised.
           editedAt: input.reportMarkdown === null && input.scoreEarned === null ? null : new Date(),

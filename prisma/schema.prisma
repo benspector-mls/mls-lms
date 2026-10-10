@@ -1957,8 +1957,16 @@ model GradingDraftSection {
   reportMarkdown        String?     @map("report_markdown")
   scoreEarned           Float?      @map("score_earned")
   scorePossible         Float?      @map("score_possible")
-  /// Per-criterion breakdown.
+  /// One entry per scored row: its label, its score, the feedback the student reads beneath it,
+  /// and the model's reasoning for the instructor. A model-generated report is assembled from
+  /// these and `summaryMarkdown` (`composeReport` in lib/grade/report-text.ts), and the result is
+  /// what `report_markdown` holds.
   rubricItems           Json        @default("[]") @map("rubric_items")
+  /// The opening of a model-generated report, between the title and the first scored row. Null
+  /// for a section written as one block of text — a hand grade, a correction, or a report
+  /// generated before reports were assembled from rows — and that null is how the review screen
+  /// tells the two kinds apart.
+  summaryMarkdown       String?     @map("summary_markdown")
   /// Short codes only, e.g. ["MECHANICAL", "CLARITY"]. The review interface renders each
   /// one as a badge, so prose does not belong here — see instructorNotes.
   flags                 String[]    @default([])
@@ -1980,6 +1988,11 @@ model GradingDraftSection {
   /// is the edit where one exists; what gets evaluated is the pair.
   editedReportMarkdown String?   @map("edited_report_markdown")
   editedScoreEarned    Float?    @map("edited_score_earned")
+  /// An instructor's revision of a model-generated report's rows and summary. Saving one also
+  /// writes the assembled text to `edited_report_markdown` and the rows' sum to
+  /// `edited_score_earned`, so every reader of those two columns needs no knowledge of rows.
+  editedRubricItems    Json?     @map("edited_rubric_items")
+  editedSummaryMarkdown String?  @map("edited_summary_markdown")
   editedAt             DateTime? @map("edited_at") @db.Timestamptz(6)
   editedById           String?   @map("edited_by") @db.Uuid
 

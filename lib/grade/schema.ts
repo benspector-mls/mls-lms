@@ -27,20 +27,40 @@ import { z } from "zod";
  * made redundant by schema validation.
  */
 
-/** One criterion's contribution, matching a row in the rubric. */
+/**
+ * One scored row of the report: a question, or a checklist item.
+ *
+ * Each row is both a line of arithmetic and a piece of the student's report. The application
+ * writes the headings and the scores into the posted comment from these rows (`composeReport` in
+ * `report-text.ts`), so the score an instructor edits on a row is the only place that number is
+ * stored.
+ */
 export const rubricItemSchema = z.object({
   /**
-   * What this line item covers. For an algorithm report, the question or function
-   * name plus the criterion, e.g. "Question 2: calculateDiscount — algorithm".
-   * For a short response, "Question 3: Flexbox vs. CSS Grid".
+   * The row's heading without its score. For an algorithm report, the question number and
+   * function name, e.g. "Question 2: is_even". For a short response, "Question 3: Flexbox vs.
+   * CSS Grid". For a checklist item, the item copied verbatim from the README.
    */
   label: z.string(),
+  /**
+   * For a checklist item, the README section it is listed under, e.g. "Section 3: Fetch
+   * Helpers". Null for a row that is a heading of its own.
+   */
+  group: z.string().nullable(),
   /** Which rubric criterion this scores, e.g. "algorithm", "code_style", "technical", "writing_quality", "checklist", "query_task". */
   criterion: z.string(),
   scoreEarned: z.number(),
   scorePossible: z.number(),
-  /** Only when there is something to say. Null for a fully correct item. */
-  note: z.string().nullable(),
+  /**
+   * What the student reads beneath this row, as markdown bullets. Empty for a row with nothing
+   * to say, which is the ordinary case for full marks.
+   */
+  feedbackMarkdown: z.string(),
+  /**
+   * Why this row earned this score, for the instructor. Shown beside the feedback on the review
+   * screen and never posted. Null when there is nothing to explain.
+   */
+  modelReasoning: z.string().nullable(),
 });
 
 /**
@@ -97,13 +117,15 @@ export const REPORT_FLAGS = [
 
 export const gradingReportSchema = z.object({
   /**
-   * The report as the student will read it, following the structure of the sample
-   * report for this section type. Second person throughout.
+   * The opening of the report as the student will read it: everything between the title and the
+   * first scored row. Second person throughout. The title, the scores and the headings are not
+   * written here — the application builds them from `rubricItems`.
    */
-  reportMarkdown: z.string(),
-  scoreEarned: z.number(),
-  scorePossible: z.number(),
-  /** Must sum to scoreEarned and scorePossible. Verified in cross-check.ts. */
+  summaryMarkdown: z.string(),
+  /**
+   * Every scored row, in the order the student reads them. The section's score is their sum,
+   * computed rather than stated, so there is no total for the model to get wrong.
+   */
   rubricItems: z.array(rubricItemSchema),
   /**
    * Empty unless something applies. A closed vocabulary, not free text.
@@ -119,7 +141,7 @@ export const gradingReportSchema = z.object({
   /**
    * Caveats for the instructor, in prose, never shown to the student.
    *
-   * Separate from `reportMarkdown` because the audiences differ: "the point value I
+   * Separate from the report because the audiences differ: "the point value I
    * was given does not divide evenly into the checklist in this README" is exactly
    * what an instructor needs and exactly what a student should not read.
    */

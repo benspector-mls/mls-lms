@@ -14,14 +14,44 @@ import type { GradingReport } from "@/lib/grade/schema";
 /** A report that is internally consistent, so each case varies one thing. */
 function report(overrides: Partial<GradingReport> = {}): GradingReport {
   return {
-    reportMarkdown: "# Report",
-    scoreEarned: 10,
-    scorePossible: 12,
+    summaryMarkdown: "Nice work.",
     rubricItems: [
-      { label: "Q1", criterion: "algorithm", scoreEarned: 3, scorePossible: 3, note: null },
-      { label: "Q1 style", criterion: "code_style", scoreEarned: 1, scorePossible: 1, note: null },
-      { label: "Q2", criterion: "algorithm", scoreEarned: 5, scorePossible: 7, note: "off by one" },
-      { label: "Q2 style", criterion: "code_style", scoreEarned: 1, scorePossible: 1, note: null },
+      {
+        label: "Q1",
+        criterion: "algorithm",
+        scoreEarned: 3,
+        scorePossible: 3,
+        group: null,
+        feedbackMarkdown: "",
+        modelReasoning: null,
+      },
+      {
+        label: "Q1 style",
+        criterion: "code_style",
+        scoreEarned: 1,
+        scorePossible: 1,
+        group: null,
+        feedbackMarkdown: "",
+        modelReasoning: null,
+      },
+      {
+        label: "Q2",
+        criterion: "algorithm",
+        scoreEarned: 5,
+        scorePossible: 7,
+        group: null,
+        feedbackMarkdown: "",
+        modelReasoning: "off by one",
+      },
+      {
+        label: "Q2 style",
+        criterion: "code_style",
+        scoreEarned: 1,
+        scorePossible: 1,
+        group: null,
+        feedbackMarkdown: "",
+        modelReasoning: null,
+      },
     ],
     flags: [],
     instructorNotes: [],
@@ -42,18 +72,18 @@ describe("arithmetic", () => {
     expect(crossCheck(report(), noFacts).needsManualReview).toBe(false);
   });
 
-  it("catches items that do not sum to the score", () => {
-    expect(codes(crossCheck(report({ scoreEarned: 11 }), noFacts))).toEqual([
-      "ARITHMETIC_MISMATCH",
-    ]);
-  });
-
-  it("catches a mismatched possible total", () => {
-    // The fixture moves with the report, so this isolates the arithmetic rule rather than
-    // also tripping the point-value comparison below.
+  it("catches a row scored above its own maximum, even when the total is in range", () => {
+    const [first, second, ...rest] = report().rubricItems;
     expect(
-      codes(crossCheck(report({ scorePossible: 15 }), { ...noFacts, pointValue: 15 })),
-    ).toEqual(["ARITHMETIC_MISMATCH"]);
+      codes(
+        crossCheck(
+          report({
+            rubricItems: [{ ...first, scoreEarned: 4 }, { ...second, scoreEarned: 0 }, ...rest],
+          }),
+          noFacts,
+        ),
+      ),
+    ).toEqual(["SCORE_OUT_OF_RANGE"]);
   });
 
   it("catches earning more than was possible", () => {
@@ -61,10 +91,16 @@ describe("arithmetic", () => {
       codes(
         crossCheck(
           report({
-            scoreEarned: 13,
-            scorePossible: 12,
             rubricItems: [
-              { label: "x", criterion: "a", scoreEarned: 13, scorePossible: 12, note: null },
+              {
+                label: "x",
+                criterion: "a",
+                scoreEarned: 13,
+                scorePossible: 12,
+                group: null,
+                feedbackMarkdown: "",
+                modelReasoning: null,
+              },
             ],
           }),
           noFacts,
@@ -77,10 +113,16 @@ describe("arithmetic", () => {
     expect(
       crossCheck(
         report({
-          scoreEarned: 5.5,
-          scorePossible: 6,
           rubricItems: [
-            { label: "x", criterion: "checklist", scoreEarned: 5.5, scorePossible: 6, note: null },
+            {
+              label: "x",
+              criterion: "checklist",
+              scoreEarned: 5.5,
+              scorePossible: 6,
+              group: null,
+              feedbackMarkdown: "",
+              modelReasoning: null,
+            },
           ],
         }),
         { ...noFacts, pointValue: 6 },
@@ -99,7 +141,19 @@ describe("staff labels leaking into the report text", () => {
     expect(
       codes(
         crossCheck(
-          report({ reportMarkdown: "# Report\n\n**FLAG: MECHANICAL ERRORS**\n\nNice work." }),
+          report({ summaryMarkdown: "**FLAG: MECHANICAL ERRORS**\n\nNice work." }),
+          noFacts,
+        ),
+      ),
+    ).toEqual(["INTERNAL_LABEL_IN_REPORT"]);
+  });
+
+  it("catches a flag left in a row's feedback", () => {
+    const [first, ...rest] = report().rubricItems;
+    expect(
+      codes(
+        crossCheck(
+          report({ rubricItems: [{ ...first, feedbackMarkdown: "- FLAG: CLARITY" }, ...rest] }),
           noFacts,
         ),
       ),
@@ -114,62 +168,10 @@ describe("staff labels leaking into the report text", () => {
     expect(
       crossCheck(
         report({
-          reportMarkdown: "# Report\n\nYour code does not flag: invalid input goes unchecked.",
+          summaryMarkdown: "Your code does not flag: invalid input goes unchecked.",
         }),
         noFacts,
       ).needsManualReview,
-    ).toBe(false);
-  });
-});
-
-/**
- * The markdown a student reads against the number the gradebook records.
- *
- * A real generation wrote "8/15" in its prose while its rubric items summed to 10, so these can
- * disagree, and no other check compares them.
- */
-describe("the score in the text against the recorded score", () => {
-  it("catches a report whose text contradicts its recorded score", () => {
-    expect(
-      codes(
-        crossCheck(
-          report({
-            reportMarkdown: "# Short Response Score Report\n\n## Short Response Score: 8/12 = 67%",
-          }),
-          noFacts,
-        ),
-      ),
-    ).toEqual(["REPORT_TEXT_SCORE_MISMATCH"]);
-  });
-
-  it("passes matching text and recorded score", () => {
-    expect(
-      crossCheck(report({ reportMarkdown: "## Coding Fluency Score: 10/12 = 83%" }), noFacts)
-        .needsManualReview,
-    ).toBe(false);
-  });
-
-  // Percentages, half credit, and reports with no score line at all must not trip it.
-  it("matches a half-credit score in the text rather than rounding it", () => {
-    expect(
-      crossCheck(
-        report({
-          scoreEarned: 5.5,
-          scorePossible: 6,
-          rubricItems: [
-            { label: "x", criterion: "checklist", scoreEarned: 5.5, scorePossible: 6, note: null },
-          ],
-          reportMarkdown: "## Score: 5.5/6 = 92%",
-        }),
-        { ...noFacts, pointValue: 6 },
-      ).needsManualReview,
-    ).toBe(false);
-  });
-
-  it("does not flag a report with no score heading", () => {
-    expect(
-      crossCheck(report({ reportMarkdown: "# Report\n\nNo score line here." }), noFacts)
-        .needsManualReview,
     ).toBe(false);
   });
 });
@@ -298,15 +300,15 @@ describe("claims about test outcomes", () => {
       codes(
         crossCheck(
           report({
-            scoreEarned: 12,
-            scorePossible: 12,
             rubricItems: [
               {
                 label: "x",
                 criterion: "algorithm",
                 scoreEarned: 12,
                 scorePossible: 12,
-                note: null,
+                group: null,
+                feedbackMarkdown: "",
+                modelReasoning: null,
               },
             ],
           }),
@@ -332,15 +334,15 @@ describe("claims about test outcomes", () => {
     expect(
       crossCheck(
         report({
-          scoreEarned: 6,
-          scorePossible: 12,
           rubricItems: [
             {
               label: "hardcoded",
               criterion: "algorithm",
               scoreEarned: 6,
               scorePossible: 12,
-              note: "returns literals",
+              group: null,
+              feedbackMarkdown: "",
+              modelReasoning: "returns literals",
             },
           ],
           testClaims: [
@@ -369,19 +371,51 @@ describe("a flag the score does not reflect", () => {
   /** Short-response shaped, at full marks, because that is where the flag vocabulary applies. */
   function shortResponse(overrides: Partial<GradingReport> = {}): GradingReport {
     return report({
-      scoreEarned: 15,
-      scorePossible: 15,
       rubricItems: [
-        { label: "Q1", criterion: "technical", scoreEarned: 3, scorePossible: 3, note: null },
-        { label: "Q2", criterion: "technical", scoreEarned: 3, scorePossible: 3, note: null },
-        { label: "Q3", criterion: "technical", scoreEarned: 3, scorePossible: 3, note: null },
-        { label: "Q4", criterion: "technical", scoreEarned: 3, scorePossible: 3, note: null },
+        {
+          label: "Q1",
+          criterion: "technical",
+          scoreEarned: 3,
+          scorePossible: 3,
+          group: null,
+          feedbackMarkdown: "",
+          modelReasoning: null,
+        },
+        {
+          label: "Q2",
+          criterion: "technical",
+          scoreEarned: 3,
+          scorePossible: 3,
+          group: null,
+          feedbackMarkdown: "",
+          modelReasoning: null,
+        },
+        {
+          label: "Q3",
+          criterion: "technical",
+          scoreEarned: 3,
+          scorePossible: 3,
+          group: null,
+          feedbackMarkdown: "",
+          modelReasoning: null,
+        },
+        {
+          label: "Q4",
+          criterion: "technical",
+          scoreEarned: 3,
+          scorePossible: 3,
+          group: null,
+          feedbackMarkdown: "",
+          modelReasoning: null,
+        },
         {
           label: "Writing",
           criterion: "writing_quality",
           scoreEarned: 3,
           scorePossible: 3,
-          note: null,
+          group: null,
+          feedbackMarkdown: "",
+          modelReasoning: null,
         },
       ],
       ...overrides,
@@ -412,24 +446,51 @@ describe("a flag the score does not reflect", () => {
         crossCheck(
           shortResponse({
             flags: ["TERMINOLOGY"],
-            scoreEarned: 14,
             rubricItems: [
-              { label: "Q1", criterion: "technical", scoreEarned: 3, scorePossible: 3, note: null },
-              { label: "Q2", criterion: "technical", scoreEarned: 3, scorePossible: 3, note: null },
-              { label: "Q3", criterion: "technical", scoreEarned: 3, scorePossible: 3, note: null },
+              {
+                label: "Q1",
+                criterion: "technical",
+                scoreEarned: 3,
+                scorePossible: 3,
+                group: null,
+                feedbackMarkdown: "",
+                modelReasoning: null,
+              },
+              {
+                label: "Q2",
+                criterion: "technical",
+                scoreEarned: 3,
+                scorePossible: 3,
+                group: null,
+                feedbackMarkdown: "",
+                modelReasoning: null,
+              },
+              {
+                label: "Q3",
+                criterion: "technical",
+                scoreEarned: 3,
+                scorePossible: 3,
+                group: null,
+                feedbackMarkdown: "",
+                modelReasoning: null,
+              },
               {
                 label: "Q4",
                 criterion: "technical",
                 scoreEarned: 2,
                 scorePossible: 3,
-                note: "term",
+                group: null,
+                feedbackMarkdown: "",
+                modelReasoning: "term",
               },
               {
                 label: "Writing",
                 criterion: "writing_quality",
                 scoreEarned: 3,
                 scorePossible: 3,
-                note: null,
+                group: null,
+                feedbackMarkdown: "",
+                modelReasoning: null,
               },
             ],
           }),
@@ -445,18 +506,51 @@ describe("a flag the score does not reflect", () => {
         crossCheck(
           shortResponse({
             flags: ["MECHANICAL"],
-            scoreEarned: 14,
             rubricItems: [
-              { label: "Q1", criterion: "technical", scoreEarned: 3, scorePossible: 3, note: null },
-              { label: "Q2", criterion: "technical", scoreEarned: 3, scorePossible: 3, note: null },
-              { label: "Q3", criterion: "technical", scoreEarned: 3, scorePossible: 3, note: null },
-              { label: "Q4", criterion: "technical", scoreEarned: 3, scorePossible: 3, note: null },
+              {
+                label: "Q1",
+                criterion: "technical",
+                scoreEarned: 3,
+                scorePossible: 3,
+                group: null,
+                feedbackMarkdown: "",
+                modelReasoning: null,
+              },
+              {
+                label: "Q2",
+                criterion: "technical",
+                scoreEarned: 3,
+                scorePossible: 3,
+                group: null,
+                feedbackMarkdown: "",
+                modelReasoning: null,
+              },
+              {
+                label: "Q3",
+                criterion: "technical",
+                scoreEarned: 3,
+                scorePossible: 3,
+                group: null,
+                feedbackMarkdown: "",
+                modelReasoning: null,
+              },
+              {
+                label: "Q4",
+                criterion: "technical",
+                scoreEarned: 3,
+                scorePossible: 3,
+                group: null,
+                feedbackMarkdown: "",
+                modelReasoning: null,
+              },
               {
                 label: "Writing",
                 criterion: "writing_quality",
                 scoreEarned: 2,
                 scorePossible: 3,
-                note: "typos",
+                group: null,
+                feedbackMarkdown: "",
+                modelReasoning: "typos",
               },
             ],
           }),
@@ -488,15 +582,15 @@ describe("the denominator against the section's point value", () => {
   /** The shape calibration actually returned: internally consistent, wrong scale. */
   function wrongScale(): GradingReport {
     return report({
-      scoreEarned: 0,
-      scorePossible: 3,
       rubricItems: [
         {
           label: "Writing Quality",
           criterion: "writing",
           scoreEarned: 0,
           scorePossible: 3,
-          note: null,
+          group: null,
+          feedbackMarkdown: "",
+          modelReasoning: null,
         },
       ],
     });
@@ -517,9 +611,9 @@ describe("the denominator against the section's point value", () => {
   });
 
   it("catches a maximum that is too large as well as too small", () => {
-    expect(
-      codes(crossCheck(report({ scorePossible: 12 }), { ...noFacts, pointValue: 10 })),
-    ).toEqual(["SCORE_POSSIBLE_MISMATCH"]);
+    expect(codes(crossCheck(report(), { ...noFacts, pointValue: 10 }))).toEqual([
+      "SCORE_POSSIBLE_MISMATCH",
+    ]);
   });
 
   it("tolerates a fractional point value, since half credit is normal", () => {
@@ -527,15 +621,15 @@ describe("the denominator against the section's point value", () => {
       codes(
         crossCheck(
           report({
-            scoreEarned: 5.5,
-            scorePossible: 12,
             rubricItems: [
               {
                 label: "Q1",
                 criterion: "algorithm",
                 scoreEarned: 5.5,
                 scorePossible: 12,
-                note: null,
+                group: null,
+                feedbackMarkdown: "",
+                modelReasoning: null,
               },
             ],
           }),
@@ -582,7 +676,23 @@ describe("confidence", () => {
 
   it("does not stop a real fault beside it from holding one back", () => {
     expect(
-      crossCheck(report({ confidence: "low", scoreEarned: 99 }), noFacts).needsManualReview,
+      crossCheck(
+        report({
+          confidence: "low",
+          rubricItems: [
+            {
+              label: "x",
+              group: null,
+              criterion: "a",
+              scoreEarned: 13,
+              scorePossible: 12,
+              feedbackMarkdown: "",
+              modelReasoning: null,
+            },
+          ],
+        }),
+        noFacts,
+      ).needsManualReview,
     ).toBe(true);
   });
 });

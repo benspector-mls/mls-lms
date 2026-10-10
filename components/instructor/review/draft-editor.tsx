@@ -1,8 +1,8 @@
 "use client";
 
 /**
- * A report an instructor is reading and changing: the score, the sections, the rubric behind each
- * one, and what it took to produce it.
+ * A report an instructor is reading and changing: the score, the sections, the reasoning behind
+ * each score, and what it took to produce it.
  *
  * One editor whether or not a round exists yet. A grade written by hand is a `GradingDraft` like
  * any other and has to exist before a score can be stored against it, but the *form* does not:
@@ -22,16 +22,21 @@ import type { ReleaseGrade } from "@/hooks/use-release-grade";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { panelSurface } from "@/components/ui/card";
-import { statedScoreInText } from "@/lib/grade/report-text";
+import { composeReport, rowTotals, statedScoreInText } from "@/lib/grade/report-text";
 import { completionMeta, sectionLabel, shortSha } from "@/lib/status";
 import { cn } from "@/lib/utils";
 import { useTRPC, useTRPCClient } from "@/trpc/client";
-import { SectionEditor } from "@/components/instructor/review/section-editor";
+import {
+  AssembledSectionEditor,
+  SectionEditor,
+} from "@/components/instructor/review/section-editor";
 import { useSectionAnchor } from "@/components/instructor/review/section-nav";
 import {
   Draft,
   QueueSubmission,
+  ReportParts,
   Section,
+  effectiveParts,
   effectiveReport,
   effectiveScore,
   listNames,
@@ -64,8 +69,17 @@ export type Blueprint = {
   report: string;
 };
 
-/** What the server holds for each section, by the section's label, as far as this editor knows. */
-type SavedValues = Record<string, { score: number | null; report: string }>;
+/**
+ * What the server holds for each section, by the section's label, as far as this editor knows.
+ *
+ * `parts` is set for a model-generated section, which is edited row by row. Its `score` and
+ * `report` are then the rows' sum and the assembled comment — derived, and kept beside the parts
+ * so the total, the dirty check and the score-in-text check read every section the same way.
+ */
+type SavedValues = Record<
+  string,
+  { score: number | null; report: string; parts: ReportParts | null }
+>;
 
 /**
  * One row the editor draws: the label both sides hold, what it is out of, and the stored section
@@ -102,6 +116,7 @@ function savedOf(rows: EditorRow[], blueprint: Blueprint[]): SavedValues {
         report: row.stored
           ? (effectiveReport(row.stored) ?? "")
           : (seeds.get(row.key)?.report ?? ""),
+        parts: row.stored ? effectiveParts(row.stored) : null,
       },
     ]),
   );
@@ -113,6 +128,15 @@ function scoresOf(saved: SavedValues): Record<string, number | null> {
 
 function reportsOf(saved: SavedValues): Record<string, string> {
   return Object.fromEntries(Object.entries(saved).map(([key, value]) => [key, value.report]));
+}
+
+function partsOf(saved: SavedValues): Record<string, ReportParts | null> {
+  return Object.fromEntries(Object.entries(saved).map(([key, value]) => [key, value.parts]));
+}
+
+/** Whether a row-by-row section has a box emptied, which can be neither saved nor released. */
+function hasEmptyRow(parts: ReportParts | null | undefined): boolean {
+  return parts?.rows.some((row) => row.scoreEarned === null) ?? false;
 }
 
 export function DraftEditor({
@@ -191,6 +215,9 @@ export function DraftEditor({
   const [reports, setReports] = React.useState<Record<string, string>>(() =>
     reportsOf(savedOf(rows, blueprint)),
   );
+  const [parts, setParts] = React.useState<Record<string, ReportParts | null>>(() =>
+    partsOf(savedOf(rows, blueprint)),
+  );
   /** What the server holds, mirrored into state only so the badges and the bar can render it. */
   const [lastSaved, setLastSaved] = React.useState<SavedValues>(() => savedOf(rows, blueprint));
 
@@ -214,7 +241,7 @@ export function DraftEditor({
     The same values, readable from outside a render. What a save sends is what has been typed by
     the time the request goes out, not what had been typed when it was scheduled.
   */
-  const latest = React.useRef({ scores, reports });
+  const latest = React.useRef({ scores, reports, parts });
   const savedRef = React.useRef<SavedValues>(lastSaved);
   const draftRef = React.useRef(draft);
   draftRef.current = draft;
@@ -251,10 +278,12 @@ export function DraftEditor({
       const saved = savedOf(nextRows, blueprint);
       const nextScores = scoresOf(saved);
       const nextReports = reportsOf(saved);
-      latest.current = { scores: nextScores, reports: nextReports };
+      const nextParts = partsOf(saved);
+      latest.current = { scores: nextScores, reports: nextReports, parts: nextParts };
       savedRef.current = saved;
       setScores(nextScores);
       setReports(nextReports);
+      setParts(nextParts);
       setLastSaved(saved);
       startedRef.current = id !== null;
       openedRef.current = null;
@@ -356,10 +385,16 @@ export function DraftEditor({
 
     const current = latest.current;
     const saved = savedRef.current;
+    /*
+      A row-by-row section with an emptied score box waits, still dirty, until the box is filled.
+      Its rows cannot be stored without a score on each, and the release refuses while one is
+      empty, so nothing is sent on the strength of a box an instructor is midway through retyping.
+    */
     const dirty = targets.filter(
       ({ key }) =>
-        (current.scores[key] ?? null) !== (saved[key]?.score ?? null) ||
-        (current.reports[key] ?? "") !== (saved[key]?.report ?? ""),
+        !hasEmptyRow(current.parts[key]) &&
+        ((current.scores[key] ?? null) !== (saved[key]?.score ?? null) ||
+          (current.reports[key] ?? "") !== (saved[key]?.report ?? "")),
     );
     if (dirty.length === 0) return;
 
@@ -371,6 +406,29 @@ export function DraftEditor({
         dirty.map((target) => {
           const report = current.reports[target.key] ?? "";
           const score = current.scores[target.key] ?? null;
+          const assembled = current.parts[target.key];
+          if (assembled) {
+            /*
+              The server assembles the comment and adds up the score from these, so only the
+              parts travel. Rows put back exactly as the model wrote them assemble the model's own
+              comment, and that withdraws the edit rather than storing a copy of the original.
+            */
+            const unchanged = report === (target.modelReport ?? "");
+            return client.gradingDrafts.updateSection.mutate({
+              sectionId: target.id,
+              reportMarkdown: null,
+              scoreEarned: null,
+              parts: unchanged
+                ? null
+                : {
+                    summaryMarkdown: assembled.summaryMarkdown,
+                    rows: assembled.rows.map((row) => ({
+                      scoreEarned: row.scoreEarned ?? 0,
+                      feedbackMarkdown: row.feedbackMarkdown,
+                    })),
+                  },
+            });
+          }
           return client.gradingDrafts.updateSection.mutate({
             sectionId: target.id,
             // An emptied box also goes as null: the input refuses an empty string, and on a
@@ -388,6 +446,7 @@ export function DraftEditor({
         sent[target.key] = {
           score: current.scores[target.key] ?? null,
           report: current.reports[target.key] ?? "",
+          parts: current.parts[target.key] ?? null,
         };
       }
       savedRef.current = sent;
@@ -477,6 +536,28 @@ export function DraftEditor({
   }
 
   /**
+   * A row-by-row section's new parts, with the score and the comment they add up to.
+   *
+   * The score and the comment are derived here rather than stored by the caller, so the total in
+   * the bar, the dirty check and the score-in-text check need no knowledge of rows.
+   */
+  function writeParts(key: string, next: ReportParts) {
+    setArmed(false);
+    dirtiedRef.current = true;
+    const nextParts = { ...latest.current.parts, [key]: next };
+    const nextScores = { ...latest.current.scores, [key]: rowTotals(next.rows).earned };
+    const nextReports = {
+      ...latest.current.reports,
+      [key]: composeReport({ sectionType: key, ...next }),
+    };
+    latest.current = { scores: nextScores, reports: nextReports, parts: nextParts };
+    setParts(nextParts);
+    setScores(nextScores);
+    setReports(nextReports);
+    scheduleSave();
+  }
+
+  /**
    * A score box left behind, which is when a score is finished being typed.
    *
    * On a round that does not exist yet this is what opens it — provided something was written,
@@ -548,12 +629,20 @@ export function DraftEditor({
     ["TEST_RUN_MISSING", "TEST_MATCH_MISSING", "PROTECTED_PATHS_CHANGED"].includes(code),
   );
 
+  /** Rows whose score box has been emptied, named so the bar can say why release is refused. */
+  const emptyRows = rows.flatMap((row) =>
+    (parts[row.key]?.rows ?? [])
+      .filter((reportRow) => reportRow.scoreEarned === null)
+      .map((reportRow) => `${sectionLabel(row.key)}: ${reportRow.label}`),
+  );
+
   const anythingTyped = rows.some(
     (row) => (scores[row.key] ?? null) !== null || (reports[row.key] ?? "").trim() !== "",
   );
   const canApprove =
     !approvalBlocked &&
     mismatches.length === 0 &&
+    emptyRows.length === 0 &&
     totalPossible > 0 &&
     (draft !== null || anythingTyped) &&
     !releasing;
@@ -620,6 +709,9 @@ export function DraftEditor({
    * what aborts a release that would otherwise go out missing its last edits.
    */
   async function flushForRelease(): Promise<string> {
+    if (Object.values(latest.current.parts).some(hasEmptyRow)) {
+      throw new Error("A question has no score. Give every question a score before releasing.");
+    }
     if (draftRef.current === null) openRound();
     await flushNow();
     const current = draftRef.current;
@@ -645,7 +737,11 @@ export function DraftEditor({
   }
 
   function resetRow(key: string) {
-    const saved = savedRef.current[key] ?? { score: null, report: "" };
+    const saved = savedRef.current[key] ?? { score: null, report: "", parts: null };
+    if (saved.parts) {
+      writeParts(key, saved.parts);
+      return;
+    }
     writeScore(key, saved.score);
     writeReport(key, saved.report);
   }
@@ -688,9 +784,7 @@ export function DraftEditor({
           <AlertTriangle />
           <AlertTitle>A report states a different score than the one being recorded</AlertTitle>
           <AlertDescription className="flex flex-col gap-2">
-            <p>
-              Change whichever is wrong. Approving is refused until they match.
-            </p>
+            <p>Change whichever is wrong. Approving is refused until they match.</p>
             <ul className="ml-4 list-disc text-sm">
               {mismatches.map(({ key, stated, recorded, possible }) => (
                 <li key={key}>
@@ -703,27 +797,58 @@ export function DraftEditor({
         </Alert>
       )}
 
+      {emptyRows.length > 0 && (
+        <Alert variant="destructive">
+          <AlertTriangle />
+          <AlertTitle>A question has no score</AlertTitle>
+          <AlertDescription className="flex flex-col gap-2">
+            <p>Releasing is refused, and the report is not saved, until every question has one.</p>
+            <ul className="ml-4 list-disc text-sm">
+              {emptyRows.map((name) => (
+                <li key={name}>{name}</li>
+              ))}
+            </ul>
+          </AlertDescription>
+        </Alert>
+      )}
+
       <div className="flex flex-col gap-4" onKeyDown={armFromKeyboard}>
-        {rows.map((row) => (
-          <SectionEditor
-            key={row.key}
-            section={row.stored ?? { sectionType: row.key, scorePossible: row.scorePossible }}
-            score={scores[row.key] ?? null}
-            report={reports[row.key] ?? ""}
-            onScore={(value) => writeScore(row.key, value)}
-            onScoreBlur={scoreSettled}
-            onReport={(value) => writeReport(row.key, value)}
-            onReset={() => resetRow(row.key)}
-            unsaved={dirtyKeys.includes(row.key)}
-            /*
+        {rows.map((row) => {
+          const assembled = parts[row.key];
+          if (assembled && row.stored) {
+            return (
+              <AssembledSectionEditor
+                key={row.key}
+                section={row.stored}
+                parts={assembled}
+                onParts={(next) => writeParts(row.key, next)}
+                onScoreBlur={scoreSettled}
+                onReset={() => resetRow(row.key)}
+                unsaved={dirtyKeys.includes(row.key)}
+              />
+            );
+          }
+          return (
+            <SectionEditor
+              key={row.key}
+              section={row.stored ?? { sectionType: row.key, scorePossible: row.scorePossible }}
+              score={scores[row.key] ?? null}
+              report={reports[row.key] ?? ""}
+              onScore={(value) => writeScore(row.key, value)}
+              onScoreBlur={scoreSettled}
+              onReport={(value) => writeReport(row.key, value)}
+              onReset={() => resetRow(row.key)}
+              unsaved={dirtyKeys.includes(row.key)}
+              /*
               Opened on the click rather than on the first keystroke, because the box being asked
               for belongs to the round. With no round yet, asking for the box is what opens one.
             */
-            onEditingChange={(open) => {
-              if (open) openRound();
-            }}
-          />
-        ))}
+              onEditingChange={(open) => {
+                if (open) openRound();
+              }}
+            />
+          );
+        })}
       </div>
 
       {/*
