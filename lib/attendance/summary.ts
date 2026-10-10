@@ -189,7 +189,7 @@ export type RecentAttendance = {
  * The two windows the drift rule reads, for one fellow — drifting or not.
  *
  * Exported on its own because the fellow's record prints these whether or not the rule trips:
- * "missed 1 of the last 5 mornings" is worth reading about somebody who is fine. `driftList` is
+ * "attended 9 of the last 10 sessions" is worth reading about somebody who is fine. `driftList` is
  * this over a roster, kept to those it names.
  */
 export function recentAttendance(
@@ -218,28 +218,6 @@ export function attendanceDriftReason(recent: RecentAttendance): Drift["reason"]
   if (recent.missed >= DRIFT_RULE.missedAtLeast) return "missing";
   if (recent.late >= DRIFT_RULE.lateAtLeast) return "late";
   return null;
-}
-
-/**
- * The two windows in words: "missed 1 of the last 5 mornings · late 2 of the last 10". Composed
- * here so the fellow's record cannot word it differently from the drift list it mirrors.
- *
- * A window still filling says how many mornings it holds so far, and one with nothing settled in it
- * says so rather than printing "0 of 0".
- */
-export function recentAttendanceSentence(recent: RecentAttendance): string {
-  if (recent.missedOf === 0) return "no mornings have closed yet";
-
-  const missedWindow =
-    recent.missedOf === DRIFT_RULE.missedOf
-      ? `the last ${recent.missedOf} mornings`
-      : `the ${recent.missedOf} ${recent.missedOf === 1 ? "morning" : "mornings"} so far`;
-  const lateWindow =
-    recent.lateOf === DRIFT_RULE.lateOf
-      ? `the last ${recent.lateOf}`
-      : `the ${recent.lateOf} so far`;
-
-  return `missed ${recent.missed} of ${missedWindow} · late ${recent.late} of ${lateWindow}`;
 }
 
 /**

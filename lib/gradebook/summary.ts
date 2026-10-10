@@ -470,8 +470,10 @@ export function assignmentDriftList(recents: Iterable<RecentWork>): AssignmentDr
 }
 
 /**
- * The two windows in words: "2 missed, 1 late of the last 10 due · 1 of the last 5 graded fell
- * short". Composed here so the gradebook's list and the fellow's record cannot word it differently.
+ * The two windows in words, for the gradebook's list of drifting fellows: "2 missed, 1 late of the
+ * last 10 due · 1 of the last 5 graded fell short". The list is a list of problems, so it counts
+ * what went wrong. The fellow's Trends card reads the same two windows and counts what went right
+ * instead; see `WorkLine` in components/instructor/trends.tsx.
  *
  * The counts are printed even when they are zero, because "none of the last 10 due missed or late"
  * is the sentence a reader wants about somebody who is fine, and a blank would say only that

@@ -7,7 +7,6 @@ import {
   DRIFT_RULE,
   recentAttendance,
   recentSessionsFrom,
-  recentAttendanceSentence,
   summarize,
   type SummaryFellow,
   type SummaryRecord,
@@ -568,18 +567,6 @@ describe("recentAttendance", () => {
     expect(attendanceDriftReason({ missed: 1, missedOf: 5, late: 3, lateOf: 10 })).toBe("late");
     expect(attendanceDriftReason({ missed: 2, missedOf: 5, late: 3, lateOf: 10 })).toBe("missing");
     expect(attendanceDriftReason({ missed: 1, missedOf: 5, late: 2, lateOf: 10 })).toBeNull();
-  });
-
-  it("says both windows in words", () => {
-    expect(recentAttendanceSentence({ missed: 1, missedOf: 10, late: 2, lateOf: 10 })).toBe(
-      "missed 1 of the last 10 mornings · late 2 of the last 10",
-    );
-    expect(recentAttendanceSentence({ missed: 0, missedOf: 3, late: 0, lateOf: 3 })).toBe(
-      "missed 0 of the 3 mornings so far · late 0 of the 3 so far",
-    );
-    expect(recentAttendanceSentence({ missed: 0, missedOf: 0, late: 0, lateOf: 0 })).toBe(
-      "no mornings have closed yet",
-    );
   });
 });
 
