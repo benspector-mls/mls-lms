@@ -3,6 +3,7 @@ import { Suspense } from "react";
 
 import { CoachingSessionForm } from "@/components/instructor/coaching-session-form";
 import { PageFallback } from "@/components/list-states";
+import { OutlinedPage, type OutlineSection } from "@/components/outlined-page";
 import { PageHeader } from "@/components/page-header";
 import { programStudentHref } from "@/lib/links";
 import { displayNameOf } from "@/lib/people";
@@ -17,6 +18,11 @@ import { getQueryClient, trpc } from "@/trpc/server";
  * hour of writing and the form carries the strip of figures both people are looking at — a
  * surface, not a popup. It lives under the fellow's record because that is what it is about, and
  * like the record it deliberately lights no sidebar item.
+ *
+ * **An outline beside it, as on the settings screens**, because the form is long and is read in
+ * three parts in order — what to look at before the fellow arrives, the check-in, and their goals —
+ * and a coach halfway through the conversation needs to get back to the figures without scrolling
+ * past everything they have written since.
  *
  * `cacheComponents` is enabled, so `params` is passed down rather than awaited here.
  */
@@ -42,24 +48,38 @@ async function Session({
     trpc.coaching.session.queryOptions({ programId, sessionId }),
   );
 
+  /* The three parts of `CoachingSessionForm`, in its order. Every part is drawn on every session. */
+  const sections: OutlineSection[] = [
+    { id: "before", label: "Before the session" },
+    { id: "check-in", label: "Fellow check-in" },
+    { id: "goals", label: "Goal setting" },
+  ];
+
   return (
-    <div className="mx-auto flex w-full max-w-4xl flex-col gap-6 p-4 md:p-6">
-      <PageHeader
-        title={`Coaching · ${displayNameOf(data.student, "Fellow")}`}
-        description={
-          data.endedAt === null
-            ? `${formatSchoolDay(data.heldOn)} · in progress`
-            : `${formatSchoolDay(data.heldOn)} · completed ${formatDate(data.endedAt)}`
-        }
-        eyebrow="Coaching session"
-      />
-      <Link
-        href={programStudentHref(programId, studentId)}
-        className="-mt-4 text-xs text-muted-foreground hover:text-foreground hover:underline"
-      >
-        ← Back to their record
-      </Link>
+    <OutlinedPage
+      width="4xl"
+      header={
+        <div className="flex flex-col gap-2">
+          <PageHeader
+            title={`Coaching · ${displayNameOf(data.student, "Fellow")}`}
+            description={
+              data.endedAt === null
+                ? `${formatSchoolDay(data.heldOn)} · in progress`
+                : `${formatSchoolDay(data.heldOn)} · completed ${formatDate(data.endedAt)}`
+            }
+            eyebrow="Coaching session"
+          />
+          <Link
+            href={programStudentHref(programId, studentId)}
+            className="w-fit text-xs text-muted-foreground hover:text-foreground hover:underline"
+          >
+            ← Back to their record
+          </Link>
+        </div>
+      }
+      sections={sections}
+    >
       <CoachingSessionForm programId={programId} data={data} />
-    </div>
+    </OutlinedPage>
   );
 }

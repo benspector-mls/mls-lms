@@ -37,7 +37,7 @@ export type { DevelopmentMarker };
  */
 export const PREPARATION_PROMPT = {
   id: "preparation",
-  prompt: "Preparing for this session",
+  prompt: "Pre-session notes",
 } as const;
 
 export const CHECK_IN_PROMPTS = [

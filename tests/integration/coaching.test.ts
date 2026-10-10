@@ -1171,7 +1171,7 @@ describe("preparing for a session", () => {
     expect(stored.answers).toEqual([
       {
         promptId: "preparation",
-        prompt: "Preparing for this session",
+        prompt: "Pre-session notes",
         answer: "Late three mornings; ask about the commute.",
       },
     ]);

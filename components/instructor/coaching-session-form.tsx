@@ -54,9 +54,10 @@ type PendingSave = {
 };
 
 /**
- * One coaching conversation: the strip saying what completing will record, what the fellow
- * wants to raise and the coach's own preparation, the staff-only check-in, and the fellow's own
- * goals to talk through.
+ * One coaching conversation, in three parts read in order. Before the session: the recent trends,
+ * the data snapshot that completing will record, what the fellow wants to raise, and the coach's
+ * own notes. The fellow check-in: the temperature check and the staff-only questions. Goal
+ * setting: the fellow's own goals to talk through.
  *
  * **The visibility labels are the design.** Every section says who reads it — the temperature and
  * the check-in answers are marked staff-only, the goals are marked as the fellow's — because the
@@ -76,7 +77,7 @@ type PendingSave = {
  * show, does the full refresh.
  *
  * A completed session renders the same layout as a record: the answers as text and the stored
- * snapshot in the strip. Nothing on it is editable, which is the whole of what completing means —
+ * figures as its data snapshot. Nothing on it is editable, which is the whole of what completing means —
  * and Discard is gone with the rest, because throwing away an empty form and taking back a
  * snapshot somebody has already read are different acts.
  */
@@ -245,7 +246,7 @@ export function CoachingSessionForm({ programId, data }: { programId: string; da
   };
 
   return (
-    <div className="flex flex-col gap-6">
+    <div className="flex flex-col gap-16">
       {/*
         First, before anything else, because it is the one thing a coach who opened this early has
         to change: the day the conversation is held, which every list dates the session by.
@@ -270,161 +271,174 @@ export function CoachingSessionForm({ programId, data }: { programId: string; da
         )}
       </section>
 
-      {/*
-        Where the conversation starts: the last few weeks, live, the same component and the same
-        figures as the fellow's record. Above the strip, and labelled apart from it, because the
-        strip is what the fellow will see and this is not.
-      */}
-      <Trends
-        recentAttendance={data.trends.recentAttendance}
-        arrivals={data.trends.arrivals}
-        courses={data.trends.courses}
-        note={
-          completed
-            ? "As of today, not of this session. Staff only; not recorded and not shown to the fellow."
-            : "Staff only; not recorded and not shown to the fellow."
-        }
-      />
+      <Part id="before" title="Before the session">
+        {/*
+          Where the conversation starts: the last few weeks, live, the same component and the same
+          figures as the fellow's record. Above the data snapshot, and labelled apart from it,
+          because the snapshot is what the fellow will see and this is not.
+        */}
+        <Trends
+          recentAttendance={data.trends.recentAttendance}
+          arrivals={data.trends.arrivals}
+          courses={data.trends.courses}
+          note={
+            completed
+              ? "As of today, not of this session. Staff only; not recorded and not shown to the fellow."
+              : "Staff only; not recorded and not shown to the fellow."
+          }
+        />
 
-      <section className="flex flex-col gap-2 rounded-lg border border-border bg-muted/30 p-4">
-        <p className="text-xs text-muted-foreground">
-          {completed
-            ? `Recorded when this session was completed, ${formatDateTime(data.endedAt!)}. The fellow sees this.`
-            : "Recorded when you complete this session. The fellow will see it."}
-        </p>
-        {strip === null ? (
-          <p className="text-sm text-muted-foreground">The stored record cannot be read.</p>
-        ) : (
-          <CoachingSnapshotPanel snapshot={strip} compact />
-        )}
-      </section>
-
-      {/*
-        The preparation half, before the conversation itself: what the fellow wants to raise, in
-        their words and theirs to keep or remove, then what the coach means to raise. The topics
-        are shown on a draft only — a completed session is the record of one conversation, and the
-        fellow's current list is not part of it.
-      */}
-      {!completed && (
-        <section className="flex flex-col gap-3">
-          <div className="flex flex-wrap items-center gap-2">
-            <h2 className="text-sm font-medium">
-              What {fellowName} wants to discuss · {data.topics.length}
-            </h2>
-            <Badge variant="outline" className="font-normal text-muted-foreground">
-              Theirs
-            </Badge>
+        <section className="flex flex-col gap-2">
+          <SectionHeading
+            title="Data snapshot"
+            audience="fellow"
+            fellowName={fellowName}
+            completed={completed}
+          />
+          <p className="text-xs text-muted-foreground">
+            {completed
+              ? `Recorded when this session was completed, ${formatDateTime(data.endedAt!)}.`
+              : "Recorded when you complete this session."}
+          </p>
+          <div className="rounded-lg border border-border bg-muted/30 p-4">
+            {strip === null ? (
+              <p className="text-sm text-muted-foreground">The stored record cannot be read.</p>
+            ) : (
+              <CoachingSnapshotPanel snapshot={strip} compact />
+            )}
           </div>
-          <CoachingTopics
-            topics={data.topics}
-            programId={programId}
-            editable={false}
-            empty="They have not added anything for this session."
-          />
         </section>
-      )}
 
-      {/*
-        Stored among the answers under its own prompt id, like the additional notes, so it saves,
-        copies its label, and stays staff-only exactly as the check-in does.
-      */}
-      <section className="flex flex-col gap-3">
-        <SectionHeading title="Preparing for this session" audience="staff" />
-        {completed ? (
-          <p className={cn("text-sm", !storedPreparation && "text-muted-foreground")}>
-            {storedPreparation?.answer || "Nothing was written beforehand."}
-          </p>
-        ) : (
-          <Textarea
-            id={`coaching-${PREPARATION_PROMPT.id}`}
-            aria-label="Preparing for this session"
-            value={answers[PREPARATION_PROMPT.id] ?? ""}
-            onChange={(event) => editAnswer(PREPARATION_PROMPT.id, event.target.value)}
-            onBlur={flush}
-            rows={3}
-            maxLength={20_000}
-            placeholder="Observations, trends, and questions you want to be sure to raise."
-          />
+        {/*
+          What the fellow wants to raise, in their words and theirs to keep or remove, then what the
+          coach means to raise. The topics are shown on a draft only — a completed session is the
+          record of one conversation, and the fellow's current list is not part of it.
+        */}
+        {!completed && (
+          <section className="flex flex-col gap-3">
+            <div className="flex flex-wrap items-center gap-2">
+              <h3 className="text-sm font-medium">
+                {fellowName}&apos;s discussion items · {data.topics.length}
+              </h3>
+              <Badge variant="outline" className="font-normal text-muted-foreground">
+                Theirs
+              </Badge>
+            </div>
+            <CoachingTopics
+              topics={data.topics}
+              programId={programId}
+              editable={false}
+              empty="They have not added anything for this session."
+            />
+          </section>
         )}
-      </section>
 
-      <section className="flex flex-col gap-3">
-        <SectionHeading title="Temperature check" audience="staff" />
-        {completed && data.temperature === null ? (
-          <p className="text-sm text-muted-foreground">Not asked.</p>
-        ) : (
-          <TemperatureScale
-            value={completed ? data.temperature : temperature}
-            disabled={completed}
-            onChange={editTemperature}
-          />
-        )}
-      </section>
+        {/*
+          Stored among the answers under its own prompt id, like the additional notes, so it saves,
+          copies its label, and stays staff-only exactly as the check-in does.
+        */}
+        <section className="flex flex-col gap-3">
+          <SectionHeading title="Pre-session notes" audience="staff" />
+          {completed ? (
+            <p className={cn("text-sm", !storedPreparation && "text-muted-foreground")}>
+              {storedPreparation?.answer || "Nothing was written beforehand."}
+            </p>
+          ) : (
+            <Textarea
+              id={`coaching-${PREPARATION_PROMPT.id}`}
+              aria-label="Pre-session notes"
+              value={answers[PREPARATION_PROMPT.id] ?? ""}
+              onChange={(event) => editAnswer(PREPARATION_PROMPT.id, event.target.value)}
+              onBlur={flush}
+              rows={3}
+              maxLength={20_000}
+              placeholder="Observations, trends, and questions you want to be sure to raise."
+            />
+          )}
+        </section>
+      </Part>
 
-      <section className="flex flex-col gap-3">
-        <SectionHeading title="Check-in" audience="staff" />
-        <div className="flex flex-col gap-4">
-          {CHECK_IN_PROMPTS.map((prompt) => promptField(prompt))}
-        </div>
-      </section>
+      <Part id="check-in" title="Fellow check-in">
+        <section className="flex flex-col gap-3">
+          <SectionHeading title="Temperature check" audience="staff" />
+          {completed && data.temperature === null ? (
+            <p className="text-sm text-muted-foreground">Not asked.</p>
+          ) : (
+            <TemperatureScale
+              value={completed ? data.temperature : temperature}
+              disabled={completed}
+              onChange={editTemperature}
+            />
+          )}
+        </section>
 
-      {/*
-        After the check-in and before the goal questions: anything from the conversation that no
-        prompt asked for. Stored among the answers under its own prompt id — see
-        `ADDITIONAL_NOTES_PROMPT` — so it saves, copies its label, and stays staff-only exactly as
-        the check-in does.
-      */}
-      <section className="flex flex-col gap-3">
-        <SectionHeading title="Additional notes" audience="staff" />
-        {completed ? (
-          <p className={cn("text-sm", !storedNotes && "text-muted-foreground")}>
-            {storedNotes?.answer || "Nothing further was noted."}
-          </p>
-        ) : (
-          <Textarea
-            id={`coaching-${ADDITIONAL_NOTES_PROMPT.id}`}
-            aria-label="Additional notes"
-            value={answers[ADDITIONAL_NOTES_PROMPT.id] ?? ""}
-            onChange={(event) => editAnswer(ADDITIONAL_NOTES_PROMPT.id, event.target.value)}
-            onBlur={flush}
-            rows={3}
-            maxLength={20_000}
-            placeholder="Anything else from this conversation worth writing down."
-          />
-        )}
-      </section>
+        <section className="flex flex-col gap-3">
+          <SectionHeading title="Check-in questions" audience="staff" />
+          <div className="flex flex-col gap-4">
+            {CHECK_IN_PROMPTS.map((prompt) => promptField(prompt))}
+          </div>
+        </section>
+
+        {/*
+          After the check-in questions and before the goal questions: anything from the conversation
+          that no prompt asked for. Stored among the answers under its own prompt id — see
+          `ADDITIONAL_NOTES_PROMPT` — so it saves, copies its label, and stays staff-only exactly as
+          the check-in does.
+        */}
+        <section className="flex flex-col gap-3">
+          <SectionHeading title="Additional notes" audience="staff" />
+          {completed ? (
+            <p className={cn("text-sm", !storedNotes && "text-muted-foreground")}>
+              {storedNotes?.answer || "Nothing further was noted."}
+            </p>
+          ) : (
+            <Textarea
+              id={`coaching-${ADDITIONAL_NOTES_PROMPT.id}`}
+              aria-label="Additional notes"
+              value={answers[ADDITIONAL_NOTES_PROMPT.id] ?? ""}
+              onChange={(event) => editAnswer(ADDITIONAL_NOTES_PROMPT.id, event.target.value)}
+              onBlur={flush}
+              rows={3}
+              maxLength={20_000}
+              placeholder="Anything else from this conversation worth writing down."
+            />
+          )}
+        </section>
+      </Part>
 
       {/*
         The goals the fellow already set, and the three questions asked about them. The questions
         are answered in the instructor's words and stay staff-only; the goals underneath are the
         fellow's own, which is why each heading carries its own audience.
       */}
-      <section className="flex flex-col gap-3">
-        <SectionHeading title="Revisiting goals" audience="staff" />
-        <div className="flex flex-col gap-4">
-          {REVISITING_GOALS_PROMPTS.map((prompt) => promptField(prompt))}
-        </div>
+      <Part id="goals" title="Goal setting">
+        <section className="flex flex-col gap-3">
+          <SectionHeading title="Revisiting goals" audience="staff" />
+          <div className="flex flex-col gap-4">
+            {REVISITING_GOALS_PROMPTS.map((prompt) => promptField(prompt))}
+          </div>
 
-        <div className="flex flex-wrap items-center gap-2 pt-1">
-          <h3 className="text-sm font-medium">
-            {fellowName}&apos;s goals · {data.goals.length}
-          </h3>
-          <Badge variant="outline" className="font-normal text-muted-foreground">
-            Theirs to edit
-          </Badge>
-        </div>
-        {/*
-          The badge says whose they are: the goals are the fellow's own. A session is where they
-          are talked through — guiding somebody to set one, or to move where they say they stand
-          — and they do the typing on their own screen, during the conversation or after it. The
-          one thing an instructor writes here is a comment under a goal.
-        */}
-        <FellowGoals
-          goals={data.goals}
-          programId={programId}
-          empty="They have not set any goals yet."
-        />
-      </section>
+          <div className="flex flex-wrap items-center gap-2 pt-1">
+            <h3 className="text-sm font-medium">
+              {fellowName}&apos;s goals · {data.goals.length}
+            </h3>
+            <Badge variant="outline" className="font-normal text-muted-foreground">
+              Theirs to edit
+            </Badge>
+          </div>
+          {/*
+            The badge says whose they are: the goals are the fellow's own. A session is where they
+            are talked through — guiding somebody to set one, or to move where they say they stand
+            — and they do the typing on their own screen, during the conversation or after it. The
+            one thing an instructor writes here is a comment under a goal.
+          */}
+          <FellowGoals
+            goals={data.goals}
+            programId={programId}
+            empty="They have not set any goals yet."
+          />
+        </section>
+      </Part>
 
       {!completed && (
         <div className="flex items-center gap-3 border-t border-border pt-4">
@@ -591,6 +605,21 @@ function TemperatureScale({
   );
 }
 
+/**
+ * One of the form's three parts, each an entry in the page's outline.
+ *
+ * The `id` is what the outline links to, and `scroll-mt-(--outline-offset)` is what lands the
+ * heading under the sticky outline rather than behind it; see `OutlinedPage`.
+ */
+function Part({ id, title, children }: { id: string; title: string; children: React.ReactNode }) {
+  return (
+    <section id={id} className="scroll-mt-(--outline-offset) flex flex-col gap-6">
+      <h2 className="border-b border-border pb-2 text-base font-semibold">{title}</h2>
+      {children}
+    </section>
+  );
+}
+
 /** A section heading that says who reads the section — the form's whole safety story. */
 function SectionHeading({
   title,
@@ -605,7 +634,7 @@ function SectionHeading({
 }) {
   return (
     <div className="flex flex-wrap items-center gap-2">
-      <h2 className="text-sm font-medium">{title}</h2>
+      <h3 className="text-sm font-medium">{title}</h3>
       {audience === "staff" ? (
         <Badge variant="outline" className="font-normal text-muted-foreground">
           Staff only
