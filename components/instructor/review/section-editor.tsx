@@ -11,7 +11,7 @@
 
 import * as React from "react";
 import { ListChecks, Pencil, SaveCheck, SavePen, Undo2 } from "lucide-react";
-import { Markdown } from "@/components/markdown";
+import { Markdown, sourceOffsetAt } from "@/components/markdown";
 import { ConfidenceBadge, FlagBadge } from "@/components/status-badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
@@ -59,10 +59,57 @@ export function SectionEditor({
   /** Told whenever the box is opened or closed. Opening it is what opens a hand-graded round. */
   onEditingChange?: (editing: boolean) => void;
 }) {
-  const [editing, setEditing] = React.useState(false);
+  /*
+    How the box was opened, because that decides how it closes.
+
+    The Edit button says the instructor means to write for a while, so the box stays open until
+    they press Preview. Double-clicking the preview is a quick correction, so the box goes back to
+    the preview as soon as they click anywhere outside it, with no button to find. One button
+    press cannot express both, which is why the two ways in are kept apart.
+  */
+  const [editing, setEditing] = React.useState<false | "button" | "double-click">(false);
+  /** Where the caret starts when a double-click opened the box: the character under the pointer. */
+  const [cursor, setCursor] = React.useState<number | undefined>(undefined);
+  /** The label, buttons and box together. A click inside any of them is not a click outside. */
+  const writing = React.useRef<HTMLDivElement>(null);
   const possible = section.scorePossible ?? 0;
   const flags = section.flags ?? [];
   const instructorNotes = section.instructorNotes ?? [];
+
+  function open(how: "button" | "double-click", at?: number) {
+    setCursor(at);
+    setEditing(how);
+    onEditingChange?.(true);
+  }
+
+  function close() {
+    setEditing(false);
+    onEditingChange?.(false);
+  }
+
+  /*
+    On `pointerdown` rather than on the editor losing focus. Focus also leaves when the instructor
+    switches to another window or tab, and a box that had closed by the time they came back would
+    look as though their place had been lost. A press is only ever a deliberate act on this page.
+  */
+  React.useEffect(() => {
+    if (editing !== "double-click") return;
+    function closeOnClickOutside(event: PointerEvent) {
+      if (writing.current?.contains(event.target as Node)) return;
+      setEditing(false);
+      onEditingChange?.(false);
+    }
+    document.addEventListener("pointerdown", closeOnClickOutside);
+    return () => document.removeEventListener("pointerdown", closeOnClickOutside);
+  }, [editing, onEditingChange]);
+
+  /*
+    The caret goes to the character that was double-clicked, or to the end of the report when the
+    press was beside the text rather than on it, which is where an addition would usually go.
+  */
+  function openAtPointer(event: React.MouseEvent) {
+    open("double-click", sourceOffsetAt(event.clientX, event.clientY) ?? report.length);
+  }
 
   return (
     <Card>
@@ -167,7 +214,7 @@ export function SectionEditor({
       </CardHeader>
 
       <CardContent className="flex flex-col gap-4">
-        <div className="flex flex-col gap-2">
+        <div ref={writing} className="flex flex-col gap-2">
           <div className="flex items-center justify-between">
             <span className="text-xs font-medium tracking-wide text-muted-foreground uppercase">
               What the student will read
@@ -182,11 +229,7 @@ export function SectionEditor({
               <Button
                 size="sm"
                 variant="ghost"
-                onClick={() => {
-                  const next = !editing;
-                  setEditing(next);
-                  onEditingChange?.(next);
-                }}
+                onClick={() => (editing ? close() : open("button"))}
               >
                 <Pencil data-icon="inline-start" />
                 {editing ? "Preview" : "Edit"}
@@ -202,14 +245,23 @@ export function SectionEditor({
               rows={16}
               // Focused on opening, which is what a box asked for by a click wants.
               autoFocus
+              initialCursor={editing === "double-click" ? cursor : undefined}
               className="font-mono text-xs"
             />
           ) : report.trim() ? (
-            <div className="rounded-md border border-border bg-muted/20 p-4">
-              <Markdown content={report} />
+            <div
+              onDoubleClick={openAtPointer}
+              title="Double-click to edit"
+              className="rounded-md border border-border bg-muted/20 p-4"
+            >
+              <Markdown content={report} sourceOffsets />
             </div>
           ) : (
-            <p className="rounded-md border border-dashed border-border px-3 py-4 text-center text-sm text-muted-foreground">
+            <p
+              onDoubleClick={openAtPointer}
+              title="Double-click to edit"
+              className="rounded-md border border-dashed border-border px-3 py-4 text-center text-sm text-muted-foreground"
+            >
               No report was written for this section.
             </p>
           )}

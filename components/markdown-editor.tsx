@@ -7,8 +7,20 @@ import {
   insertNewlineContinueMarkup,
   markdownLanguage,
 } from "@codemirror/lang-markdown";
-import { HighlightStyle, LanguageSupport, syntaxHighlighting } from "@codemirror/language";
-import { Annotation, Compartment, EditorState } from "@codemirror/state";
+import {
+  HighlightStyle,
+  LanguageSupport,
+  syntaxHighlighting,
+  syntaxTree,
+} from "@codemirror/language";
+import {
+  Annotation,
+  ChangeSpec,
+  Compartment,
+  EditorSelection,
+  EditorState,
+  StateCommand,
+} from "@codemirror/state";
 import { EditorView, keymap, placeholder as placeholderText } from "@codemirror/view";
 import { tags } from "@lezer/highlight";
 
@@ -30,6 +42,9 @@ import { cn } from "@/lib/utils";
  *   again. Both are CodeMirror's own.
  * - Enter on a list item starts the next item, numbered lists counting up, and Enter on an empty
  *   item ends the list.
+ * - Cmd+B and Cmd+I (Ctrl on Windows and Linux) make the selection bold or italic, or the word the
+ *   caret is in when nothing is selected. Pressed on text that is already bold or italic, they
+ *   remove the asterisks instead. See `toggleEmphasis`.
  * - Ctrl+Z and Cmd+Z undo, including an indent or an item the editor added; the history is
  *   CodeMirror's, which records every change it makes.
  * - Ctrl+Enter and Cmd+Enter are left alone, so the form around the box can use them to send.
@@ -37,8 +52,9 @@ import { cn } from "@/lib/utils";
  * Beneath the box, a line says that it takes Markdown and links to the curriculum's guide.
  *
  * **Controlled, with one exception.** `value` and `onChange` behave as they do on a `textarea`. The
- * settings that build the editor — `placeholder`, `maxLength`, `id`, `ariaLabel`, `autoFocus` — are
- * read once, when it is created, because recreating it would throw away the cursor and the undo
+ * settings that build the editor — `placeholder`, `maxLength`, `id`, `ariaLabel`, `autoFocus`,
+ * `initialCursor` — are read once, when it is created, because recreating it would throw away the
+ * cursor and the undo
  * history; no caller changes them while the box is open.
  */
 export function MarkdownEditor({
@@ -50,6 +66,7 @@ export function MarkdownEditor({
   rows = 3,
   maxLength,
   autoFocus,
+  initialCursor,
   disabled,
   onKeyDown,
   className,
@@ -70,6 +87,12 @@ export function MarkdownEditor({
   /** Edits that would make the text longer than this are refused, as a `textarea` refuses them. */
   maxLength?: number;
   autoFocus?: boolean;
+  /**
+   * Where the caret starts, as an offset into `value`, scrolled into view. Without it the caret
+   * starts at the beginning. Used with `autoFocus` by a preview that opens into this editor at the
+   * point a reader double-clicked.
+   */
+  initialCursor?: number;
   disabled?: boolean;
   /** Keys the editor did not take, bubbling from inside it — Ctrl+Enter is the one callers want. */
   onKeyDown?: React.KeyboardEventHandler<HTMLDivElement>;
@@ -94,20 +117,27 @@ export function MarkdownEditor({
 
   React.useEffect(() => {
     if (!host.current) return;
+    const cursor =
+      initialCursor === undefined ? undefined : Math.max(0, Math.min(initialCursor, value.length));
 
     const created = new EditorView({
       parent: host.current,
       state: EditorState.create({
         doc: value,
+        ...(cursor === undefined ? {} : { selection: { anchor: cursor } }),
         extensions: [
           history(),
           /*
             First, so these win: Enter continues a list and Backspace at the start of an item
-            removes its marker, before the default Enter and Backspace see the key.
+            removes its marker, before the default Enter and Backspace see the key. Cmd+I has a
+            default too, which selects the whole of the syntax around the caret; italic replaces
+            it here because nobody writing feedback reaches for that.
           */
           keymap.of([
             { key: "Enter", run: insertNewlineContinueMarkup },
             { key: "Backspace", run: deleteMarkupBackward },
+            { key: "Mod-b", run: toggleEmphasis("**", "StrongEmphasis") },
+            { key: "Mod-i", run: toggleEmphasis("*", "Emphasis") },
             indentWithTab,
             ...historyKeymap,
             // The default inserts a blank line; the form around the box sends on it instead.
@@ -146,6 +176,7 @@ export function MarkdownEditor({
     });
     view.current = created;
     if (autoFocus) created.focus();
+    if (cursor !== undefined) created.dispatch({ effects: EditorView.scrollIntoView(cursor) });
 
     return () => {
       created.destroy();
@@ -258,6 +289,78 @@ export function MarkdownEditor({
 
 /** The curriculum's own guide, so the help matches what fellows are taught. */
 const MARKDOWN_GUIDE_URL = "https://marcylabschool.gitbook.io/swe/how-tos/how-to-write-markdown";
+
+/**
+ * A command that makes text bold (`**`) or italic (`*`), or takes the formatting off text that has
+ * it. Each selection is handled on its own.
+ *
+ * **Taking the formatting off.** The parser has already found every bold and italic run, as
+ * `StrongEmphasis` and `Emphasis`, with the asterisks or underscores at each end as marks. When the
+ * caret or the whole selection sits inside such a run, those two marks are deleted and the text
+ * between them is left. The parser is asked rather than the characters beside the caret, because
+ * the characters cannot tell an italic `*` from half of a bold `**`.
+ *
+ * **Adding it.** A selection is wrapped, with the spaces at its edges left outside the asterisks:
+ * `**word **` is not bold in markdown, and double-clicking a word in some browsers selects the
+ * space after it. With nothing selected, the word the caret is in is wrapped and the caret keeps
+ * its place in the word. With nothing selected and no word, an empty pair is typed with the caret
+ * between, ready for the text, and pressing the keys again straight away deletes the pair.
+ */
+function toggleEmphasis(marker: string, node: "StrongEmphasis" | "Emphasis"): StateCommand {
+  return ({ state, dispatch }) => {
+    const tree = syntaxTree(state);
+    const result = state.changeByRange((range) => {
+      const formatted = [tree.resolveInner(range.from, 1), tree.resolveInner(range.to, -1)]
+        .flatMap((start) => {
+          const chain = [];
+          for (let at: typeof start | null = start; at; at = at.parent) chain.push(at);
+          return chain;
+        })
+        .find((at) => at.name === node && at.from <= range.from && at.to >= range.to);
+      const before = state.sliceDoc(range.from - marker.length, range.from);
+      const after = state.sliceDoc(range.to, range.to + marker.length);
+
+      // Deleting: whatever was selected moves back with the text it was on.
+      if (
+        (formatted?.firstChild && formatted.lastChild) ||
+        (range.empty && before === marker && after === marker)
+      ) {
+        const set = state.changes(
+          formatted?.firstChild && formatted.lastChild
+            ? [
+                { from: formatted.from, to: formatted.firstChild.to },
+                { from: formatted.lastChild.from, to: formatted.to },
+              ]
+            : [{ from: range.from - marker.length, to: range.to + marker.length }],
+        );
+        return {
+          changes: set,
+          range: EditorSelection.range(set.mapPos(range.anchor), set.mapPos(range.head)),
+        };
+      }
+
+      // Wrapping: the caret keeps its place in the word, and a selection stays on the same text.
+      let { from, to } = range.empty ? (state.wordAt(range.head) ?? range) : range;
+      while (from < to && /\s/.test(state.sliceDoc(from, from + 1))) from++;
+      while (to > from && /\s/.test(state.sliceDoc(to - 1, to))) to--;
+      const changes: ChangeSpec[] = [
+        { from, insert: marker },
+        { from: to, insert: marker },
+      ];
+      const shift = marker.length;
+      if (range.empty) return { changes, range: EditorSelection.cursor(range.head + shift) };
+      const forward = range.anchor <= range.head;
+      return {
+        changes,
+        range: forward
+          ? EditorSelection.range(from + shift, to + shift)
+          : EditorSelection.range(to + shift, from + shift),
+      };
+    });
+    dispatch(state.update(result, { scrollIntoView: true, userEvent: "input" }));
+    return true;
+  };
+}
 
 /** Marks a change that came from the `value` prop rather than from typing. */
 const fromProps = Annotation.define<boolean>();

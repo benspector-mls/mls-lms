@@ -89,10 +89,18 @@ function SidebarProvider({
     return isMobile ? setOpenMobile((open) => !open) : setOpen((open) => !open);
   }, [isMobile, setOpen, setOpenMobile]);
 
-  // Adds a keyboard shortcut to toggle the sidebar.
+  /*
+    Cmd+Shift+B (Ctrl+Shift+B on Windows and Linux) toggles the sidebar. Shift is required
+    because Cmd+B alone makes text bold in the markdown editor. With Shift held, `event.key` is
+    the capital letter, so it is compared in lower case.
+  */
   React.useEffect(() => {
     const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key === SIDEBAR_KEYBOARD_SHORTCUT && (event.metaKey || event.ctrlKey)) {
+      if (
+        event.key.toLowerCase() === SIDEBAR_KEYBOARD_SHORTCUT &&
+        event.shiftKey &&
+        (event.metaKey || event.ctrlKey)
+      ) {
         event.preventDefault();
         toggleSidebar();
       }

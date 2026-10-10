@@ -7,11 +7,25 @@ import { cn } from "@/lib/utils";
 // what the student will receive. Markdown that fails to render shows up here as
 // visibly wrong output (a broken table becomes literal pipes) rather than being
 // silently smoothed over.
-export function Markdown({ content, className }: { content: string; className?: string }) {
+export function Markdown({
+  content,
+  className,
+  sourceOffsets = false,
+}: {
+  content: string;
+  className?: string;
+  /**
+   * Marks each run of text with where it begins in `content`, so that `sourceOffsetAt` can say
+   * which character of the markdown a reader pointed at. Off unless asked for, because it puts a
+   * `span` around every run of text, and only a preview that opens into an editor needs it.
+   */
+  sourceOffsets?: boolean;
+}) {
   return (
     <div className={cn("marcy-md text-sm leading-relaxed text-foreground", className)}>
       <ReactMarkdown
         remarkPlugins={[remarkGfm]}
+        rehypePlugins={sourceOffsets ? [[rehypeSourceOffsets, content]] : []}
         components={{
           h1: ({ children }) => (
             <h1 className="mt-4 mb-2 text-base font-semibold tracking-tight first:mt-0">
@@ -107,4 +121,94 @@ export function Markdown({ content, className }: { content: string; className?: 
       </ReactMarkdown>
     </div>
   );
+}
+
+/** The parts of a rendered markdown node that `rehypeSourceOffsets` reads and writes. */
+type RenderedNode = {
+  type: string;
+  value?: string;
+  children?: RenderedNode[];
+  position?: { start: { offset?: number }; end: { offset?: number } };
+  tagName?: string;
+  properties?: Record<string, number>;
+};
+
+/**
+ * Wraps each run of text in a `span` carrying `data-source-start`, the offset in the markdown of
+ * the run's first character, and `data-source-end`, the offset just past the run.
+ *
+ * **Why a span around the text rather than an attribute on the element that holds it.** The
+ * components above rebuild each element from its `children` alone, so an attribute set on a `p` or
+ * an `li` here would never reach the page. A span is one of those children, so it arrives intact.
+ *
+ * **Why the start is searched for.** The parser gives an inline code span's text the position of
+ * the whole span, backticks included, and gives a fenced block's text no position at all, so that
+ * text takes the range of the nearest element around it, which is the whole fence. Finding the
+ * text inside that range moves the start past the markers. Text that does not appear
+ * verbatim, such as a run containing an escaped `\*`, keeps the start the parser gave it, which is
+ * at most a few characters out.
+ *
+ * Runs of only whitespace are left bare. They are never what a reader points at, and inside a
+ * table a span where the browser expects only rows and cells would be invalid markup.
+ */
+function rehypeSourceOffsets(source: string) {
+  function wrap(node: RenderedNode, around?: [number, number]) {
+    if (!node.children) return;
+    node.children = node.children.map((child) => {
+      const start = child.position?.start.offset ?? around?.[0];
+      const end = child.position?.end.offset ?? around?.[1];
+      const range: [number, number] | undefined =
+        start === undefined || end === undefined ? undefined : [start, end];
+      if (child.type !== "text" || !range) {
+        wrap(child, range);
+        return child;
+      }
+      if (!child.value?.trim()) return child;
+      const found = source.slice(...range).indexOf(child.value);
+      return {
+        type: "element",
+        tagName: "span",
+        properties: {
+          dataSourceStart: found === -1 ? range[0] : range[0] + found,
+          dataSourceEnd: range[1],
+        },
+        children: [child],
+      };
+    });
+  }
+  return (tree: RenderedNode) => wrap(tree);
+}
+
+/**
+ * The offset in the markdown of the character under a point on the screen, for a `Markdown` drawn
+ * with `sourceOffsets`. Null when the point is not over text, such as the space between two
+ * paragraphs or a checkbox.
+ *
+ * The browser says which text node is under the point and how far into it; the span around that
+ * node says where the node begins in the markdown. Adding the two gives the answer, which is exact
+ * for text written plainly. In a block quote or a list item running over several lines, the
+ * markers that begin each later line are absent from the rendered text, so a point on one of those
+ * lines lands a few characters early. The answer never passes the end of the run, so it never lands
+ * in a different block.
+ */
+export function sourceOffsetAt(x: number, y: number): number | null {
+  let node: Node | null = null;
+  let offset = 0;
+  // `caretPositionFromPoint` is the standard; Safari before version 26 has only the older name.
+  if ("caretPositionFromPoint" in document) {
+    const position = document.caretPositionFromPoint(x, y);
+    node = position?.offsetNode ?? null;
+    offset = position?.offset ?? 0;
+  } else {
+    const range = (document as Document).caretRangeFromPoint(x, y);
+    node = range?.startContainer ?? null;
+    offset = range?.startOffset ?? 0;
+  }
+  if (node?.nodeType !== Node.TEXT_NODE) return null;
+
+  const span = node.parentElement;
+  const start = Number(span?.dataset.sourceStart);
+  const end = Number(span?.dataset.sourceEnd);
+  if (!span || Number.isNaN(start) || Number.isNaN(end)) return null;
+  return Math.min(start + offset, end);
 }
