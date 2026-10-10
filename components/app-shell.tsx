@@ -1521,7 +1521,11 @@ export function AppShell({ children }: { children: React.ReactNode }) {
       <SidebarInset className="min-w-0">
         <header className="sticky top-0 z-10 flex h-14 shrink-0 items-center gap-2 border-b border-border bg-background/95 px-4 backdrop-blur supports-[backdrop-filter]:bg-background/80">
           <SidebarTrigger className="-ml-1" />
-          <Separator orientation="vertical" className="mr-1 h-4" />
+          {/*
+            `data-vertical:self-center` replaces the separator's own `self-stretch`, which with a
+            fixed height does not stretch and leaves the line at the top of the header.
+          */}
+          <Separator orientation="vertical" className="mr-1 h-4 data-vertical:self-center" />
           <React.Suspense fallback={<div className="min-w-0 flex-1" />}>
             <ShellBreadcrumb />
           </React.Suspense>

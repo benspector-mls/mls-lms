@@ -211,10 +211,17 @@ export function SectionNavBar({
               {/*
                   A line where the next icon belongs to another column. Stacked, every card shares
                   one left edge and no line is drawn; split, the line falls between the work's
-                  icons and the grade's, so the bar reads in the same two halves as the pane.
+                  icons and the grade's, so the bar reads in the same two halves as the pane. The
+                  line is 24px in a 40px bar, which leaves an even 8px above and below it.
+
+                  `data-vertical:self-center` replaces the separator's own `self-stretch`. A
+                  stretch with a fixed height does not stretch, and the browser then places the
+                  line at the top of the row instead of centring it. The override needs the same
+                  `data-vertical:` prefix, because a plain `self-center` loses to the more
+                  specific attribute selector.
                 */}
               {index > 0 && !sameColumn(ordered[index - 1].rect, entry.rect) && (
-                <Separator orientation="vertical" className="mx-1 h-4" />
+                <Separator orientation="vertical" className="mx-1 h-6 data-vertical:self-center" />
               )}
               <Tooltip>
                 <TooltipTrigger
