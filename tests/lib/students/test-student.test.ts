@@ -11,6 +11,7 @@
  */
 import {
   isTestStudent,
+  nextTestStudentNumber,
   testStudentEmail,
   testStudentHandle,
   testStudentName,
@@ -42,5 +43,34 @@ describe("whether a profile is a test student", () => {
 
   it("a number is", () => {
     expect(isTestStudent({ testStudentNumber: 1 })).toBe(true);
+  });
+});
+
+describe("the next test student's number", () => {
+  it("starts at one when no test student has ever existed", () => {
+    expect(nextTestStudentNumber(null, [])).toBe(1);
+  });
+
+  it("follows the highest number still on a profile", () => {
+    expect(nextTestStudentNumber(2, [{ number: 1 }, { number: 2 }])).toBe(3);
+  });
+
+  it("does not reuse the number of a test student that was removed", () => {
+    // Test Student 3 was created and then removed, so the highest live profile is 2.
+    expect(nextTestStudentNumber(2, [{ number: 3 }, { number: 3 }])).toBe(4);
+  });
+
+  it("does not reuse a number when every test student has been removed", () => {
+    expect(nextTestStudentNumber(null, [{ number: 5 }])).toBe(6);
+  });
+
+  it("counts a profile made before the audit log existed", () => {
+    expect(nextTestStudentNumber(7, [{ number: 4 }])).toBe(8);
+  });
+
+  it("skips an event whose detail holds no whole-number number", () => {
+    expect(
+      nextTestStudentNumber(1, [null, "9", [9], {}, { number: "9" }, { number: 9.5 }]),
+    ).toBe(2);
   });
 });

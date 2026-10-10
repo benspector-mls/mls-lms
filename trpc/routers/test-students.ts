@@ -4,7 +4,12 @@ import { z } from "zod";
 import { auditActor, recordEvent } from "@/lib/audit/record";
 import { getConfiguredInstallationId, isGithubAppConfigured } from "@/lib/github/app-client";
 import { deleteRepo } from "@/lib/github/repos";
-import { testStudentEmail, testStudentHandle, testStudentName } from "@/lib/students/test-student";
+import {
+  nextTestStudentNumber,
+  testStudentEmail,
+  testStudentHandle,
+  testStudentName,
+} from "@/lib/students/test-student";
 import {
   AuthAdminError,
   createAuthUser,
@@ -73,10 +78,11 @@ export const testStudentsRouter = createTRPCRouter({
    *
    * The sequence, and why it is this order:
    *
-   * 1. **Pick the number** as one past the highest that exists. Not a count: numbers are never
-   *    reused, so a deployment that has created and deleted three gets a fourth rather than a
-   *    second — a repository named after a number somebody else's repository already used would be
-   *    a collision on GitHub that the database could not see.
+   * 1. **Pick the number** as one past the highest ever issued, which `nextTestStudentNumber`
+   *    reads from the live profiles and from the audit log's creation and removal events. Numbers
+   *    are never reused, so a deployment that has created and deleted three gets a fourth rather
+   *    than a third — a repository named after a number somebody else's repository already used
+   *    would be a collision on GitHub that the database could not see.
    * 2. **Create the auth user**, because a profile cannot exist without one — or claim one already
    *    holding this number's address whose profile was never marked, which is what an earlier
    *    attempt that failed halfway leaves behind. Its unique email is the interlock: two admins who
@@ -107,11 +113,18 @@ export const testStudentsRouter = createTRPCRouter({
         });
       }
 
-      const highest = await ctx.db.profile.aggregate({
-        _max: { testStudentNumber: true },
-      });
+      const [highest, issued] = await Promise.all([
+        ctx.db.profile.aggregate({ _max: { testStudentNumber: true } }),
+        ctx.db.auditEvent.findMany({
+          where: { action: { in: ["TEST_STUDENT_CREATED", "TEST_STUDENT_DELETED"] } },
+          select: { detail: true },
+        }),
+      ]);
 
-      let number = (highest._max.testStudentNumber ?? 0) + 1;
+      let number = nextTestStudentNumber(
+        highest._max.testStudentNumber,
+        issued.map((event) => event.detail),
+      );
       let authUserId: string | null = null;
 
       /*

@@ -2289,7 +2289,10 @@ model AuditEvent {
   courseLabel String? @map("course_label")
 
   /// Everything else, shaped per action: the roles either side of a change, the score
-  /// released, the reason a refusal was recorded. Read by people, not by queries.
+  /// released, the reason a refusal was recorded. Read by people, not by queries, with one
+  /// exception: creating a test student reads the `number` from the test student events, because
+  /// the log is the only record of a number whose profile has been deleted. See
+  /// `nextTestStudentNumber`.
   detail Json?
 
   @@index([occurredAt(sort: Desc)])

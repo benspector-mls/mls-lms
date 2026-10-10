@@ -71,3 +71,35 @@ export function testStudentEmail(n: number): string {
 export function isTestStudent(profile: { testStudentNumber: number | null }): boolean {
   return profile.testStudentNumber !== null;
 }
+
+/**
+ * The number the next test student gets: one past the highest number ever issued.
+ *
+ * **Ever issued, not currently held.** Removing a test student deletes its profile, so the highest
+ * number still on a profile goes down whenever the newest test student is removed. Picking from
+ * that alone would hand the same number, and so the same handle and the same repository names, to
+ * the next one. Usually that is harmless, because removal deletes the repositories too. But when
+ * GitHub refuses a deletion the repository stays, and accepting the same assignment as the reused
+ * number finds it under its old name and hands it over, already holding the previous test student's
+ * commits. An admin previewing a course would then read and grade work nobody in the preview wrote.
+ *
+ * The audit log is what remembers a number after its profile is gone. Every creation and every
+ * removal records the number in its `detail`, so the largest number in those events, together with
+ * the largest on a live profile, is the largest ever issued. The live profiles are still consulted
+ * because test students made before the audit log existed have no creation event.
+ *
+ * `recorded` is the raw `detail` of each event, read defensively: the column is untyped JSON, and an
+ * event whose detail lacks a whole-number `number` is skipped rather than trusted.
+ */
+export function nextTestStudentNumber(
+  highestOnAProfile: number | null,
+  recorded: readonly unknown[],
+): number {
+  let highest = highestOnAProfile ?? 0;
+  for (const detail of recorded) {
+    if (detail === null || typeof detail !== "object" || Array.isArray(detail)) continue;
+    const value = (detail as { number?: unknown }).number;
+    if (typeof value === "number" && Number.isInteger(value) && value > highest) highest = value;
+  }
+  return highest + 1;
+}
