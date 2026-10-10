@@ -404,9 +404,8 @@ export function Curriculum({ courseId }: { courseId: string }) {
       )}
 
       <p className="text-xs text-muted-foreground">
-        Order is the order your students meet the course, and it is one sequence — a project sits
-        between the modules it falls between. Drag a unit by its grip to move it. Assignments inside
-        a unit are listed by due date; resources sit beneath them in the order you drag them into.
+        Students see units in this order. Assignments are listed by due date; resources are in the
+        order you drag them into.
       </p>
 
       {/*

@@ -87,7 +87,7 @@ export function GoalUpdates({
         !adding && (
           <p className="text-sm text-muted-foreground">
             {editable
-              ? "Nothing written under this goal yet. An update is how it is going — a few lines, a screenshot, a link to something you made."
+              ? "Nothing written under this goal yet. An update can be a few lines, a screenshot, or a link to something you made."
               : "They have not written anything under this goal yet."}
           </p>
         )
@@ -372,9 +372,6 @@ function UpdateEditor({
           placeholder="How is it going? What did you try, and what happened?"
         />
       )}
-      <p className="text-xs text-muted-foreground">
-        To include a link, write it as <code>[what it is](https://…)</code>.
-      </p>
 
       {/* Files already attached, each with its own remove — the words above are saved separately. */}
       {update !== null && update.attachments.length > 0 && (

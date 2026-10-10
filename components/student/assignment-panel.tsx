@@ -307,7 +307,8 @@ function PanelBody({
       )}
       {readOnly && (
         <p className="border-b border-border bg-muted/50 px-4 py-2 text-sm text-muted-foreground">
-          You are viewing this as a student, read-only. Nothing here can be changed on their behalf.
+          You are viewing this fellow&apos;s account read-only. Nothing can be changed on their
+          behalf.
         </p>
       )}
 
@@ -742,10 +743,10 @@ function SubmissionTab({
       {canCopyTemplate && (
         <div className={cn(panelSurface, "flex flex-col items-start gap-2 p-4")}>
           {/*
-            Statements rather than instructions, which is what lets the Drive card persist: it is
-            still true of a student who took their copy weeks ago. The Drive copy is not somewhere
-            "only you and your instructor can open" — it belongs to the student, and their
-            instructor reads it because they hand in its link, which is worth saying plainly here
+            Text that stays true of a student who took their copy weeks ago, which is what lets the
+            Drive card persist. The Drive copy is not somewhere "only you and your instructor can
+            open" — their instructor reads it because they hand in its link, which is worth saying
+            plainly here
             rather than leaving a student with no reason to check the document's sharing.
           */}
           <p className="text-sm font-medium">
@@ -754,7 +755,7 @@ function SubmissionTab({
           <p className="text-sm text-muted-foreground">
             {assignment.kind === "REPO"
               ? "This makes a private repository for your work and gives you a draft branch to push to."
-              : "Google makes the copy in your own Drive and it belongs to you. Take another copy whenever you need one, and hand in the link to the copy you want graded."}
+              : "Hand in the link to the copy you want graded."}
           </p>
           <AcceptAssignmentButton
             assignmentId={assignment.id}
@@ -790,9 +791,9 @@ function SubmissionTab({
               back a day later reads the same thing.
             */}
             <li>
-              Accept the GitHub invitation to your repository, which GitHub emails you and also
-              shows when you open the repository. It expires 7 days after you accept the assignment,
-              and your instructor has to send a new one after that.
+              Accept the GitHub invitation to your repository (emailed to you, and shown when you
+              open the repository). It expires after 7 days; after that your instructor has to send
+              a new one.
             </li>
             <li>
               Commit and push your work to the <code>draft</code> branch of your repository.
@@ -899,8 +900,8 @@ function SubmissionTab({
           <Lock className="size-4" />
           <AlertTitle>This can no longer be changed</AlertTitle>
           <AlertDescription>
-            Your instructor is reviewing what you handed in, so it is fixed while they work. Once
-            their feedback arrives you can hand in revised work and ask for another look.
+            Your instructor is reviewing it. Once their feedback arrives you can hand in revised
+            work.
           </AlertDescription>
         </Alert>
       )}
@@ -937,9 +938,9 @@ function SubmissionTab({
           <AlertDescription className="flex flex-col items-start gap-3">
             <p>
               Your feedback describes commit {shortSha(submission.gradedHeadSha)}; your repository
-              is now at {shortSha(submission.headSha)}. Pushing on its own does not ask for another
-              review — when you are finished, press <strong>Ask for another review</strong> at the
-              top of this panel, beside your score.
+              is now at {shortSha(submission.headSha)}. Pushing does not ask for another review.
+              When you are finished, press <strong>Ask for another review</strong> at the top of
+              this panel.
             </p>
           </AlertDescription>
         </Alert>
@@ -978,10 +979,9 @@ function SubmissionTab({
               </>
             ) : (
               <>
-                Your feedback is on the tab beside this one. Push your improved work to the same
-                pull request, and an <strong>Ask for another review</strong> button will appear at
-                the top of this panel, beside your score — your instructor sees a student still
-                working until you press it.
+                Push your improved work to the same pull request. An{" "}
+                <strong>Ask for another review</strong> button then appears at the top of this
+                panel; your instructor does not look again until you press it.
               </>
             )}
           </AlertDescription>
@@ -1081,8 +1081,8 @@ function TaskCompletion({
             </>
           ) : (
             <>
-              There is nothing to hand in, and this is not one you mark yourself. Do it, then let
-              your instructor know — they will mark it once they have checked it.
+              There is nothing to hand in. Do it, then let your instructor know; they mark it once
+              they have checked it.
             </>
           )}
         </p>
@@ -1137,8 +1137,8 @@ function TaskCompletion({
       ) : (
         <>
           <p className="text-sm text-muted-foreground">
-            There is nothing to hand in. Mark it done and your instructor will see it
-            {assignment.teamSet ? " — one of you marking it counts for the whole team" : ""}.
+            There is nothing to hand in. Mark it done and your instructor will see it.
+            {assignment.teamSet ? " One member marking it counts for the whole team." : ""}
           </p>
           <div>
             <Button
@@ -1258,8 +1258,8 @@ function HandInForms({
   if (held >= MAX_SUBMISSION_ARTIFACTS) {
     return (
       <p className="text-sm text-muted-foreground">
-        This submission holds {MAX_SUBMISSION_ARTIFACTS} attachments, which is the most it can.
-        Remove one to add another.
+        This submission holds the maximum of {MAX_SUBMISSION_ARTIFACTS} attachments. Remove one
+        to add another.
       </p>
     );
   }
@@ -1275,18 +1275,6 @@ function HandInForms({
           // picker rather than after ten of them have climbed a home connection.
           remaining={MAX_SUBMISSION_ARTIFACTS - held}
         />
-      )}
-
-      {/*
-        The one thing about a list of attachments that is not obvious: adding does not replace, so
-        a wrong link stays wrong until it is taken off. Said once, below both forms, and only where
-        something is already attached — before that there is nothing for a student to act on.
-      */}
-      {held > 0 && (
-        <p className="text-xs text-muted-foreground">
-          Your instructor sees everything on this list. Adding something does not replace what is
-          already here — use Remove for that.
-        </p>
       )}
 
       {/*
@@ -1353,9 +1341,8 @@ function AddLinkForm({ assignmentId, kind }: { assignmentId: string; kind: Assig
           </>
         ) : (
           <>
-            Paste the link to your finished work, and{" "}
-            <strong>check that the sharing settings let your instructor open it</strong> — a private
-            link looks like nothing was submitted.
+            Paste the link to your work and check that your instructor can open it. A private link
+            looks like nothing was submitted.
           </>
         )}
       </p>
@@ -1553,7 +1540,7 @@ function UploadWorkForm({
       </label>
       <p className="text-sm text-muted-foreground">
         {describeAcceptedTypes(acceptedFileTypes)}, up to {formatBytes(MAX_UPLOAD_BYTES)} each. You
-        can choose more than one. Your instructor is the only person who can open them.
+        can choose more than one. Only you, your team, and your instructors can open them.
       </p>
       <div className="flex flex-wrap items-center gap-2">
         <input

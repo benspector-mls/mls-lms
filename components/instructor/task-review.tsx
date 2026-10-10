@@ -95,9 +95,11 @@ export function TaskReview({
               </>
             ) : isComplete === false ? (
               <>
-                You marked this not done
-                {markedAt ? ` on ${formatDateTime(markedAt)}` : ""}. They can see that, and can mark
-                it done again once they have redone it.
+                Marked not done
+                {markedAt ? ` on ${formatDateTime(markedAt)}` : ""}.{" "}
+                {selfMarked
+                  ? "They can see that and can mark it done again once they have redone it."
+                  : "They can see that; you mark it done once they have redone it."}
               </>
             ) : selfMarked ? (
               <>Nobody has marked this yet.</>
@@ -140,9 +142,9 @@ export function TaskReview({
           </div>
 
           <p className="text-xs text-muted-foreground">
-            Marking it not done is what sends it back: it shows on their dashboard as needing
-            another attempt, and they cannot clear it themselves. Say why below.
-            {!selfMarked && " Fellows cannot mark this task at all — every verdict on it is yours."}
+            Not done sends it back: it shows on their dashboard under Needs another attempt. Say why
+            in the comments below.
+            {!selfMarked && " Fellows cannot mark this task; both verdicts are yours."}
           </p>
         </CardContent>
       </Card>

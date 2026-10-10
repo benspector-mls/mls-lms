@@ -119,8 +119,7 @@ export function GcfAttemptDialog({
         <DialogHeader>
           <DialogTitle>{student ? studentLabel(student) : "Record a GCF attempt"}</DialogTitle>
           <DialogDescription>
-            An attempt is identified by the fellow, the kind, and the day. Recording one that is
-            already on file updates it rather than adding a second.
+            Recording an attempt for the same fellow, kind, and day updates the existing one.
           </DialogDescription>
         </DialogHeader>
 
@@ -329,8 +328,8 @@ function AttemptRow({
 
       {attempt.integrityFlagged && !attempt.note && !editing && (
         <p className="text-xs text-amber-700 dark:text-amber-300">
-          CodeSignal flagged this and the fellow can see that. Write a note saying what it was about
-          — without one they have a mark on their record and nothing to go on.
+          CodeSignal flagged this, and the fellow can see the flag. Add a note saying what it was
+          about.
         </p>
       )}
 

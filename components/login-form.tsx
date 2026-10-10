@@ -50,8 +50,7 @@ export function LoginForm({ className, ...props }: React.ComponentPropsWithoutRe
         <CardHeader>
           <CardTitle className="text-2xl">Sign in</CardTitle>
           <CardDescription>
-            The Marcy Lab School LMS uses your GitHub account — the same one you push your
-            assignments from.
+            Use the GitHub account you push your assignments from.
           </CardDescription>
         </CardHeader>
         <CardContent className="flex flex-col gap-4">

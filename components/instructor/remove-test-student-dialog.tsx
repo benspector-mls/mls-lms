@@ -87,8 +87,7 @@ export function RemoveTestStudentDialog({
         <DialogHeader>
           <DialogTitle>Delete {name}?</DialogTitle>
           <DialogDescription>
-            The account goes, along with everything it accepted or submitted in every program, and
-            the repositories it generated are deleted from GitHub. Its number is never reused.
+            Deletes the account, its work in every program, and its repositories on GitHub.
           </DialogDescription>
         </DialogHeader>
 

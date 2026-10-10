@@ -59,10 +59,7 @@ export function CourseSettings({ data }: { data: Data }) {
         <div className="flex items-start gap-2 rounded-lg border border-border bg-muted/40 px-4 py-3 text-sm">
           <Archive className="mt-0.5 size-4 shrink-0 text-muted-foreground" />
           <p className="text-muted-foreground">
-            This course is archived. It is off everyone&apos;s active course list and its
-            submissions are out of grading triage. Everything stays readable to the people who were
-            in it — the gradebook, and every assignment&apos;s own queue — and nothing new can be
-            handed in.
+            This course is archived. Everything stays readable, but nothing new can be handed in.
           </p>
         </div>
       )}
@@ -136,14 +133,11 @@ function NameCard({ data }: { data: Data }) {
   const changed = trimmed !== data.course.name;
 
   return (
-    <section id="name" className="scroll-mt-(--outline-offset) flex flex-col gap-3 rounded-lg border border-border p-4">
-      <div className="flex flex-col gap-1">
-        <h2 className="text-sm font-medium">Course name</h2>
-        <p className="text-xs text-muted-foreground">
-          What fellows see on their course list, what every heading in it says, and what a
-          subscribed calendar names beside each deadline. Changing it changes all of them.
-        </p>
-      </div>
+    <section
+      id="name"
+      className="scroll-mt-(--outline-offset) flex flex-col gap-3 rounded-lg border border-border p-4"
+    >
+      <h2 className="text-sm font-medium">Course name</h2>
 
       <form
         className="flex flex-wrap items-end gap-2"
@@ -178,11 +172,6 @@ function NameCard({ data }: { data: Data }) {
           </Button>
         )}
       </form>
-
-      <p className="text-xs text-muted-foreground">
-        The short name below is a different thing and cannot be changed — it is already in the name
-        of every repository this course has generated.
-      </p>
     </section>
   );
 }
@@ -221,16 +210,19 @@ function PublishCard({ data }: { data: Data }) {
   );
 
   return (
-    <section id="visibility" className="scroll-mt-(--outline-offset) flex flex-col gap-3 rounded-lg border border-border p-4">
+    <section
+      id="visibility"
+      className="scroll-mt-(--outline-offset) flex flex-col gap-3 rounded-lg border border-border p-4"
+    >
       <div className="flex flex-col gap-1">
         <h2 className="text-sm font-medium">
           {published ? "Visible to fellows" : "Not published"}
         </h2>
-        <p className="text-xs text-muted-foreground">
-          {published
-            ? `Everybody on the ${data.course.program.term} roster can open this course, see its published assignments, and hand work in.`
-            : `Only this program's instructors can see this course. Everybody on the ${data.course.program.term} roster is already a student of it — publishing is what lets them find it.`}
-        </p>
+        {published && (
+          <p className="text-xs text-muted-foreground">
+            {`Everybody on the ${data.course.program.term} roster can open this course, see its published assignments, and hand work in.`}
+          </p>
+        )}
       </div>
 
       {!data.callerActsAsOwner ? (
@@ -239,8 +231,8 @@ function PublishCard({ data }: { data: Data }) {
           cannot be used is a question; the answer here is a fact about who to ask.
         */
         <p className="text-xs text-muted-foreground">
-          Only {ownerNameIn(data)} can {published ? "unpublish" : "publish"} this course, because
-          they own the program. Everything you author in it is yours as much as theirs.
+          Only {ownerNameIn(data)}, who owns the program, can{" "}
+          {published ? "unpublish" : "publish"} this course.
         </p>
       ) : (
         <Button
@@ -257,9 +249,7 @@ function PublishCard({ data }: { data: Data }) {
 
       {published && (
         <p className="text-xs text-muted-foreground">
-          Unpublishing takes it off their list again and leaves everything in it untouched. Use it
-          for a course that went out early; a course that has finished should be archived instead,
-          so the people who did the work keep it in their record.
+          Archive a finished course instead of hiding it, so fellows keep it in their record.
         </p>
       )}
     </section>
@@ -312,13 +302,16 @@ function CourseTestCard({ data }: { data: Data }) {
   );
 
   return (
-    <section id="test" className="scroll-mt-(--outline-offset) flex flex-col gap-3 rounded-lg border border-border p-4">
+    <section
+      id="test"
+      className="scroll-mt-(--outline-offset) flex flex-col gap-3 rounded-lg border border-border p-4"
+    >
       <div className="flex flex-col gap-1">
         <h2 className="text-sm font-medium">{isTest ? "A test course" : "A real course"}</h2>
         <p className="text-xs text-muted-foreground">
           {isTest
-            ? "Nothing in this course reaches Salesforce — not its assignments, not its registrations, not a single grade. Everything else about it works normally."
-            : "This course, its assignments and every grade in it are sent to Salesforce. Mark it as a test if it exists to try something out."}
+            ? "Nothing in this course is sent to Salesforce."
+            : "Mark as a test to keep this course out of Salesforce."}
         </p>
       </div>
 
@@ -330,7 +323,7 @@ function CourseTestCard({ data }: { data: Data }) {
         onClick={() => setTest.mutate({ courseId: data.course.id, isTest: !isTest })}
       >
         <FlaskConical data-icon="inline-start" />
-        {isTest ? "This is a real course" : "Mark as a test course"}
+        {isTest ? "Mark as a real course" : "Mark as a test course"}
       </Button>
     </section>
   );
@@ -344,15 +337,11 @@ function RepositoryNamingCard({ data }: { data: Data }) {
   });
 
   return (
-    <section id="short-name" className="scroll-mt-(--outline-offset) flex flex-col gap-3 rounded-lg border border-border p-4">
-      <div className="flex flex-col gap-1">
-        <h2 className="text-sm font-medium">Short name</h2>
-        <p className="text-xs text-muted-foreground">
-          Every repository this course generates is named after it. It carries the course and the
-          term, which is what keeps two courses of one program — and two years of the same course —
-          apart on GitHub.
-        </p>
-      </div>
+    <section
+      id="short-name"
+      className="scroll-mt-(--outline-offset) flex flex-col gap-3 rounded-lg border border-border p-4"
+    >
+      <h2 className="text-sm font-medium">Short name</h2>
 
       <div className="flex flex-wrap items-center gap-2">
         <code className="rounded-md border border-border bg-muted/40 px-3 py-2 font-mono text-sm">
@@ -381,15 +370,11 @@ function RepositoryNamingCard({ data }: { data: Data }) {
       <p className="text-xs text-muted-foreground">
         {data.acceptedCount > 0 ? (
           <>
-            It cannot be changed. {data.acceptedCount}{" "}
-            {data.acceptedCount === 1 ? "repository has" : "repositories have"} already been
-            generated under it, and renaming here would not rename any of them.
+            Cannot be changed: {data.acceptedCount}{" "}
+            {data.acceptedCount === 1 ? "repository is" : "repositories are"} already named with it.
           </>
         ) : (
-          <>
-            It is settled when the course is created and cannot be changed afterwards. Nothing has
-            been generated under it yet, so a course created by mistake is best created again.
-          </>
+          <>Cannot be changed after the course is created.</>
         )}
       </p>
 
@@ -427,24 +412,24 @@ function RepositoryNamingCard({ data }: { data: Data }) {
 function TeachingCard({ data }: { data: Data }) {
   const assigned = new Set(data.course.instructors.map((row) => row.userId));
   const teaching = data.course.program.instructors.filter((row) => assigned.has(row.user.id));
-  const others = data.course.program.instructors.filter((row) => !assigned.has(row.user.id));
 
   return (
-    <section id="instructors" className="scroll-mt-(--outline-offset) flex flex-col gap-3 rounded-lg border border-border p-4">
+    <section
+      id="instructors"
+      className="scroll-mt-(--outline-offset) flex flex-col gap-3 rounded-lg border border-border p-4"
+    >
       <div className="flex flex-col gap-1">
         <h2 className="text-sm font-medium">Who teaches this course</h2>
         <p className="text-xs text-muted-foreground">
-          Every instructor of {data.course.program.name} · {data.course.program.term} can author in
-          this course, read every fellow&apos;s work, and approve grades. Being named here decides
-          whose course it is called, who is added as a collaborator on the repositories it
-          generates, and which course their screens open on.
+          Being named here adds you as a collaborator on the course&apos;s repositories and makes it
+          the course your screens open on. Every instructor of the program can work in it
+          regardless.
         </p>
       </div>
 
       {teaching.length === 0 ? (
         <p className="text-xs text-muted-foreground">
-          Nobody is assigned to this course yet. Fellows see no instructor named on it, and nobody
-          is added as a collaborator on the repositories it generates.
+          Nobody is assigned yet, so nobody is added as a collaborator on its repositories.
         </p>
       ) : (
         <ul className="flex flex-col gap-1">
@@ -461,13 +446,6 @@ function TeachingCard({ data }: { data: Data }) {
       )}
 
       <p className="text-xs text-muted-foreground">
-        {others.length > 0 && (
-          <>
-            {countLabel(others.length, "other instructor")} of this program{" "}
-            {others.length === 1 ? "is" : "are"} not named on this course, and can still work in
-            it.{" "}
-          </>
-        )}
         <Link
           href={programSettingsHref(data.course.program.id)}
           className="underline underline-offset-4"
@@ -531,20 +509,22 @@ function ArchiveCard({
   );
 
   return (
-    <section id="archive" className="scroll-mt-(--outline-offset) flex flex-col gap-3 rounded-lg border border-border p-4">
+    <section
+      id="archive"
+      className="scroll-mt-(--outline-offset) flex flex-col gap-3 rounded-lg border border-border p-4"
+    >
       <div className="flex flex-col gap-1">
         <h2 className="text-sm font-medium">{archived ? "Reopen" : "Archive"} this course</h2>
         <p className="text-xs text-muted-foreground">
           {archived
             ? `${name} is archived. Reopening puts it back on everyone's active course list and lets work be handed in again.`
-            : "Archiving takes the course off everyone’s active course list and its submissions out of grading triage. Fellows keep reading their feedback, and nothing new can be handed in. It is reversible, and it leaves the rest of the program running."}
+            : "Fellows keep their feedback, but nothing new can be handed in. This can be undone; the rest of the program is unaffected."}
         </p>
       </div>
 
       {!canArchive ? (
         <p className="text-xs text-muted-foreground">
-          Only {ownerName} can {archived ? "reopen" : "archive"} this course, because they own the
-          program. Everything else you do in it is yours as much as theirs.
+          Only {ownerName}, who owns the program, can {archived ? "reopen" : "archive"} this course.
         </p>
       ) : archived ? (
         <Button
@@ -667,14 +647,15 @@ function DeleteCourseCard({
 
   if (!open) {
     return (
-      <section id="delete" className="scroll-mt-(--outline-offset) flex flex-col gap-3 rounded-lg border border-destructive/40 p-4">
+      <section
+        id="delete"
+        className="scroll-mt-(--outline-offset) flex flex-col gap-3 rounded-lg border border-destructive/40 p-4"
+      >
         <div className="flex flex-col gap-1">
           <h2 className="text-sm font-medium">Delete this course</h2>
           <p className="text-xs text-muted-foreground">
-            Permanent. {name} and everything in it — assignments, submissions, grades, and the
-            feedback that was given — go, and the database&apos;s own backups are the only way back.
-            The roster, the cohorts and the attendance belong to the program and stay. Archiving is
-            the reversible version and this course is already archived.
+            Permanently deletes {name} with its assignments, submissions, grades, and feedback. The
+            roster, cohorts, and attendance belong to the program and stay. This cannot be undone.
           </p>
         </div>
         <Button
@@ -691,12 +672,14 @@ function DeleteCourseCard({
   }
 
   return (
-    <section id="delete" className="scroll-mt-(--outline-offset) flex flex-col gap-3 rounded-lg border border-destructive/40 p-4">
+    <section
+      id="delete"
+      className="scroll-mt-(--outline-offset) flex flex-col gap-3 rounded-lg border border-destructive/40 p-4"
+    >
       <div className="flex flex-col gap-1">
         <h2 className="text-sm font-medium">Delete {name}?</h2>
         <p className="text-xs text-muted-foreground">
-          There is no undo and no recovery path here. The database&apos;s own backups are the only
-          way back.
+          This cannot be undone.
         </p>
       </div>
 
@@ -759,10 +742,6 @@ function DeleteCourseCard({
               placeholder={impact.data.slug}
               onChange={(event) => setTyped(event.target.value)}
             />
-            <p className="text-xs text-muted-foreground">
-              The course&apos;s short name, not its name — every year of this program runs a course
-              called {name}.
-            </p>
           </div>
         </>
       ) : (

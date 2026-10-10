@@ -335,8 +335,8 @@ function StartCard({
         <div className="flex min-w-0 flex-col gap-0.5">
           <span className="text-sm font-medium">{formatSchoolDay(day)} is not a class day</span>
           <span className="text-xs text-muted-foreground">
-            It was removed, or it falls outside the dates on the settings screen. Making it gives it
-            the program&rsquo;s usual start time, and its code works from two hours before that.
+            It was removed, or it is outside the program&apos;s dates. Adding it uses the
+            program&apos;s usual start time; check-in opens two hours before.
           </span>
         </div>
         <Button size="sm" disabled={busy} onClick={onPrepare}>
@@ -353,8 +353,8 @@ function StartCard({
         <span className="text-sm font-medium">No check-in yet for {formatSchoolDay(day)}</span>
         <span className="text-xs text-muted-foreground">
           {isToday
-            ? "Starting it puts a code on the screen. Fellows check in with it until you end check-in, or for eight hours. Make the code first if you want to write it up before class — nobody can check in until you start."
-            : "Starting it lets you record this day by hand. No code will be useful this long after the fact."}
+            ? "Start check-in to show the code. It works until you end check-in, or for eight hours. Make the code first to write it up before class; nobody can check in until you start."
+            : "Start it to record this day by hand."}
         </span>
       </div>
       <div className="flex flex-wrap items-center gap-2">
@@ -422,8 +422,8 @@ function SessionHeader({
           <span className="text-xs text-muted-foreground">
             {pending ? (
               <>
-                The code is ready and check-in has not started. Fellows cannot check in yet, and
-                being on time is measured from when you start it.
+                The code is ready. Fellows cannot check in until you start, and lateness is measured
+                from then.
               </>
             ) : scheduled && session.opensAt ? (
               /*
@@ -554,9 +554,8 @@ function SessionHeader({
       {confirmingDelete ? (
         <div className="flex flex-col gap-2 rounded-md border border-amber-500/40 p-3">
           <span className="text-xs text-amber-700 dark:text-amber-300">
-            Deleting this session removes it from every fellow&apos;s record and from the export, as
-            though the program never met. Use this for a session started on the wrong day, or for a
-            code made for a class that then did not happen.
+            Deletes this session from every fellow&apos;s record and from the export. Use it for a
+            session started on the wrong day or a class that did not happen.
           </span>
           <div className="flex gap-2">
             <Button
@@ -646,8 +645,8 @@ function CodeCard({ sessionId, endsAt }: { sessionId: string; endsAt: Date | nul
           </span>
           <span className="text-xs text-muted-foreground">
             {endsAt
-              ? `Give this out once — it works until ${formatSchoolTime(endsAt)}`
-              : "Write it up now. It will not work until you start check-in, and it will not change when you do."}
+              ? `Works until ${formatSchoolTime(endsAt)}.`
+              : "It will not work until you start check-in, and it will not change when you do."}
           </span>
         </div>
 
@@ -678,9 +677,8 @@ function CodeCard({ sessionId, endsAt }: { sessionId: string; endsAt: Date | nul
       {confirmingReplace ? (
         <div className="flex flex-col gap-2 rounded-md border border-amber-500/40 p-3">
           <span className="text-xs text-amber-700 dark:text-amber-300">
-            Replacing the code stops the current one working for everybody, including fellows who
-            are typing it now. Use this if the code has reached somebody who is not in class, and
-            give the new one out afterwards.
+            Replacing the code stops the current one working at once, even for fellows typing it
+            now. Give the new one out afterwards.
           </span>
           <div className="flex gap-2">
             <Button

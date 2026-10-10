@@ -121,7 +121,7 @@ export function Overview({
           <div className="flex flex-col gap-0.5">
             <h3 className="text-sm font-medium">Removed students</h3>
             <p className="text-xs text-muted-foreground">
-              No longer in the cohort, and not counted in any figure above.
+              Not counted in any figure above.
             </p>
           </div>
           <OverviewTable
@@ -187,9 +187,7 @@ function NeedsAConversation({
           Missed or handed in late {ASSIGNMENT_DRIFT_RULE.slippedAtLeast} or more of the last{" "}
           {ASSIGNMENT_DRIFT_RULE.dueOf} assignments due, or fell short on{" "}
           {ASSIGNMENT_DRIFT_RULE.incompleteAtLeast} or more of their last{" "}
-          {ASSIGNMENT_DRIFT_RULE.gradedOf} graded. Recent rather than cumulative, because somebody
-          who finished every module in September and has handed nothing in this fortnight is the
-          person to talk to today.
+          {ASSIGNMENT_DRIFT_RULE.gradedOf} graded.
         </HelpTip>
       </h3>
 

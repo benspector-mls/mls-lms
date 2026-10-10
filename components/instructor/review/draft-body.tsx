@@ -132,7 +132,7 @@ export function DraftBody({
         icon={Loader2}
         spin
         title="Generating the report"
-        description="A run is in progress. It reads the submission against the rubric and takes up to a couple of minutes."
+        description="Reading the submission against the rubric. This takes up to a couple of minutes."
       />
     );
   }
@@ -145,8 +145,8 @@ export function DraftBody({
           <AlertTitle>The grading run failed</AlertTitle>
           <AlertDescription className="flex flex-col gap-2">
             <p>
-              It failed before producing a report. This is an infrastructure error and not a score
-              of zero — nothing has been sent to the student.
+              No report was produced and nothing was sent to the student. This is not a score of
+              zero.
             </p>
             {draft.errorDetail && (
               <pre className="mt-1 max-h-40 overflow-auto rounded-md border border-destructive/30 bg-destructive/5 p-3 font-mono text-xs whitespace-pre-wrap text-destructive">
@@ -234,12 +234,12 @@ export function DraftBody({
           <AlertTitle>This report describes older code</AlertTitle>
           <AlertDescription className="flex flex-col items-start gap-3">
             <p>
-              The report was written against <code>{shortSha(editorDraft.headSha)}</code>, and the
-              pull request is now at <code>{shortSha(data.currentHeadSha)}</code>. Approving is
-              refused while that is true —{" "}
+              The report describes commit <code>{shortSha(editorDraft.headSha)}</code>; the pull
+              request is now at <code>{shortSha(data.currentHeadSha)}</code>. It cannot be approved
+              until{" "}
               {editorDraft.modelMetadata === null
-                ? "start again from this text, at the foot of the form, to carry what you wrote onto the newer commit."
-                : "generate a new report so the grade describes the code that is there."}
+                ? "you start again from this text, at the foot of the form."
+                : "a new report is generated."}
             </p>
           </AlertDescription>
         </Alert>
@@ -316,7 +316,7 @@ function NothingToScore() {
       icon={PencilLine}
       tone="warning"
       title="There is nothing here to score"
-      description="This assignment is graded by hand, but none of its sections carries both a name and a point value, so there is nothing to score out of. Correct the assignment's sections, then grade this."
+      description="None of this assignment's sections has both a name and a point value, so there is nothing to score. Fix the sections on the assignment, then grade this."
     />
   );
 }
@@ -376,8 +376,8 @@ function WithheldFilesNotice({ draft }: { draft: Draft }) {
       <AlertDescription className="flex flex-col gap-2">
         <p>
           {secret
-            ? "The student committed an environment file or a private key. It was not sent to the model, and it is still in the repository — deleting it does not remove it from the history, so tell the student to replace the credential itself."
-            : "These are build output, dependency trees, or editor files, so the model never saw them. Nothing in the report rests on them."}
+            ? "The student committed an environment file or private key. It was not sent to the model. Deleting the file does not remove it from the repository's history, so tell the student to replace the credential."
+            : "Build output, dependency trees, or editor files. The model did not read them."}
         </p>
         <ul className="ml-4 list-disc text-sm">
           {reasons.map(([reason, number]) => (
@@ -474,10 +474,9 @@ function GeneratePanel({
           {title}
         </CardTitle>
         <CardDescription>
-          Runs the assignment&apos;s tests if they have not run at this commit, then reads the
-          submission against the rubric and drafts per-section feedback. It records no grade and
-          posts nothing — you review the result first.
-          {onWrite && " Or write the report yourself, scored out of the same sections."}
+          Runs the tests if they have not run at this commit, then drafts feedback for each
+          section. Nothing is recorded or sent until you approve it.
+          {onWrite && " Or write the report yourself."}
         </CardDescription>
       </CardHeader>
       <CardContent className="flex flex-col gap-3">
@@ -511,8 +510,8 @@ function GeneratePanel({
 
           {generate.isPending && (
             <span className="text-sm text-muted-foreground">
-              A couple of minutes: the test suite takes about half a minute, then the report is
-              written. Leaving the page cancels nothing — it finishes and the report appears here.
+              This takes a couple of minutes. You can leave the page; the report appears here when
+              it is done.
             </span>
           )}
 

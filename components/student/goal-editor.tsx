@@ -157,7 +157,7 @@ export function GoalEditor({
       />
       <Part
         label="Action plan"
-        hint="Before the next coaching session, what will you do — resources to review, reflections to write, people to ask?"
+        hint="What will you do before the next coaching session: resources to review, reflections to write, people to ask?"
         value={actionPlan}
         onChange={setActionPlan}
       />

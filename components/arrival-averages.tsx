@@ -77,9 +77,8 @@ export function ArrivalAveragesPanel({
       </div>
 
       <p className="text-xs text-muted-foreground">
-        Only mornings they checked in are counted, so an absence neither raises nor lowers these.
-        The day of the week comes from the session rather than from the moment they typed the code.
-        A weekday with fewer than {MIN_ARRIVALS} check-ins shows no average.
+        Only mornings they checked in are counted. A weekday with fewer than {MIN_ARRIVALS}{" "}
+        check-ins shows no average.
       </p>
     </div>
   );

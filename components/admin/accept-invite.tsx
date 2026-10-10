@@ -124,8 +124,7 @@ export function AcceptInvite({
       <h1 className="text-xl font-semibold text-balance">Become an instructor</h1>
 
       <p className="text-sm text-muted-foreground">
-        Accepting lets you create cohorts, author assignments, and read and grade the work of every
-        student in every course you are added to.
+        Accepting makes you an instructor.
       </p>
 
       {alreadyStaff && (

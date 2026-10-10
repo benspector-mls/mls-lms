@@ -196,7 +196,7 @@ export function NewCourseDialog({
         <div className="flex flex-col gap-0.5">
           <span className="text-sm font-medium">Create this course?</span>
           <span className="text-xs text-muted-foreground">
-            The short name is set here and cannot be changed afterwards.
+            The short name cannot be changed later.
           </span>
         </div>
 
@@ -309,9 +309,9 @@ export function NewCourseDialog({
           <p className="text-xs text-destructive">{slugProblem}</p>
         ) : (
           <p className="text-xs text-muted-foreground">
-            Every repository this course generates is named{" "}
-            <code>{effectiveSlug || "short-name"}-assignment-githubname</code>. It cannot be changed
-            after the course is created.
+            Names every repository:{" "}
+            <code>{effectiveSlug || "short-name"}-assignment-githubname</code>. Cannot be changed
+            later.
           </p>
         )}
       </div>
@@ -344,7 +344,7 @@ export function NewCourseDialog({
           </Select>
           <p className="text-xs text-muted-foreground">
             {copyFrom
-              ? "Its modules and assignments come across unpublished, with due dates cleared."
+              ? "Copies arrive unpublished, with due dates cleared."
               : "Modules and assignments are added afterwards."}
           </p>
         </div>

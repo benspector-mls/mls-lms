@@ -114,8 +114,8 @@ export function ExpectedStudents({ programId, entries }: { programId: string; en
           <label className="flex flex-col gap-1.5">
             <span className="text-sm font-medium">One student per line</span>
             <span className="text-xs text-muted-foreground">
-              A GitHub username, an email address, or both with a name — separated by commas or
-              tabs, in any order. Paste straight from a spreadsheet.
+              A GitHub username, an email address, or both, with an optional name. Separate with
+              commas or tabs, or paste from a spreadsheet.
             </span>
             <Textarea
               className="mt-1 min-h-32 font-mono text-xs"

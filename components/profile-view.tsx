@@ -127,13 +127,7 @@ function NameCard({ profile }: { profile: Profile }) {
 
   return (
     <section id="name" className="scroll-mt-(--outline-offset) flex flex-col gap-4 rounded-lg border border-border p-4">
-      <div className="flex flex-col gap-1">
-        <h2 className="text-sm font-medium">Your name</h2>
-        <p className="text-xs text-muted-foreground">
-          What instructors and classmates see: on a cohort&apos;s roster, on the gradebook, and
-          beside every piece of work you hand in. Set it to the name you want to be called by.
-        </p>
-      </div>
+      <h2 className="text-sm font-medium">Your name</h2>
 
       {/*
         A real form, so the return key saves. The field is the only one on it, and a single-input
@@ -317,10 +311,10 @@ function CalendarCard({ calendarToken }: { calendarToken: string | null }) {
       <div className="flex flex-col gap-1">
         <h2 className="text-sm font-medium">Due dates in your own calendar</h2>
         <p className="text-xs text-muted-foreground">
-          Add this address to Google Calendar, Apple Calendar, or Outlook once, and every deadline
-          from every cohort you are in appears there — including work published after you subscribe,
-          and deadlines an instructor moves. It carries assignment titles and due dates only: no
-          grades, no feedback, and nothing about what you have handed in.
+          Add this address to Google Calendar, Apple Calendar, or Outlook, and every deadline from
+          every program you are in appears there and stays up to date. The feed carries assignment
+          titles, due dates, and course names only: no grades, no feedback, and nothing about what
+          you have handed in.
         </p>
       </div>
 
@@ -371,13 +365,12 @@ function CalendarCard({ calendarToken }: { calendarToken: string | null }) {
           */}
           <p className="text-xs text-muted-foreground">
             <span className="font-medium text-foreground">
-              Subscribe to the address — do not import a file.
+              Subscribe to the address; do not import it as a file.
             </span>{" "}
-            In Google Calendar that is{" "}
-            <span className="font-medium">Other calendars → From URL</span>, not Import; in Apple
-            Calendar it is <span className="font-medium">File → New Calendar Subscription</span>.
-            Importing copies today&apos;s deadlines in once and never updates again, which looks
-            like it worked.
+            In Google Calendar use <span className="font-medium">Other calendars, then From URL</span>;
+            in Apple Calendar use{" "}
+            <span className="font-medium">File, then New Calendar Subscription</span>. An import
+            copies today&apos;s deadlines once and never updates.
           </p>
 
           {/*
@@ -386,18 +379,16 @@ function CalendarCard({ calendarToken }: { calendarToken: string | null }) {
             has not found a fault; they have found how often a calendar asks.
           */}
           <p className="text-xs text-muted-foreground">
-            A calendar checks for changes roughly once a day, so a deadline that moves tonight may
-            not reach yours until tomorrow. This application is always right about a due date; your
-            calendar catches up. Google offers no way to check now — if you need a change
-            immediately, remove the calendar and add the same address again.
+            Calendars check for changes about once a day, so a moved deadline may not reach yours
+            until tomorrow. To force a refresh in Google Calendar, remove the calendar and add the
+            address again.
           </p>
 
           {confirming ? (
             <div className="flex flex-col gap-2 rounded-md border border-amber-500/40 p-3">
               <span className="text-xs text-amber-700 dark:text-amber-300">
-                The current address stops working immediately. Any calendar you have already
-                subscribed will stop receiving updates, and you will need to add the new address to
-                it. Replace this only if the old one has gone somewhere you did not intend.
+                The current address stops working at once. Any calendar subscribed to it stops
+                updating until you add the new address. This cannot be undone.
               </span>
               <div className="flex gap-2">
                 <Button
@@ -434,8 +425,7 @@ function CalendarCard({ calendarToken }: { calendarToken: string | null }) {
             Create my calendar link
           </Button>
           <p className="text-xs text-muted-foreground">
-            Treat the address as private once it exists. Anyone holding it can read your deadlines —
-            which is why it carries nothing else — and you can replace it here at any time.
+            Keep the address private: anyone holding it can read your deadlines.
           </p>
         </div>
       )}
@@ -759,25 +749,20 @@ const ROLE_LABEL: Record<Profile["role"], string> = {
  * The facts about the account that are not yours to type.
  *
  * Every one of them is settled elsewhere — by the identity provider, by an admin, by the moment
- * you signed up — and each says so. **Naming where a value comes from is what makes a read-only
+ * you signed up — and each row that can change says so. **Naming where a value comes from is what makes a read-only
  * row informative rather than merely disabled**: "Admin" beside a role, with nothing else, invites
  * exactly the question the sentence under it answers.
  */
 function AccountCard({ profile }: { profile: Profile }) {
   return (
     <section id="account" className="scroll-mt-(--outline-offset) flex flex-col gap-4 rounded-lg border border-border p-4">
-      <div className="flex flex-col gap-1">
-        <h2 className="text-sm font-medium">Your account</h2>
-        <p className="text-xs text-muted-foreground">
-          None of this is set here. Each row says what does set it.
-        </p>
-      </div>
+      <h2 className="text-sm font-medium">Your account</h2>
 
       <dl className="flex flex-col gap-3">
         <Fact
           label="Email"
           value={profile.email ?? "—"}
-          note="What you sign in with. This application does not change it — ask an instructor if it is wrong."
+          note="From your GitHub account."
         />
         <Fact
           label="GitHub"
@@ -793,7 +778,7 @@ function AccountCard({ profile }: { profile: Profile }) {
           }
           note={
             profile.githubUsername
-              ? "Recorded when you sign in with GitHub, so renaming your GitHub account reaches this screen the next time you sign in. Repositories already handed to you keep the name they were created with."
+              ? "Updated each time you sign in with GitHub. Repositories already created for you keep the old name."
               : "Sign in with GitHub to link it. Until then, repository-backed assignments have no account to hand a repository to."
           }
         />
@@ -804,12 +789,11 @@ function AccountCard({ profile }: { profile: Profile }) {
               {ROLE_LABEL[profile.role]}
             </Badge>
           }
-          note="Decided by an admin, on the Staff screen. It is what the application checks before every action, so it is not something an account can set about itself."
+          note="Set by an admin on the Staff screen."
         />
         <Fact
           label="Member since"
           value={formatDate(profile.createdAt)}
-          note="When this profile was created, which is the first time you signed in."
         />
       </dl>
     </section>
@@ -837,8 +821,8 @@ function StoredDataCard() {
       </div>
 
       <ul className="flex list-disc flex-col gap-1.5 pl-4 text-xs text-muted-foreground">
-        <li>Your name, email address, and GitHub login — the four rows on this screen.</li>
-        <li>Which cohorts you are in, and which groups within them.</li>
+        <li>Your name, email address, GitHub login, and role.</li>
+        <li>Which programs you are in, and which cohort within each.</li>
         <li>
           The work you hand in: the repository or link or file, when it arrived, and whether it was
           late.
@@ -847,26 +831,26 @@ function StoredDataCard() {
       </ul>
 
       <p className="text-xs text-muted-foreground">
-        Date of birth, home address, phone number, government identifiers, or anything to do with
-        payment are NOT collected by this application.
+        This application does not collect date of birth, home address, phone number, government
+        identifiers, or payment details.
       </p>
       <p className="text-xs text-muted-foreground">
-        Instructors on your cohort can read your work and your grades; nobody outside it can. Code
-        you hand in through a repository also lives on GitHub, in private repositories owned by the
-        Marcy Lab School.
+        Instructors of your program and admins can read your work and your grades; nobody else can.
+        Code you hand in through a repository also lives on GitHub, in private repositories owned by
+        the Marcy Lab School.
       </p>
     </section>
   );
 }
 
-/** One labelled fact, with the sentence that says where it came from. */
-function Fact({ label, value, note }: { label: string; value: React.ReactNode; note: string }) {
+/** One labelled fact, with an optional sentence that says where it came from. */
+function Fact({ label, value, note }: { label: string; value: React.ReactNode; note?: string }) {
   return (
     <div className="flex flex-col gap-0.5 sm:flex-row sm:gap-4">
       <dt className="shrink-0 pt-0.5 text-xs text-muted-foreground sm:w-28">{label}</dt>
       <dd className="flex min-w-0 flex-col gap-0.5">
         <span className="text-sm break-words">{value}</span>
-        <span className="text-xs text-muted-foreground">{note}</span>
+        {note && <span className="text-xs text-muted-foreground">{note}</span>}
       </dd>
     </div>
   );

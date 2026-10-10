@@ -77,7 +77,7 @@ export function StudentAttendanceRecord({ data, today }: { data: Record; today: 
         <p className="text-xs text-muted-foreground">
           Present {summary.present} · Late {summary.late} · Excused {summary.excused} · Absent{" "}
           {summary.absent + summary.unrecorded}
-          {summary.excused > 0 && " — an excused session still counts as one you missed."}
+          {summary.excused > 0 && ". An excused session still counts as missed."}
         </p>
       </section>
 

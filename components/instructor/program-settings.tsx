@@ -26,7 +26,7 @@ import {
   DISCIPLINE_META,
   type Discipline,
 } from "@/lib/competencies";
-import { attendanceHref, competenciesHref, programsHref, triageHref } from "@/lib/links";
+import { competenciesHref, programsHref, triageHref } from "@/lib/links";
 import { displayNameOf } from "@/lib/people";
 import { formatDate } from "@/lib/status";
 import { useTRPC } from "@/trpc/client";
@@ -66,9 +66,7 @@ export function ProgramSettings({ data, courses }: { data: Data; courses: Copyab
         <div className="flex items-start gap-2 rounded-lg border border-border bg-muted/40 px-4 py-3 text-sm">
           <Archive className="mt-0.5 size-4 shrink-0 text-muted-foreground" />
           <p className="text-muted-foreground">
-            This program is archived. Its courses are off everyone&apos;s active list, nothing new
-            can be handed in, no attendance day can be started, and nobody new can join. Everything
-            stays readable.
+            This program is archived. Everything stays readable, but nothing new can be handed in.
           </p>
         </div>
       )}
@@ -76,13 +74,11 @@ export function ProgramSettings({ data, courses }: { data: Data; courses: Copyab
       {/*
         Ordered by how often somebody comes for each. What the program is and what it teaches are
         read in the first week of a term; who instructs it is read when somebody joins or leaves;
-        where attendance lives is read once, by whoever went looking for it here; and ending the
-        year is read at the end of the year.
+        and ending the year is read at the end of the year. Attendance is set up on its own screen.
       */}
       <IdentityCard data={data} />
       <CoursesCard data={data} courses={courses} />
       <ProgramInstructors data={data} />
-      <AttendancePointer data={data} />
       <ArchiveCard data={data} />
       {/*
         Only on an archived program, and only for whoever owns it — the same two conditions the
@@ -230,11 +226,6 @@ function TestProgramField({ data }: { data: Data }) {
 
   return (
     <div className="flex flex-col gap-2">
-      <p className="text-xs text-muted-foreground">
-        {isTest
-          ? "This is a test program. Nothing in it is sent to Salesforce."
-          : "This is a real program, and it is sent to Salesforce. Mark it as a test if it exists only to rehearse a term."}
-      </p>
       <Button
         size="sm"
         variant="outline"
@@ -243,8 +234,13 @@ function TestProgramField({ data }: { data: Data }) {
         onClick={() => setTest.mutate({ programId: data.program.id, isTest: !isTest })}
       >
         <FlaskConical data-icon="inline-start" />
-        {isTest ? "This is a real program" : "Mark as a test program"}
+        {isTest ? "Mark as a real program" : "Mark as a test program"}
       </Button>
+      <p className="text-xs text-muted-foreground">
+        {isTest
+          ? "Nothing in this program is sent to Salesforce."
+          : "Mark as a test to keep this program out of Salesforce."}
+      </p>
     </div>
   );
 }
@@ -376,7 +372,7 @@ function CoursesCard({ data, courses }: { data: Data; courses: CopyableCourses }
         <div className="flex flex-col gap-1">
           <h2 className="text-sm font-medium">Courses</h2>
           <p className="text-xs text-muted-foreground">
-            Everyone on the roster is in every course. Fellows see only the published ones.
+            Everyone on the roster is automatically enrolled in every published course.
           </p>
         </div>
         <NewCourseDialog programId={data.program.id} term={data.program.term} courses={courses} />
@@ -400,45 +396,12 @@ function CoursesCard({ data, courses }: { data: Data; courses: CopyableCourses }
             {list}
           </SortableList>
           <p className="text-xs text-muted-foreground">
-            Drag to reorder. The order is used here and in everyone&apos;s sidebar.
+            The order here is how it will appear for everyone.
           </p>
         </>
       ) : (
         list
       )}
-    </section>
-  );
-}
-
-/**
- * Where attendance is set up, said once on the screen somebody will look first.
- *
- * **Everything about attendance moved to the Attendance screen**, and this line is the cost of
- * that move. When the program meets, what time class starts, and when somebody counts as late
- * were three cards here, among the program's name and its courses — a settings screen holding two
- * unrelated subjects. They belong beside the calendar they produce, and the calendar belongs where
- * an instructor already is on the morning it snows.
- *
- * A sentence rather than a redirect: somebody who opens this screen looking for the lateness rule
- * is not wrong to have looked, and telling them where it went costs one line.
- */
-function AttendancePointer({ data }: { data: Data }) {
-  return (
-    <section
-      id="attendance"
-      className="scroll-mt-(--outline-offset) flex flex-col gap-1 rounded-lg border border-border p-4"
-    >
-      <h2 className="text-sm font-medium">Attendance</h2>
-      <p className="text-xs text-muted-foreground">
-        Meeting days, start time, and the lateness rule are on the{" "}
-        <Link
-          href={attendanceHref(data.program.id)}
-          className="font-medium underline-offset-4 hover:underline"
-        >
-          Attendance screen
-        </Link>{" "}
-        under Schedule.
-      </p>
     </section>
   );
 }
@@ -491,11 +454,12 @@ function ArchiveCard({ data }: { data: Data }) {
         <h2 className="text-sm font-medium">
           {archived ? "Reopen" : "Archive"} {data.program.term}
         </h2>
-        <p className="text-xs text-muted-foreground">
-          {archived
-            ? `Reopening puts its ${countLabel(courseCount, "course")} back on everyone's active list and lets work be handed in again.`
-            : `Archives all ${countLabel(courseCount, "course")}. Fellows keep their feedback, but nothing new can be handed in. This can be undone.`}
-        </p>
+        {!archived && (
+          <p className="text-xs text-muted-foreground">
+            Archives all {countLabel(courseCount, "course")}. Fellows keep their feedback, but
+            nothing new can be handed in. This can be undone.
+          </p>
+        )}
       </div>
 
       {!data.callerActsAsOwner ? (

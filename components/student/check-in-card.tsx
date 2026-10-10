@@ -76,7 +76,7 @@ function CourseCheckIn({ entry }: { entry: Today[number] }) {
                 ? `Marked by ${record.recordedByName}.`
                 : "Recorded by your instructor."}
             {record.status === "LATE" &&
-              " If you were here on time, tell your instructor — they can change this."}
+              " If you were here on time, tell your instructor; they can change it."}
           </span>
         </div>
       </Shell>
@@ -115,7 +115,7 @@ function CourseCheckIn({ entry }: { entry: Today[number] }) {
             Check-in closed for {entry.programName}
           </span>
           <span className="text-xs text-muted-foreground">
-            You are not marked in for today. Speak to your instructor — they can record it.
+            You are not marked in for today. Ask your instructor to record it.
           </span>
         </div>
       </Shell>

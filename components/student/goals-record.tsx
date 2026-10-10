@@ -57,15 +57,15 @@ export function GoalsRecord({
           Before your next coaching session · {data.topics.length}
         </h2>
         <p className="text-xs text-muted-foreground">
-          Things you want to raise with your coach. Add them as they come up during the week; your
-          coach reads them before you meet. Remove a topic once you have talked about it.
+          Things to raise with your coach, who reads them before you meet. Remove a topic once you
+          have talked about it.
         </p>
       </div>
       <CoachingTopics
         topics={data.topics}
         programId={data.program.id}
         editable
-        empty="Nothing yet. A question, a decision, something you want help with — add it here as it comes up."
+        empty="Nothing yet. Add a question, a decision, or something you want help with."
       />
     </section>
   );
@@ -78,7 +78,6 @@ export function GoalsRecord({
           <EmptyState
             icon={<Target />}
             title="No goals yet"
-            description="Set a goal for something you want to get better at — a skill to build, or a habit to break. Your instructor sees it and can talk it through with you in a coaching session."
           />
           <AddGoal programId={data.program.id} groups={groups} />
         </div>
@@ -94,9 +93,7 @@ export function GoalsRecord({
         <div className="flex flex-col gap-0.5">
           <h2 className="text-sm font-medium">Your goals · {data.goals.length}</h2>
           <p className="text-xs text-muted-foreground">
-            Yours to set and change whenever you like. Your instructors can see them, which is what
-            makes them worth talking through in a coaching session, and can write to you under each
-            one.
+            Your instructors can see these and can comment under each one.
           </p>
         </div>
 
@@ -116,8 +113,8 @@ export function GoalsRecord({
           <div className="flex flex-col gap-0.5">
             <h2 className="text-sm font-medium">Coaching history · {data.sessions.length}</h2>
             <p className="text-xs text-muted-foreground">
-              Where things stood at the end of each coaching session — a record of that day, not a
-              live figure.
+              Where things stood at the end of each coaching session. The figures are from that
+              day.
             </p>
           </div>
 
@@ -245,7 +242,7 @@ function GoalRow({
           {goal.actionPlan !== "" && <GoalPart label="Action plan" text={goal.actionPlan} />}
           {!hasPlan && (
             <p className="text-sm text-muted-foreground">
-              You have not written a plan beside this one yet.
+              No plan written yet.
             </p>
           )}
           <GoalUpdates goal={goal} programId={programId} editable />

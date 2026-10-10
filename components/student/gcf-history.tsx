@@ -46,7 +46,7 @@ export function GcfHistory({ attempts }: { attempts: Attempt[] }) {
       <EmptyState
         icon={<Gauge />}
         title="No GCF results yet"
-        description="Once you have sat the General Coding Framework — the real one or a mock — your results appear here."
+        description="Your results appear here once you have taken the General Coding Framework or a mock."
       />
     );
   }
@@ -171,8 +171,8 @@ function AttemptRow({ attempt }: { attempt: Attempt }) {
 
       {attempt.integrityFlagged && !attempt.note && (
         <p className="text-xs text-muted-foreground">
-          CodeSignal flags an attempt for review — it is not a finding. Your instructor can tell you
-          what this one was about.
+          A CodeSignal flag asks for a review; it is not a finding. Ask your instructor what this
+          one was about.
         </p>
       )}
     </li>

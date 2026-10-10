@@ -7,9 +7,9 @@ async function ErrorContent({ searchParams }: { searchParams: Promise<{ error: s
   return (
     <>
       {params?.error ? (
-        <p className="text-sm text-muted-foreground">Code error: {params.error}</p>
+        <p className="text-sm text-muted-foreground">Error code: {params.error}</p>
       ) : (
-        <p className="text-sm text-muted-foreground">An unspecified error occurred.</p>
+        <p className="text-sm text-muted-foreground">No error code was given.</p>
       )}
     </>
   );

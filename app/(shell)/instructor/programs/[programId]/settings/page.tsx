@@ -61,7 +61,6 @@ async function Settings({ params }: { params: Promise<{ programId: string }> }) 
     { id: "courses", label: "Courses" },
     { id: "instructors", label: "Instructors" },
     ...(data.program.courses.length > 0 ? [{ id: "teaching", label: "Who teaches what" }] : []),
-    { id: "attendance", label: "Attendance" },
     { id: "archive", label: archived ? "Reopen" : "Archive" },
     ...(archived && data.callerActsAsOwner ? [{ id: "delete", label: "Delete" }] : []),
   ];

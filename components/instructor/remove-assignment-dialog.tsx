@@ -100,8 +100,8 @@ export function RemoveAssignmentDialog({
         <DialogHeader>
           <DialogTitle>Remove {title}?</DialogTitle>
           <DialogDescription>
-            This cannot be undone from the application. Student repositories on GitHub are left
-            alone, and reported afterwards so they can be dealt with deliberately.
+            This cannot be undone. Student repositories on GitHub are not deleted; they are listed
+            afterwards.
           </DialogDescription>
         </DialogHeader>
 
@@ -144,8 +144,8 @@ export function RemoveAssignmentDialog({
 
             {impact.data.published && (
               <p className="text-sm text-muted-foreground">
-                It is currently visible to students. If the goal is to stop handing it out,
-                unpublishing does that and keeps the work.
+                Students can see this assignment. To stop handing it out without losing the work,
+                unpublish it instead.
               </p>
             )}
           </div>

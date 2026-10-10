@@ -139,8 +139,8 @@ export function InstructorNotes({
             <DialogHeader>
               <DialogTitle>{editing ? "Edit note" : "Add a note"}</DialogTitle>
               <DialogDescription>
-                Staff only — never shown to fellows. A fellow may still ask to read their record, so
-                write what happened and what was decided, as you would say it to them.
+                Never shown to fellows, but a fellow may ask to read their record, so write it as you
+                would say it to them.
               </DialogDescription>
             </DialogHeader>
 

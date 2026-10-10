@@ -120,9 +120,7 @@ export function RenameStudent({
             <DialogHeader>
               <DialogTitle>Edit name</DialogTitle>
               <DialogDescription>
-                This is the one thing on this page that is not about this program. A fellow has one
-                name, so it changes what they are called in every course, every gradebook and on
-                their own Profile screen — and it replaces a name they may have chosen themselves.
+                Changes their name everywhere and replaces any name they chose themselves.
               </DialogDescription>
             </DialogHeader>
 

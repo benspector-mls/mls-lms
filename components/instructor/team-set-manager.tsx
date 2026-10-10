@@ -243,10 +243,8 @@ export function TeamSetManager({
               Team Sets
             </CardTitle>
             <CardDescription className="mt-1">
-              Reusable teams for this course&apos;s team assignments. Each team hands in one piece
-              of work and receives one grade, and every member of a team can see who else is on it.
-              A set holds one division of the roster — make one per project, and point that
-              project&apos;s assignments at it. A fellow is on at most one team of any set.
+              A team hands in one piece of work and gets one grade. A set divides the roster once;
+              make one per project and point that project&apos;s assignments at it.
             </CardDescription>
           </div>
           {!creating && (
@@ -298,7 +296,7 @@ export function TeamSetManager({
 
         {data.sets.length === 0 && !creating ? (
           <p className="rounded-lg bg-muted/40 px-3 py-6 text-center text-sm text-muted-foreground">
-            No team sets yet. Every assignment is handed in by one student until there are.
+            No team sets yet.
           </p>
         ) : (
           data.sets.map((set) => (
@@ -532,10 +530,9 @@ function TeamSetRow({
       {confirmingRemove && (
         <div className="mx-3 mb-2 flex flex-col gap-2 rounded-md border border-destructive/40 p-3">
           <span className="text-xs text-muted-foreground">
-            Removing &ldquo;{set.name}&rdquo; dissolves its {set.teams.length}{" "}
-            {set.teams.length === 1 ? "team" : "teams"}. Nobody leaves the roster and nothing
-            anybody submitted changes. An assignment handed in through this set is refused, because
-            its submissions name these teams.
+            Removes its {set.teams.length} {set.teams.length === 1 ? "team" : "teams"}. Nobody
+            leaves the roster and no submission changes. Refused while any assignment uses this set;
+            point those assignments at another set first.
           </span>
           <div className="flex gap-2">
             <Button
@@ -570,9 +567,8 @@ function TeamSetRow({
             </Button>
             {set.frozen && (
               <span className="text-xs text-muted-foreground">
-                Work has been handed in through this set, so fellows already on a team stay where
-                they are. Fellows on no team can still be placed, and hand in as themselves until
-                they are. For a different arrangement, make a new set.
+                Work has been handed in through this set, so fellows already on a team cannot be
+                moved. Fellows on no team can still be placed.
               </span>
             )}
           </div>
@@ -783,10 +779,9 @@ function TeamCard({
             it and one of them may carry a grade that has gone out.
           */}
           <span className="text-xs text-muted-foreground">
-            Removing &ldquo;{team.name}&rdquo; puts its {fellows.length}{" "}
-            {fellows.length === 1 ? "fellow" : "fellows"} on no team. Nobody leaves the roster and
-            no grade moves. A team that has already handed work in is refused — move its members
-            instead.
+            Puts its {fellows.length} {fellows.length === 1 ? "fellow" : "fellows"} on no team.
+            Nobody leaves the roster. A team that has handed work in cannot be removed; move its
+            members instead.
           </span>
           <div className="flex gap-2">
             <Button
@@ -1137,8 +1132,8 @@ function CreateTeamsPanel({
                 {plan.fellowCount} {plan.fellowCount === 1 ? "fellow" : "fellows"} in teams of{" "}
                 {size}: <span className="font-medium text-foreground">{plan.teamCount}</span>{" "}
                 {plan.teamCount === 1 ? "team" : "teams"}
-                {perGroup && ` (${perGroup})`}. Never a team of one — a leftover fellow joins an
-                existing team.
+                {perGroup && ` (${perGroup})`}. A leftover fellow joins an existing team; there is
+                never a team of one.
                 {set.teams.length > 0 && shortfall > 0 && (
                   <>
                     {" "}

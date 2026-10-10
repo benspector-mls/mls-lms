@@ -62,20 +62,14 @@ export function CompetencyAdmin({ groups }: { groups: Groups }) {
     <div className="flex flex-col gap-4">
       <div className="flex flex-col gap-1 rounded-lg border border-border bg-muted/30 p-4">
         <p className="text-sm">
-          Every program shares this list. A competency reaches a fellow when it is offered to the
-          discipline their program runs, so the competency groups about how somebody works and
-          learns are usually offered to both.
-        </p>
-        <p className="text-xs text-muted-foreground">
-          Goals already set keep the wording they were built on, whatever you change here. Nothing
-          on this screen can alter or remove one.
+          Every program shares this list. A fellow sees a competency when it is offered to their
+          program&apos;s discipline. Changes here do not reach goals already set.
         </p>
       </div>
 
       {groups.length === 0 ? (
         <p className="rounded-lg border border-border px-4 py-8 text-center text-sm text-muted-foreground">
-          There are no competency groups yet. Add the first one — &ldquo;Durable Skills&rdquo;, say
-          — and the competencies go under it.
+          No competency groups yet. Add one, then add competencies under it.
         </p>
       ) : (
         <ul className="flex flex-col gap-3">

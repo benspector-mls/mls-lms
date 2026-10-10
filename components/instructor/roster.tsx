@@ -210,9 +210,8 @@ export function ProgramRoster({
               <div className="flex flex-col gap-0.5">
                 <h3 className="text-sm font-medium">Removed fellows · {removed.length}</h3>
                 <p className="text-xs text-muted-foreground">
-                  Out of the roster&apos;s counts, out of grading triage in every course, and out of
-                  the grading queue. Everything they submitted stays readable, to them and in the
-                  gradebook. Restore puts them back where they were.
+                  Not counted on this roster, in triage, or in the grading queue. Their work stays
+                  readable. Restore puts them back.
                 </p>
               </div>
               <RosterTable {...tableProps} enrollments={removed} />
@@ -236,9 +235,8 @@ export function ProgramRoster({
             <div className="flex min-w-0 flex-col gap-0.5">
               <span className="text-sm font-medium">View this program as a test student</span>
               <span className="text-xs text-muted-foreground">
-                As a test student you can accept work, push to the repository, and submit
-                assignments in any course of this program. Then, you can grade them here. Test
-                students are left out of the roster&apos;s count and out of Performance.
+                A test student can accept, push, and submit in any course, and you can grade it
+                here. Left out of the roster count and Performance.
               </span>
             </div>
             <Button size="sm" variant="outline" onClick={() => setAdding(true)}>
@@ -305,9 +303,8 @@ export function JoinLinkCard({
       <div className="flex flex-col gap-1">
         <span className="text-sm font-medium">Join link</span>
         <span className="text-xs text-muted-foreground">
-          Send this to your fellows however you already talk to them. Anyone who opens it and signs
-          in with GitHub joins this program — and every course in it — so treat it as you would a
-          class password.
+          Anyone who opens this link and signs in with GitHub joins this program and every course
+          in it. Treat it like a class password.
         </span>
       </div>
 
@@ -332,9 +329,8 @@ export function JoinLinkCard({
       {confirming ? (
         <div className="flex flex-col gap-2 rounded-md border border-amber-500/40 p-3">
           <span className="text-xs text-amber-700 dark:text-amber-300">
-            The current link stops working immediately. The {active}{" "}
-            {active === 1 ? "fellow" : "fellows"} already on the roster stay enrolled — anyone who
-            has not joined yet will need the new link.
+            The current link stops working. The {active} {active === 1 ? "fellow" : "fellows"}{" "}
+            already on the roster stay enrolled. Anyone who has not joined yet needs the new link.
           </span>
           <div className="flex gap-2">
             <Button

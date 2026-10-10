@@ -57,7 +57,7 @@ export function AttendanceTerm({ programId, data }: { programId: string; data: T
       <EmptyState
         icon={<CalendarRange />}
         title="No sessions yet"
-        description="Once a day has been held, this is where the term's record builds up. The days still to come are under Schedule."
+        description="Upcoming days are under Schedule."
       />
     );
   }
@@ -77,9 +77,7 @@ export function AttendanceTerm({ programId, data }: { programId: string; data: T
           */}
           <p className="text-xs text-muted-foreground">
             Missed {DRIFT_RULE.missedAtLeast} or more of the last {DRIFT_RULE.missedOf} sessions, or
-            arrived late {DRIFT_RULE.lateAtLeast} times in the last {DRIFT_RULE.lateOf}. Recent
-            rather than cumulative, because somebody at 88 percent who has missed this whole week is
-            the person to call today.
+            late {DRIFT_RULE.lateAtLeast} or more times in the last {DRIFT_RULE.lateOf}.
           </p>
         </div>
 
@@ -133,8 +131,7 @@ export function AttendanceTerm({ programId, data }: { programId: string; data: T
           <div className="flex flex-col gap-0.5">
             <h2 className="text-sm font-medium">No longer on the roster · {data.removed.length}</h2>
             <p className="text-xs text-muted-foreground">
-              Kept because they were here for the sessions above, and counted in none of the figures
-              on this screen. Days after they left read as not enrolled rather than as absences.
+              Not counted in the figures above. Days after they left show as not enrolled.
             </p>
           </div>
           <AttendanceGrid

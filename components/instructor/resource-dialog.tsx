@@ -152,9 +152,7 @@ export function ResourceDialog({
         <DialogHeader>
           <DialogTitle>{resource ? "Edit resource" : "Add a resource"}</DialogTitle>
           <DialogDescription>
-            Readings, notes, and videos, each with an optional check for understanding. Nothing here
-            is graded — a check is answered and reviewed, not marked — and a resource is visible to
-            the cohort as soon as it is saved.
+            Visible to fellows as soon as it is saved. Nothing here is graded.
           </DialogDescription>
         </DialogHeader>
 
@@ -404,7 +402,7 @@ function ResourceForm({
             {videoProblem && (
               <p className="text-xs text-destructive">
                 Only YouTube and Vimeo links can be embedded. Paste the address from the
-                video&apos;s own page — or add it as a Link instead, which accepts any address.
+                video&apos;s own page, or add it as a Link, which accepts any address.
               </p>
             )}
           </div>
@@ -420,9 +418,6 @@ function ResourceForm({
               placeholder="Read the first two sections before Wednesday."
               maxLength={500}
             />
-            <p className="text-xs text-muted-foreground">
-              One line, shown under the title. Anything that wants formatting is a Note.
-            </p>
           </div>
         )}
 
@@ -552,7 +547,7 @@ function MarkdownField({
         />
       )}
       <p className="text-xs text-muted-foreground">
-        {showing ? "This is what your students will see on the course page." : hint}
+        {showing ? "How this will look when rendered." : hint}
       </p>
     </div>
   );
@@ -615,9 +610,8 @@ function CheckSection({
         <span className="flex flex-col gap-0.5">
           <span className="text-sm font-medium">Add a check for understanding</span>
           <span className="text-xs text-muted-foreground">
-            One question about this resource. Each fellow may answer up to {MAX_ATTEMPTS} times, and
-            every answer is reviewed into a level the moment it is handed in. Nothing about it is
-            graded.
+            Each fellow may answer up to {MAX_ATTEMPTS} times; every answer is reviewed into a level
+            as soon as it is handed in.
           </span>
         </span>
       </label>
@@ -640,10 +634,7 @@ function CheckSection({
               placeholder="Explain why a closure can read variables after its outer function returns."
               maxLength={200}
             />
-            <p className="text-xs text-muted-foreground">
-              One line: the learning objective this question checks. Only instructors and the review
-              see it, so it may say plainly what a good answer shows.
-            </p>
+            <p className="text-xs text-muted-foreground">Fellows never see this.</p>
           </div>
 
           <MarkdownField
@@ -667,7 +658,7 @@ function CheckSection({
             onPreviewChange={onPreviewChange}
             rows={4}
             maxLength={10_000}
-            hint="The facts, stated without the connections between them. Only instructors and the review see this."
+            hint="The facts, without the connections between them. Fellows never see this."
           />
 
           <MarkdownField
@@ -681,10 +672,6 @@ function CheckSection({
             maxLength={10_000}
             hint={`The facts and the connections. A fellow sees this after their ${ordinal(MAX_ATTEMPTS)} attempt.`}
           />
-
-          <p className="text-xs text-muted-foreground">
-            A level-1 answer is one that shows neither; there is nothing to write for it.
-          </p>
 
           <div className="flex flex-col gap-2">
             <span className="text-sm font-medium">Wait between attempts</span>
@@ -714,10 +701,6 @@ function CheckSection({
                 hours
               </Label>
             </div>
-            <p className="text-xs text-muted-foreground">
-              How long a fellow waits after one attempt before they may make the next. A wait of 0
-              days and 0 hours lets them try again right away.
-            </p>
           </div>
         </>
       )}

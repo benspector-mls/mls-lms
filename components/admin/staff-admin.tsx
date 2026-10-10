@@ -87,20 +87,6 @@ export function StaffAdmin({
           .join(" · ")}
       />
 
-      {/*
-        Said once, at the top, because both tabs below hand out the same thing and it is the one
-        fact that makes this screen worth being careful on. A cohort's join link admits somebody to
-        one course; this admits them to all of them.
-      */}
-      <div className="flex items-start gap-2 rounded-lg border border-border bg-muted/40 px-4 py-3 text-sm">
-        <ShieldCheck className="mt-0.5 size-4 shrink-0 text-muted-foreground" />
-        <p className="text-muted-foreground">
-          Staff access is not scoped to a cohort. An instructor can author assignments and read
-          every student&apos;s grades in every course, so this is the one list where who is on it
-          matters more than what they are doing.
-        </p>
-      </div>
-
       <Tabs defaultValue="people">
         <TabsList>
           <TabsTrigger value="people">People</TabsTrigger>
@@ -277,11 +263,8 @@ function PeopleTab({ people, programs }: { people: People; programs: Programs })
       </div>
 
       <p className="text-sm text-muted-foreground">
-        An admin can invite staff, put anybody here onto a program, and grant admin. Revoking the
-        last admin is refused — it would leave nobody able to use this screen, and no way back
-        except editing the database. Making somebody staff in the first place is an invitation, so
-        that there is a record of how they got access; <strong>Programs</strong> only decides which
-        programs an existing instructor works in.
+        The last admin cannot be revoked. <strong>Programs</strong> only chooses which programs an
+        existing instructor works in; it does not grant staff access.
       </p>
 
       {/*
@@ -348,10 +331,7 @@ function InvitesTab({ invites, now }: { invites: Invites; now: Date }) {
         <div className="flex flex-col gap-1">
           <span className="text-sm font-medium">Invite an instructor</span>
           <span className="text-xs text-muted-foreground">
-            Generate a link and send it however you already talk to them. Whoever opens it and signs
-            in becomes an instructor. Each link works <strong>once</strong> and expires after{" "}
-            {INVITE_LIFETIME_DAYS} days — unlike a cohort&apos;s join link, which is reusable,
-            because this one grants access to every course.
+            Each link works <strong>once</strong> and expires after {INVITE_LIFETIME_DAYS} days.
           </span>
         </div>
 
@@ -377,7 +357,6 @@ function InvitesTab({ invites, now }: { invites: Invites; now: Date }) {
         <EmptyState
           icon={<Link2 />}
           title="No invitations yet"
-          description="Generate one above. Used and expired links stay on this list, so how somebody got access stays answerable."
         />
       ) : (
         <div className="overflow-x-auto rounded-lg border border-border">

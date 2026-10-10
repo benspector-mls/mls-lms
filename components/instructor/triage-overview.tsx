@@ -92,7 +92,7 @@ const BUCKET_META: Record<
   needs_report: {
     label: "No report yet",
     description:
-      "Submitted work with no current report. Generating one is the first step; a draft describing code the student has since replaced counts as none.",
+      "Submitted work with no current report. A report about code the student has since replaced counts as none.",
     icon: FileText,
     tone: "text-sky-600 dark:text-sky-400",
     accent: "bg-sky-500/10",
@@ -100,7 +100,7 @@ const BUCKET_META: Record<
   needs_manual_grade: {
     label: "To grade by hand",
     description:
-      "Submitted work on an assignment the pipeline cannot grade — a document or an upload. Read the work, write the feedback, and release it the same way.",
+      "Documents and uploads, which the pipeline cannot grade. Read the work, write the feedback, and release it.",
     icon: PencilLine,
     tone: "text-violet-600 dark:text-violet-400",
     accent: "bg-violet-500/10",
@@ -278,8 +278,8 @@ export function TriageOverview({
         <div className="flex items-start gap-2 rounded-lg border border-border bg-muted/40 px-4 py-3 text-sm">
           <Archive className="mt-0.5 size-4 shrink-0 text-muted-foreground" />
           <p className="text-muted-foreground">
-            This course is archived, so nothing here is waiting on you. Its submissions and feedback
-            stay readable in the gradebook and in every assignment&apos;s own queue.
+            This course is archived, so nothing is waiting on you. Submissions and feedback stay
+            readable in the gradebook and each assignment&apos;s queue.
           </p>
         </div>
       )}

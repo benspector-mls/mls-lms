@@ -116,7 +116,7 @@ export function StudentDashboard({
               ? "When your instructor hands out work, it will appear here."
               : sections.laterCount > 0
                 ? `${sections.laterCount} ${sections.laterCount === 1 ? "assignment is" : "assignments are"} due later on. Your courses have the full list.`
-                : "You are up to date. Everything handed out has been handed in and read."
+                : "You are up to date."
           }
         />
       ) : (

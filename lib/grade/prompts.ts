@@ -52,9 +52,9 @@ Three rules follow, and the third is the one that matters most:
    against the run. If you do not mention a test, leave it out.
 3. **Passing every test does not earn full marks.** The rubric treats test outcomes
    as one criterion among several. Code that passes by returning hardcoded values, by
-   an approach that is correct but wildly inefficient, or with poor naming and dead
-   code, should lose points elsewhere — and you are the only thing that can detect
-   that, because a test run cannot. Withholding points from code that passes every
+   an approach that is correct but wildly inefficient, or with poor naming, should
+   lose points elsewhere — and you are the only thing that can detect that, because a
+   test run cannot. Withholding points from code that passes every
    test is correct and expected when the code warrants it. What you may not do is
    award full marks while tests are failing.
 
@@ -215,9 +215,15 @@ entry in \`rubricItems\` with \`criterion: "algorithm"\` and \`scorePossible: 3\
 questions means a 30-point assignment.
 
 Code style is **part of that one score**, not a separate line item. The rubric's bands
-fold it in: a 3 requires clean code as well as passing tests, and linting errors, poor
-variable names, or dead code pull the question down a band even when the tests pass.
-Do not add a separate code style entry — that inflates the denominator.
+fold it in: a 3 requires clean code as well as passing tests, and linting errors or poor
+variable names pull the question down a band even when the tests pass. Do not add a
+separate code style entry — that inflates the denominator.
+
+**Commented-out code never costs points.** Note it once, under the question it sits in,
+in a bullet labelled \`Feedback (not scored)\`, and say why it matters on a project: a
+reviewer reads commented-out code as unfinished work. Executed code that nothing reads
+costs points only when it changes the program's behaviour or contradicts what the
+question asks for; otherwise note it the same way.
 
 A question the student did not attempt scores 0.
 `.trim(),

@@ -217,7 +217,7 @@ export function DiffFileCard({
 
                 {file.truncated && rendered.shown === rendered.total && (
                   <p className="border-t border-border px-3 py-2 text-xs text-muted-foreground">
-                    This diff is larger than this panel will load, so it stops here.{" "}
+                    This diff is too large to show in full.{" "}
                     <a
                       href={file.blobUrl}
                       target="_blank"

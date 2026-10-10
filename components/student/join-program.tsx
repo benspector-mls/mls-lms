@@ -105,8 +105,8 @@ export function JoinProgram({
           <TriangleAlert className="size-8 text-amber-600 dark:text-amber-400" />
           <h1 className="text-lg font-semibold">You are no longer in {preview.name}</h1>
           <p className="text-sm text-muted-foreground">
-            Everything you submitted and the feedback you were given is still available to you. Ask
-            your instructor if this is wrong — rejoining is something they do.
+            Your submissions and feedback are still available to you. If this is wrong, ask your
+            instructor; only they can re-add you.
           </p>
         </div>
       </Shell>
@@ -228,8 +228,8 @@ export function JoinProgram({
               </div>
             )}
             <p className="text-sm text-muted-foreground">
-              Joining adds you to this program so your instructors can hand out assignments and
-              grade your work, and puts your attendance on its daily check-in.
+              Joining lets your instructors hand out work and grade it, and adds you to the
+              program&apos;s daily check-in.
             </p>
 
             {/*
@@ -270,9 +270,8 @@ export function JoinProgram({
                     </p>
                   ) : (
                     <p className="text-xs text-muted-foreground">
-                      Your first and last name, as your instructors know you — for example, Ada
-                      Lovelace. This is what appears on the roster and beside every piece of work
-                      you hand in.
+                      Your first and last name, as your instructors know you (for example, Ada
+                      Lovelace). It appears on the roster and beside your work.
                     </p>
                   )}
                 </div>

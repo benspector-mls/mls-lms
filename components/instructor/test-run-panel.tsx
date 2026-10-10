@@ -88,8 +88,7 @@ export function TestRunPanel({
   if (!hasRunner) {
     return (
       <div className="rounded-md border border-border bg-muted/30 px-3 py-2.5 text-sm text-muted-foreground">
-        This assignment has no test suite ({runnerPreset}). Scores rest on the rubric and the
-        model&apos;s reading of the code.
+        This assignment has no test suite ({runnerPreset}). Scores come from the rubric alone.
       </div>
     );
   }
@@ -100,8 +99,7 @@ export function TestRunPanel({
         <AlertTriangle className="size-4" />
         <AlertTitle>No test run for this commit</AlertTitle>
         <AlertDescription>
-          This assignment has tests, but none have been recorded at this commit. Treat any score as
-          unverified until a run completes.
+          The tests have not run at this commit, so any score is unverified.
         </AlertDescription>
       </Alert>
     );
@@ -137,9 +135,8 @@ export function TestRunPanel({
           <AlertTitle>Protected files were changed</AlertTitle>
           <AlertDescription>
             <p className="mb-1">
-              The student changed files the grader relies on. The template&apos;s version of each
-              was restored before the suite ran, so the pass rate is unaffected — but the diff is
-              worth reading before accepting the score.
+              The template&apos;s version of each was restored before the tests ran, so the pass
+              rate is unaffected. Read the diff before accepting the score.
             </p>
             <ul className="ml-4 list-disc font-mono text-xs">
               {tampered.map((entry) => (
@@ -192,8 +189,8 @@ function RunOutcome({ run }: { run: TestRun }) {
         <TimerOff className="size-4" />
         <AlertTitle>The run timed out</AlertTitle>
         <AlertDescription>
-          The suite exceeded its time budget. Any partial results below are incomplete, and a
-          timeout is not a grade on its own.
+          The tests ran out of time. Any results below are incomplete, and a timeout is not a score
+          of zero.
         </AlertDescription>
       </Alert>
     );

@@ -87,9 +87,8 @@ export function TestStudentDialog({
         <DialogHeader>
           <DialogTitle>Add a test student</DialogTitle>
           <DialogDescription>
-            A student-shaped account you can look through to meet this program the way a fellow does
-            — accept the work of any of its courses, push to its repositories, and grade the result.
-            It is left out of the roster count, and shown with a Test badge everywhere else.
+            Lets you go through this program as a fellow: accept work, push to its repositories, and
+            grade the result. Left out of the roster count and badged Test.
           </DialogDescription>
         </DialogHeader>
 
@@ -117,8 +116,8 @@ export function TestStudentDialog({
               never had a test student, and the instructor makes a second one beside the first.
             */
             <p className="text-sm text-destructive">
-              The test students already on this program could not be loaded, so there may be one
-              here to reuse. {existing.error.message}
+              Existing test students could not be loaded; there may be one to reuse.{" "}
+              {existing.error.message}
             </p>
           ) : (
             available.length > 0 && (
@@ -144,7 +143,7 @@ export function TestStudentDialog({
                           understood as putting it back rather than adding something new. */}
                       {student.enrollmentStatus === "REMOVED" && (
                         <span className="shrink-0 text-xs text-muted-foreground">
-                          removed from this cohort
+                          removed from this program
                         </span>
                       )}
                     </button>
@@ -156,7 +155,7 @@ export function TestStudentDialog({
 
           {alreadyHere.length > 0 && (
             <p className="text-xs text-muted-foreground">
-              Already in this cohort:{" "}
+              Already in this program:{" "}
               {alreadyHere
                 .map(
                   (student) => student.displayName ?? `Test Student ${student.testStudentNumber}`,

@@ -145,11 +145,10 @@ export function ProgramPerformance({
     <div className="flex flex-col gap-6">
       <p className="flex items-start gap-1.5 text-xs text-muted-foreground">
         <span>
-          A red cell is a reason the fellow needs support, and a yellow one is what keeps somebody
-          meeting the bar from exceeding it. Meeting the bar is{" "}
-          {percent(PERFORMANCE_RULE.onTimeAtLeast)} of work handed in on time and{" "}
-          {percent(PERFORMANCE_RULE.meetingAttendanceAtLeast)} attendance; exceeding asks the same
-          with {percent(PERFORMANCE_RULE.exceedingAttendanceAtLeast)} attendance.
+          Red marks a reason the fellow needs support. Yellow marks what keeps a fellow at Meeting
+          rather than Exceeding. Meeting is {percent(PERFORMANCE_RULE.onTimeAtLeast)} on time and{" "}
+          {percent(PERFORMANCE_RULE.meetingAttendanceAtLeast)} attendance; Exceeding needs{" "}
+          {percent(PERFORMANCE_RULE.exceedingAttendanceAtLeast)} attendance.
         </span>
         <HelpTip>
           On time means handed in by the deadline or by an agreed extension, whether or not it has
@@ -252,9 +251,8 @@ function columnsFor(courses: Course[], categories: CourseUnitCategory[]): Column
         Attendance
         <HelpTip>
           Recent absence and tardiness both read the last {DRIFT_RULE.lateOf} mornings. Absence is
-          flagged at {DRIFT_RULE.missedAtLeast} or more, and tardiness at {DRIFT_RULE.lateAtLeast}{" "}
-          or more — the same rule as the attendance screen&apos;s own list. The overall rate is the
-          whole term.
+          flagged at {DRIFT_RULE.missedAtLeast} or more, tardiness at {DRIFT_RULE.lateAtLeast} or
+          more. The overall rate is the whole term.
         </HelpTip>
       </>
     ),

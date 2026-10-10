@@ -264,8 +264,7 @@ export function RubricBreakdown({
           How this score was reached — {sectionLabel(section.sectionType)}
         </CardTitle>
         <CardDescription>
-          One row per rubric criterion, summing to the section score. For you, never shown to the
-          student.
+          The rows sum to the section score. Never shown to the student.
         </CardDescription>
       </CardHeader>
       <CardContent className="flex flex-col gap-2">

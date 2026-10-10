@@ -115,9 +115,9 @@ export function ProgramSchedule({ program }: { program: Program }) {
       <div className="flex flex-col gap-1">
         <h2 className="text-sm font-medium">Class meets</h2>
         <p className="text-xs text-muted-foreground">
-          Say when the program meets and every day makes itself, with its code ready in advance.
-          Check-in opens two hours before class and the code stops working eight hours after class
-          starts. Remove the days you do not meet from the attendance screen.
+          Every day in the range is created with its check-in code ready. Check-in opens two hours
+          before class and closes eight hours after it starts. Remove holidays from the attendance
+          screen.
         </p>
       </div>
 
@@ -201,9 +201,8 @@ export function ProgramSchedule({ program }: { program: Program }) {
       )}
 
       <p className="text-xs text-muted-foreground">
-        Changing the start time applies to every day that has not begun. Today keeps the time it
-        started with, because fellows may already have checked in against it — to move today, open
-        it from the attendance screen.
+        Changing the start time applies from tomorrow onward. Today keeps its start time; to move
+        it, open today from the attendance screen.
       </p>
 
       {program.attendanceStartsOn !== null && (

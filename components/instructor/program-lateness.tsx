@@ -55,13 +55,7 @@ export function ProgramLateness({
 
   return (
     <section className="flex flex-col gap-3 rounded-lg border border-border p-4">
-      <div className="flex flex-col gap-1">
-        <h2 className="text-sm font-medium">Counting somebody late</h2>
-        <p className="text-xs text-muted-foreground">
-          Measured from the time class starts, not from when a fellow opens the page. Arriving
-          before class begins is on time, however early.
-        </p>
-      </div>
+      <h2 className="text-sm font-medium">Counting somebody late</h2>
 
       <form
         className="flex flex-wrap items-end gap-2"
@@ -90,9 +84,8 @@ export function ProgramLateness({
       </form>
 
       <p className="text-xs text-muted-foreground">
-        Applies to every day that has not begun, including the days the schedule has already made.
-        Nothing already recorded changes — to correct a morning that was taken with the wrong
-        number, open that day from the calendar.
+        Applies from tomorrow onward, including days the schedule has already made. Today and
+        earlier keep their number; to correct one, open that day from the attendance screen.
       </p>
     </section>
   );

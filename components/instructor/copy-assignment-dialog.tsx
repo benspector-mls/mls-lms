@@ -145,9 +145,7 @@ export function CopyAssignmentDialog({
         <DialogHeader>
           <DialogTitle>Copy {title}</DialogTitle>
           <DialogDescription>
-            The copy arrives unpublished, with no due date and no submissions. Everything the
-            assignment is comes across — both repositories, the answer key folder, the runner, the
-            sections, and the point values.
+            The copy is unpublished, with no due date and no submissions.
           </DialogDescription>
         </DialogHeader>
 
@@ -215,10 +213,8 @@ export function CopyAssignmentDialog({
               */}
               {sameCourse && (
                 <p className="text-xs text-muted-foreground">
-                  This is the course it is already in, so the copy gets a repository name of its own
-                  ending in <span className="font-mono whitespace-nowrap">-copy</span>. Copying into
-                  another course keeps the name, because that course&apos;s short name already tells
-                  the repositories apart.
+                  Copying within the same course gives the copy a repository name ending in{" "}
+                  <span className="font-mono whitespace-nowrap">-copy</span>.
                 </p>
               )}
             </div>
@@ -240,8 +236,7 @@ export function CopyAssignmentDialog({
                 </p>
               ) : units.length === 0 ? (
                 <p className="text-sm text-muted-foreground">
-                  That course has no modules yet, so there is nowhere for the copy to go. Create one
-                  there first.
+                  That course has no modules yet. Create one there first.
                 </p>
               ) : (
                 <Select
@@ -265,18 +260,6 @@ export function CopyAssignmentDialog({
                     ))}
                   </SelectContent>
                 </Select>
-              )}
-              {/*
-                Which of the two things just happened, said either way. A silent name match and a
-                silent fallback to the first module look identical on screen, and one of them is
-                a decision somebody should be making.
-              */}
-              {units.length > 0 && (
-                <p className="text-xs text-muted-foreground">
-                  {nameMatch
-                    ? `${unitName} exists there, so that is where it goes unless you say otherwise.`
-                    : `That course has no module called ${unitName}, so pick where this belongs.`}
-                </p>
               )}
             </div>
           </div>

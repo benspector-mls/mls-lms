@@ -175,8 +175,7 @@ export function GcfImportDialog({
         <DialogHeader>
           <DialogTitle>Import GCF results</DialogTitle>
           <DialogDescription>
-            The CSV CodeSignal exports. It is read here in your browser — the file itself is never
-            uploaded.
+            The file is read in your browser; only the parsed rows are sent.
           </DialogDescription>
         </DialogHeader>
 
@@ -233,9 +232,8 @@ export function GcfImportDialog({
               <div className="flex flex-col gap-0.5">
                 <h3 className="text-sm font-medium">Which of these are the GCF?</h3>
                 <p className="text-xs text-muted-foreground">
-                  Proctored attempts are the real assessment. Everything else in the file is
-                  unproctored, and only its name says whether it was a mock GCF or a class exercise
-                  — so the mocks are ticked and the rest are left for you to decide.
+                  Proctored attempts are always included. Mocks are ticked by name; the rest are up
+                  to you.
                 </p>
               </div>
 

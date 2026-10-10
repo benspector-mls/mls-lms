@@ -219,7 +219,7 @@ export function ProgramStudent({
                 Present {data.summary.present} · Late {data.summary.late} · Excused{" "}
                 {data.summary.excused} · Absent {data.summary.absent + data.summary.unrecorded}
                 {data.summary.excused > 0 &&
-                  " — an excused morning still counts as one they missed."}
+                  ". An excused morning still counts as missed."}
               </p>
             </div>
 
@@ -241,12 +241,7 @@ export function ProgramStudent({
           </section>
 
           <section className="flex flex-col gap-2">
-            <div className="flex flex-col gap-0.5">
-              <h2 className="text-sm font-medium">Courses · {data.courses.length}</h2>
-              <p className="text-xs text-muted-foreground">
-                Every course of {data.program.term}. Click on a course row to view their coursework.
-              </p>
-            </div>
+            <h2 className="text-sm font-medium">Courses · {data.courses.length}</h2>
 
             {data.courses.length === 0 ? (
               <p className="rounded-lg bg-muted/40 px-3 py-6 text-center text-sm text-muted-foreground">
@@ -332,9 +327,7 @@ export function ProgramStudent({
             <div className="flex flex-col gap-0.5">
               <h2 className="text-sm font-medium">General Coding Framework · {data.gcf.length}</h2>
               <p className="text-xs text-muted-foreground">
-                Every sitting, whichever program they were in at the time. A result carries no
-                program — it is sat at CodeSignal on their own schedule — so somebody repeating a
-                year has one history here rather than two halves of it.
+                Every sitting, including those from other programs.
               </p>
             </div>
 
@@ -389,8 +382,7 @@ export function ProgramStudent({
                 Before the next session · {coaching.topics.length}
               </h2>
               <p className="text-xs text-muted-foreground">
-                What {name} wants to talk about, in their words, added from their Goals page. Theirs
-                to keep or remove.
+                Added by {name} from their Goals page. Only they can change this list.
               </p>
             </div>
             <CoachingTopics
@@ -405,9 +397,7 @@ export function ProgramStudent({
             <div className="flex flex-col gap-0.5">
               <h2 className="text-sm font-medium">Goals · {coaching.goals.length}</h2>
               <p className="text-xs text-muted-foreground">
-                {name}&apos;s own, usually agreed in a coaching session and theirs to change any
-                time — including where they say they stand. The goal itself is theirs to edit; open
-                one to write to them under it, which they see and can answer.
+                Only {name} can edit a goal. Open one to write to them under it.
               </p>
             </div>
 
@@ -472,8 +462,7 @@ export function ProgramStudent({
             <div className="flex flex-col gap-0.5">
               <h2 className="text-sm font-medium">Notes · {coaching.notes.length}</h2>
               <p className="text-xs text-muted-foreground">
-                Staff observations — never shown to fellows. A fellow may still ask to read their
-                record, so write what happened and what was decided.
+                Never shown to fellows, though a fellow may ask to read their record.
               </p>
             </div>
             <InstructorNotes

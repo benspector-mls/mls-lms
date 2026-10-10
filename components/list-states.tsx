@@ -123,7 +123,7 @@ export function EmptyState({
 
 export function ErrorState({
   title = "Something went wrong",
-  description = "This did not load. Trying again is usually enough; if it is not, the message above is worth reporting.",
+  description = "This did not load. Try again.",
   onRetry,
   className,
 }: {

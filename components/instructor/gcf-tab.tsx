@@ -197,7 +197,7 @@ export function GcfTab({ courseId, data }: { courseId: string; data: Gcf }) {
       </p>
 
       {data.activeStudents.length === 0 ? (
-        <p className="text-sm text-muted-foreground">Nobody in this cohort yet.</p>
+        <p className="text-sm text-muted-foreground">Nobody on the roster yet.</p>
       ) : rows.length === 0 ? (
         <p className="rounded-lg border border-dashed border-border p-4 text-sm text-muted-foreground">
           No student matches that search.
@@ -218,7 +218,7 @@ export function GcfTab({ courseId, data }: { courseId: string; data: Gcf }) {
           <div className="flex flex-col gap-0.5">
             <h3 className="text-sm font-medium">Removed students</h3>
             <p className="text-xs text-muted-foreground">
-              No longer in the cohort. Their results are kept and stay readable — to them, and here.
+              No longer on the roster. Their results are kept and still readable.
             </p>
           </div>
           <StandingsTable

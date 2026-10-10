@@ -158,9 +158,8 @@ export function EditSession({
           <DialogHeader>
             <DialogTitle>Edit {formatSchoolDay(day)}</DialogTitle>
             <DialogDescription>
-              This day only. The program&apos;s schedule and every other day it makes are left as
-              they are. The code works from two hours before the class starts until it stops taking
-              check-ins.
+              Changes this day only. The code works from two hours before class starts until the
+              time it stops.
             </DialogDescription>
           </DialogHeader>
 
@@ -206,8 +205,8 @@ export function EditSession({
             the press rather than in the toast after it.
           */}
           <p className="text-xs text-muted-foreground">
-            Everybody who checked themselves in is recounted against the clock you save here. A
-            status you set by hand is never changed.
+            Self check-ins are recounted against the new times. Statuses set by hand are not
+            changed.
           </p>
 
           {edit.error ? (

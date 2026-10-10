@@ -52,7 +52,6 @@ export function ProgramsList({
     <div className="mx-auto flex w-full max-w-3xl flex-col gap-6 p-4 md:p-6">
       <PageHeader
         title="Programs"
-        description="Every program you belong to."
         actions={
           canCreate && !creating ? (
             <Button size="sm" onClick={() => setCreating(true)}>
@@ -92,20 +91,13 @@ export function ProgramsList({
             <EmptyState
               icon={<Archive />}
               title="Nothing running right now"
-              description="Every program you belong to has been archived. They are below, and they stay readable."
+              description="Every program you belong to has been archived. They are listed below."
             />
           )}
 
           {archived.length > 0 && (
             <section className="flex flex-col gap-3">
-              <div className="flex flex-col gap-0.5 border-t border-border pt-5">
-                <h2 className="text-sm font-medium">Archived</h2>
-                <p className="text-xs text-muted-foreground">
-                  Finished programs. Everything in them stays readable — the work, the grades, the
-                  feedback that was given, and the whole attendance record — and nothing new can be
-                  handed in.
-                </p>
-              </div>
+              <h2 className="border-t border-border pt-5 text-sm font-medium">Archived</h2>
               {archived.map((program) => (
                 <ProgramCard key={program.id} program={program} />
               ))}

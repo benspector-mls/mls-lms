@@ -111,16 +111,13 @@ export function StaffProgramsDialog({
         <DialogHeader>
           <DialogTitle>Which programs does {person.name} instruct?</DialogTitle>
           <DialogDescription>
-            An instructor of a program can author in every course of it, read every fellow&apos;s
-            work, approve grades, and take attendance. Being on this list is the whole of that —
-            which courses their name appears on is decided separately, on the program&apos;s own
-            settings screen.
+            Which courses their name appears on is set on the program&apos;s settings screen.
           </DialogDescription>
         </DialogHeader>
 
         {ordered.length === 0 ? (
           <p className="text-sm text-muted-foreground">
-            There are no programs yet. Somebody has to start one before anybody can be put on it.
+            There are no programs yet.
           </p>
         ) : (
           <ul className="flex min-w-0 flex-col gap-1">

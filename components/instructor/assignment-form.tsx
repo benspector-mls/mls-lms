@@ -190,11 +190,11 @@ const KIND_META: Record<Kind, { label: string; hint: string }> = {
   },
   SELF_DIRECTED: {
     label: "Link or file upload",
-    hint: "Students make the work wherever they like — a deck, a document, a Canva design, a Loom recording — and hand in a link, a file, or either. No template and nothing to accept. Graded by hand.",
+    hint: "Students hand in a link, a file, or either. There is no template. Graded by hand.",
   },
   TASK: {
     label: "Task",
-    hint: "Something to do with nothing to turn in — set up a laptop, join Slack, fill in a survey. Students mark it done themselves, and you can set it either way. Worth one point.",
+    hint: "Something to do with nothing to hand in, such as setting up a laptop or joining Slack. Worth one point.",
   },
 };
 
@@ -770,7 +770,7 @@ function Editor({
             findings={fieldFindings("kind")}
             hint={
               existing
-                ? "Fixed once an assignment exists. Create a new one to hand work in a different way."
+                ? "Cannot be changed once the assignment exists."
                 : KIND_META[state?.kind ?? kind].hint
             }
           >
@@ -922,7 +922,7 @@ function Editor({
               findings={fieldFindings("teamSetId")}
               hint={
                 context.teamSets.length === 0
-                  ? "Make a team set on the roster to hand an assignment in by teams."
+                  ? "Make a team set on the course's Teams screen to hand an assignment in by teams."
                   : existing?.distributedAt
                     ? "Fixed once the assignment is published. Create a new one to change it."
                     : "One piece of work per team, and one grade, shared by everybody on it."
@@ -1004,7 +1004,7 @@ function Editor({
                 <Field
                   label="Template repository"
                   findings={fieldFindings("templateRepo")}
-                  hint="Paste its URL. It has to be marked as a template repository on GitHub, and readable by this deployment's App — which any public repository is, wherever it lives."
+                  hint="Must be marked as a template on GitHub, and be public or in an organization the GitHub App is installed on."
                 >
                   <Input
                     value={state.templateRepo}
@@ -1017,7 +1017,7 @@ function Editor({
                 <Field
                   label="Answer key repository"
                   findings={fieldFindings("answerKeyRepo")}
-                  hint="Paste its URL — including the path to the folder holding this assignment's solutions, if you have it open. Private, and in an organization the GitHub App is installed on: this holds the reference solutions, so it must not be readable by students."
+                  hint="Must be private and in an organization the GitHub App is installed on. Pasting the solutions folder address fills in the folder below."
                 >
                   <Input
                     value={state.answerKeyRepo}
@@ -1039,7 +1039,7 @@ function Editor({
                 <Field
                   label="Reference solutions"
                   findings={fieldFindings("answerKeyDir")}
-                  hint="Every file under this folder, at any depth, is sent to the model as reference — never shown to the student. Paste the folder's address above, or walk to it here."
+                  hint="Every file under this folder is sent to the model as a reference solution. Students never see them."
                 >
                   <AnswerKeyBrowser
                     courseId={courseId}
@@ -1068,7 +1068,7 @@ function Editor({
                     findings={fieldFindings("assignmentRepoName")}
                     hint={
                       existing && existing.submissionCount > 0
-                        ? `${existing.submissionCount} student(s) have accepted this. Their repositories are named after it, so it cannot be changed.`
+                        ? `${existing.submissionCount} ${existing.submissionCount === 1 ? "student has" : "students have"} accepted this, and their repositories are named after it, so it cannot be changed.`
                         : /*
                             The exact name, with the one part this screen cannot know left as a
                             placeholder. Built by `studentRepoName`, the function `accept` calls,
@@ -1119,7 +1119,7 @@ function Editor({
                 <Field
                   label="Due date"
                   findings={fieldFindings("dueAt")}
-                  hint="Optional. Leave it blank for no due date. A late submission is recorded as late, never refused."
+                  hint="Late submissions are accepted and marked late."
                 >
                   <Input
                     type="date"
@@ -1142,8 +1142,8 @@ function Editor({
                   label="Due time"
                   hint={
                     state.dueAt
-                      ? "New York time, which is the timezone every date on every screen is shown in."
-                      : "Set a date first. The time then starts at 11:59pm."
+                      ? "New York time."
+                      : "Set a date first."
                   }
                 >
                   <Input
@@ -1166,7 +1166,7 @@ function Editor({
                 <Field
                   label="Template file"
                   findings={fieldFindings("templateDriveUrl")}
-                  hint="A Doc, a Sheet, or a Slides deck. Accepting sends the student to Google's own prompt to take a copy, built from this link. Paste the sharing link — it should end in /view or /edit."
+                  hint="The sharing link ends in /view or /edit. When a student accepts, Google prompts them to make their own copy."
                 >
                   <Input
                     value={state.templateDriveUrl}
@@ -1188,7 +1188,7 @@ function Editor({
                 <Field
                   label="How fellows may hand it in"
                   findings={fieldFindings("handInMethods")}
-                  hint="At least one. Tick both to let each fellow choose whichever suits their work."
+                  hint="At least one."
                 >
                   <div className="flex flex-wrap gap-x-5 gap-y-2">
                     {HAND_IN_METHOD_META.map(({ key, label, hint }) => {
@@ -1230,7 +1230,7 @@ function Editor({
                 <Field
                   label="What students may hand in"
                   findings={fieldFindings("acceptedFileTypes")}
-                  hint={`At least one. Anything else is refused before it is stored, and the limit is ${formatBytes(MAX_UPLOAD_BYTES)} whatever you pick.`}
+                  hint={`At least one. Other file types are refused. Files are limited to ${formatBytes(MAX_UPLOAD_BYTES)}.`}
                 >
                   <div className="flex flex-wrap gap-x-5 gap-y-2">
                     {UPLOAD_FILE_TYPE_KEYS.map((key) => {
@@ -1338,7 +1338,7 @@ function Editor({
                 <Field
                   label="Who marks it done"
                   findings={fieldFindings("studentMayMarkDone")}
-                  hint="Untick for a task you have to check yourself — a laptop you look over, a form only you can see the responses to."
+                  hint="Untick if only you can confirm it is done, such as a form only you can see the responses to."
                 >
                   <label className="flex items-center gap-2 text-sm">
                     <input
@@ -1355,10 +1355,8 @@ function Editor({
 
                 <p className="text-sm text-muted-foreground">
                   {state.studentMayMarkDone
-                    ? "Fellows mark this done themselves, and can take the mark back. You can set it either way for anybody from the assignment’s queue — marking it not done is what sends it back to them to do again."
-                    : "Only you can mark this done, from the assignment’s queue, which lists every fellow whether or not they have done it. Fellows see what you set and cannot change it."}{" "}
-                  Every task is worth one point, so its gradebook column reads 1/1 or 0/1 and counts
-                  toward the unit’s completion like any other assignment.
+                    ? "Marking it not done sends it back to the fellow."
+                    : "Fellows cannot mark this done."}
                 </p>
               </CardContent>
             </Card>
@@ -1386,7 +1384,7 @@ function Editor({
                       detection.data?.reason
                         ? `${detection.data.reason} The tests come from the template repository, never the student’s copy.`
                         : state.runnerPreset === NO_RUNNER
-                          ? "No automated tests. Normal for short response and frontend work — most of the program."
+                          ? "No automated tests."
                           : "The tests come from the template repository, never the student’s copy."
                     }
                   >
@@ -1516,8 +1514,7 @@ function Editor({
 
                 {isRepoKind(state.kind) && hasAiSection && (
                   <p className="text-xs text-muted-foreground">
-                    An assignment is graded one way or the other, never both. Switching to hand
-                    grading replaces the sections above with a single one you score yourself.
+                    Switching replaces the sections above with one you score yourself.
                   </p>
                 )}
               </CardContent>
@@ -1815,8 +1812,7 @@ function AnswerKeyBrowser({
         <p className="text-xs text-muted-foreground">This folder is not in the repository.</p>
       ) : resolved.paths.length === 0 ? (
         <p className="text-xs text-muted-foreground">
-          Nothing here can be used as a reference solution. The assignment can still be graded, with
-          the model reading the code against the rubric alone.
+          No usable reference files here. The model will grade against the rubric alone.
         </p>
       ) : (
         <div className="flex flex-col gap-1">
@@ -1836,7 +1832,7 @@ function AnswerKeyBrowser({
           </ul>
           {resolved.paths.length > resolved.limit && (
             <p className="text-xs text-destructive">
-              Only the first {resolved.limit} would be used. Name a folder further down.
+              Only the first {resolved.limit} are sent. Choose a folder further down.
             </p>
           )}
         </div>

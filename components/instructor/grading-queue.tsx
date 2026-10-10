@@ -714,12 +714,11 @@ export function GradingQueue({
                       "This student"}
                   </span>{" "}
                   {asideReason === "removed" ? (
-                    "has been removed from this program, so this is not in the queue beside it. Their work stays readable here and in the gradebook."
+                    "has been removed from this program, so this submission is not listed in the queue. Their work stays readable here and in the gradebook."
                   ) : asideReason === "team_mirror" ? (
                     <>
-                      has a copy of their team&apos;s grade here. The work, the report, and the
-                      rounds of feedback are all on the team&apos;s own submission, which is where
-                      it is read and released.{" "}
+                      has a copy of their team&apos;s grade. The work, the report, and the feedback
+                      are on the team&apos;s own submission.{" "}
                       {selected.teamSubmissionId && (
                         /*
                         The link is the point of this case. An instructor arriving from a mirror's
@@ -736,7 +735,7 @@ export function GradingQueue({
                       )}
                     </>
                   ) : (
-                    "is not in the cohort you are filtered to, so this is not in the queue beside it. Switch to All fellows to work it alongside the rest."
+                    "is not in the selected cohort, so this submission is not listed in the queue. Switch to All fellows to see it with the rest."
                   )}
                 </p>
               </div>

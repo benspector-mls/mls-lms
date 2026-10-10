@@ -333,8 +333,8 @@ export function GradingReview({
         title="Nothing submitted yet"
         description={
           data.manualOnly
-            ? "This student has not submitted this assignment, so there is nothing to grade."
-            : "This student has a repository but has not opened a pull request, so there is nothing to grade."
+            ? "There is nothing to grade yet."
+            : "The student has a repository but has not opened a pull request."
         }
       >
         {/*
@@ -814,8 +814,8 @@ function CommentRecoveryNotice({
       <AlertTitle>The feedback comment was never posted</AlertTitle>
       <AlertDescription className="flex flex-col items-start gap-3">
         <p>
-          This grade is recorded and the student can see it in the application, but the comment did
-          not reach the pull request. The score is safe; only the comment is missing.
+          The grade is recorded and the student can see it. Only the comment to the pull request is
+          missing.
         </p>
         <Button
           size="sm"

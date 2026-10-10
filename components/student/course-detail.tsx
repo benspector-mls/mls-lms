@@ -199,9 +199,8 @@ export function StudentCourseDetail({
           <CardContent className="py-4 text-sm">
             <p className="font-medium">Your GitHub account is not linked</p>
             <p className="mt-1 text-muted-foreground">
-              Accepting an assignment creates a repository named after your GitHub username, so you
-              need to sign in with GitHub at least once first. Sign out, then choose &ldquo;Sign in
-              with GitHub&rdquo;.
+              Accepting an assignment needs your GitHub username. Sign out, then sign in with
+              GitHub.
             </p>
           </CardContent>
         </Card>

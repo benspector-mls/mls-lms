@@ -112,11 +112,7 @@ function GoalCard({ goal, programId }: { goal: Goal; programId: string }) {
             Said rather than left blank, because an empty card reads as a loading failure — and a
             goal with no plan beside it is a real thing to notice in a coaching session.
           */}
-          {!hasPlan && (
-            <p className="text-sm text-muted-foreground">
-              They have not written a plan beside this one yet.
-            </p>
-          )}
+          {!hasPlan && <p className="text-sm text-muted-foreground">No plan written yet.</p>}
 
           <GoalUpdates goal={goal} programId={programId} editable={false} />
 

@@ -153,7 +153,7 @@ export function CompetencyPicker({
           {shown.length === 0 ? (
             <p className="rounded-lg bg-muted/40 px-3 py-6 text-center text-sm text-muted-foreground">
               {groups.length === 0
-                ? "Your programme has no competencies yet. Ask an instructor — somebody has to write the list before there is anything to choose from."
+                ? "Your program has no competencies yet. Ask an admin to add some."
                 : "Nothing matches that search."}
             </p>
           ) : (
@@ -294,8 +294,7 @@ export function CompetencyEntryField({
           </div>
           <p className="text-sm">“{value.text}”</p>
           <p className="text-xs text-muted-foreground">
-            This wording is saved with the goal — later edits to the competency list won’t change
-            it.
+            This wording is saved with the goal and will not change if the list is edited later.
           </p>
         </div>
       )}

@@ -185,11 +185,8 @@ export function CohortManager({
   return (
     <div className="flex flex-col gap-4">
       <p className="text-sm text-muted-foreground">
-        How this program&apos;s roster is divided among its instructors. Choosing a cohort narrows
-        grading triage, an assignment&apos;s queue, the gradebook, and the curriculum list — in
-        every course of the program at once. A cohort grants nothing and withholds nothing: anybody
-        who instructs this program can still grade anybody&apos;s work, which is what lets a
-        colleague cover.
+        Divides the roster among instructors. A cohort is only a filter; any instructor can still
+        grade anybody&apos;s work.
       </p>
 
       <div className="flex flex-wrap items-center gap-2">
@@ -253,9 +250,8 @@ export function CohortManager({
       {confirmingReset && (
         <div className="flex flex-wrap items-center gap-3 rounded-lg border border-border p-3">
           <span className="min-w-48 flex-1 text-xs text-muted-foreground">
-            Resetting takes all {placedCount} placed {placedCount === 1 ? "fellow" : "fellows"} out
-            of their cohorts and puts them in No cohort. The cohorts themselves stay, and nobody
-            leaves the roster.
+            Moves all {placedCount} placed {placedCount === 1 ? "fellow" : "fellows"} to No cohort.
+            The cohorts stay, and nobody leaves the roster.
           </span>
           <div className="flex gap-2">
             <Button size="sm" onClick={resetPlacements}>
@@ -270,8 +266,7 @@ export function CohortManager({
 
       {memberships.length === 0 && data.cohorts.length === 0 ? (
         <p className="rounded-lg bg-muted/40 px-3 py-6 text-center text-sm text-muted-foreground">
-          Nobody has joined this program yet, and there are no cohorts. Every screen shows the whole
-          roster until both exist.
+          Nobody has joined this program yet, and there are no cohorts.
         </p>
       ) : (
         <div className="flex flex-col gap-4">
@@ -422,10 +417,9 @@ function CohortCard({
             naming is that any instructor filtered to it goes back to reading the whole roster.
           */}
           <span className="text-xs text-muted-foreground">
-            Removing &ldquo;{cohort.name}&rdquo; puts its {fellows.length}{" "}
-            {fellows.length === 1 ? "fellow" : "fellows"} in No cohort. Nobody leaves the roster,
-            nothing anybody submitted changes, and no grade moves. Any instructor filtered to it
-            goes back to seeing every fellow.
+            Removing &ldquo;{cohort.name}&rdquo; moves its {fellows.length}{" "}
+            {fellows.length === 1 ? "fellow" : "fellows"} to No cohort. Nobody leaves the roster and
+            no grade changes. Instructors filtered to it will see every fellow again.
           </span>
           <div className="flex gap-2">
             <Button

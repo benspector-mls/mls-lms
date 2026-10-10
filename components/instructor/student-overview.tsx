@@ -524,13 +524,11 @@ export function StudentOverview({ data, now }: { data: Data; now: Date }) {
                   <p className="max-w-sm text-sm text-muted-foreground">
                     {selected === null ? (
                       <>
-                        {name} has not started any of this course&apos;s assignments. Their work
-                        opens here once there is some.
+                        {name} has not started any of this course&apos;s assignments.
                       </>
                     ) : (
                       <>
-                        {name} has handed nothing in for {selected.assignment.title}. Their work
-                        opens here once there is some.
+                        {name} has handed nothing in for {selected.assignment.title}.
                       </>
                     )}
                   </p>

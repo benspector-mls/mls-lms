@@ -185,9 +185,10 @@ async function Attendance({
           {history.openSessions.length > 0 && (
             <p className="rounded-lg border border-amber-500/40 px-4 py-3 text-xs text-amber-700 dark:text-amber-300">
               {history.openSessions.length}{" "}
-              {history.openSessions.length === 1 ? "session is" : "sessions are"} still open, so
-              nobody is counted absent for {history.openSessions.length === 1 ? "it" : "them"} yet.
-              They are left out of every rate on this tab until somebody ends them.
+              {history.openSessions.length === 1 ? "session is" : "sessions are"} still open.
+              Nobody is counted absent for {history.openSessions.length === 1 ? "it" : "them"} yet,
+              and the daily rates skip {history.openSessions.length === 1 ? "it" : "them"} until
+              somebody ends {history.openSessions.length === 1 ? "it" : "them"}.
             </p>
           )}
 

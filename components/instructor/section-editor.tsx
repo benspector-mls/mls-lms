@@ -151,7 +151,7 @@ export function SectionEditor({
           */}
           <p className="text-xs text-muted-foreground">
             {section.type === "short_response"
-              ? "Graded against the rubric and the reference answer. A short response has nothing to execute."
+              ? "Graded against the rubric and the reference answer."
               : hasRunner
                 ? "The score is checked against the instructor’s test suite. A report claiming a test passed that failed is held for review."
                 : "This assignment runs no tests, so the score rests on the model reading the code against the rubric."}

@@ -212,8 +212,8 @@ export function AttendanceCalendar({
         <div className="flex flex-col gap-0.5">
           <h2 className="text-sm font-medium">The program&rsquo;s days</h2>
           <p className="text-xs text-muted-foreground">
-            Open a day to read or correct it. Remove the days the program will not meet — a day left
-            in place opens itself and marks everybody absent.
+            Remove days the program will not meet; a scheduled day opens on its own and marks
+            everybody absent.
           </p>
         </div>
         <div className="flex flex-wrap items-center gap-2">
@@ -319,16 +319,14 @@ function AddDay({
           <DialogDescription>
             {day === null ? null : startsAt ? (
               <>
-                {formatSchoolDay(day)} becomes a class day. It starts at{" "}
-                {formatSchoolClock(startsAt)}, like every other day this program meets, and its code
-                works from two hours before that until eight hours after it. Nobody needs to press
-                anything on the day itself.
+                {formatSchoolDay(day)} becomes a class day starting at {formatSchoolClock(startsAt)}
+                . Check-in opens two hours before and closes eight hours after. Nobody needs to
+                press anything on the day.
               </>
             ) : (
               <>
-                {formatSchoolDay(day)} gets a code, ready to write up or project. Check-in does not
-                open until somebody presses Start on that day, and being on time is measured from
-                when they do.
+                {formatSchoolDay(day)} gets a code. Check-in opens when somebody presses Start on
+                that day, and lateness is measured from then.
               </>
             )}
           </DialogDescription>
@@ -411,9 +409,8 @@ function RemoveDays({
         <DialogHeader>
           <DialogTitle>Remove days</DialogTitle>
           <DialogDescription>
-            Every day from the first to the last, today included, stops being a class day. Choose
-            only a first day to remove that one day. A day somebody has already checked into is kept
-            and named. Days that have already happened are never touched.
+            Removes every class day from the first date to the last. Choose only a first date to
+            remove one day. Past days, and days somebody has already checked into, are kept.
           </DialogDescription>
         </DialogHeader>
 

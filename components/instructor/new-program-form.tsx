@@ -113,10 +113,7 @@ export function NewProgramForm({
           onChange={(event) => setTerm(event.target.value)}
         />
         <p className="text-xs text-muted-foreground">
-          When this run of the program starts, in whatever words you use for it. It is what tells
-          this year of {name.trim() || "a program"} from every other one, so it appears beside the
-          name everywhere — in the switcher, in every breadcrumb, and in the name of every exported
-          file.
+          Appears beside the name everywhere and cannot be changed later.
         </p>
       </div>
 
@@ -141,8 +138,7 @@ export function NewProgramForm({
           </SelectContent>
         </Select>
         <p className="text-xs text-muted-foreground">
-          Which fellowship this is a run of. It decides which competencies its fellows choose their
-          goals from, and it can be changed later from this program&apos;s settings.
+          Decides which competencies fellows set goals against. Can be changed later.
         </p>
       </div>
 

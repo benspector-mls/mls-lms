@@ -212,8 +212,7 @@ export function GradebookGrid({
               <div className="flex flex-col gap-0.5">
                 <h3 className="text-sm font-medium">Removed students</h3>
                 <p className="text-xs text-muted-foreground">
-                  No longer in the cohort, and not counted in any figure above. Their work and the
-                  feedback they were given stay readable — to them, and here.
+                  Not counted in any figure above. Their work and feedback stay readable.
                 </p>
               </div>
               {/*

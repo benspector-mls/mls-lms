@@ -103,16 +103,10 @@ export function AcceptInstructorLink({
             The one refusal with an answer, so it is stated rather than left to the button.
             Everything else on this screen is about a program; this is about the account.
           */
-          <div className="flex flex-col gap-2">
-            <p className="text-sm text-muted-foreground">
-              This link adds an instructor to the program, and your account is not an instructor
-              account.
-            </p>
-            <p className="text-sm text-muted-foreground">
-              An admin has to send you an instructor invitation first. Once you have used that, come
-              back to this link and it will work.
-            </p>
-          </div>
+          <p className="text-sm text-muted-foreground">
+            Your account is not an instructor account. Ask an admin for an instructor invitation,
+            accept it, then open this link again.
+          </p>
         ) : preview.archived ? (
           <p className="text-sm text-muted-foreground">
             This program is archived, so it is not taking new instructors.

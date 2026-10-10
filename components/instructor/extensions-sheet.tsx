@@ -90,8 +90,8 @@ export function ExtensionsSheet({
           <SheetTitle>Extensions — {title}</SheetTitle>
           <SheetDescription>
             {query.data?.assignment.dueAt
-              ? `Due ${formatDueDate(query.data.assignment.dueAt)} for everybody else. Work handed in by an agreed deadline reads as extended rather than late.`
-              : "A deadline agreed with somebody, in place of the one the class was given."}
+              ? `Due ${formatDueDate(query.data.assignment.dueAt)} for everybody else. Work handed in by an extended deadline is marked extended, not late.`
+              : "Work handed in by an extended deadline is marked extended, not late."}
           </SheetDescription>
         </SheetHeader>
 

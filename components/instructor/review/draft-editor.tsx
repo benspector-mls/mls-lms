@@ -658,8 +658,7 @@ export function DraftEditor({
           <AlertTitle>This round of feedback could not be opened</AlertTitle>
           <AlertDescription className="flex flex-col items-start gap-3">
             <p>
-              {openFailure} Nothing has been recorded. What you have written is still on the screen,
-              and it is saved as soon as the round opens.
+              {openFailure} What you have written is kept here and is saved once the round opens.
             </p>
             <Button size="sm" variant="outline" disabled={opening} onClick={() => openRound()}>
               {opening ? (
@@ -679,8 +678,7 @@ export function DraftEditor({
           <AlertTitle>Check this against the code before approving</AlertTitle>
           <AlertDescription>
             This report carries {faults.length === 1 ? "a fault flag" : "fault flags"} (
-            {faults.join(", ")}). Its score is not backed by the test evidence it would normally
-            rest on.
+            {faults.join(", ")}), so its score is not backed by test results.
           </AlertDescription>
         </Alert>
       )}
@@ -691,8 +689,7 @@ export function DraftEditor({
           <AlertTitle>A report states a different score than the one being recorded</AlertTitle>
           <AlertDescription className="flex flex-col gap-2">
             <p>
-              The student reads the report and the gradebook reads the score, so these cannot
-              disagree. Change whichever is wrong. Approving is refused until they match.
+              Change whichever is wrong. Approving is refused until they match.
             </p>
             <ul className="ml-4 list-disc text-sm">
               {mismatches.map(({ key, stated, recorded, possible }) => (
@@ -774,7 +771,7 @@ export function DraftEditor({
             </span>
           ) : saveFailed ? (
             <span className="text-xs text-amber-700 dark:text-amber-300">
-              Not saved — kept here, and your next change tries again
+              Not saved. Your next change tries again.
             </span>
           ) : null}
           {/*
@@ -919,7 +916,7 @@ function RegenerateRow({ submissionId, unsaved }: { submissionId: string; unsave
         <span className="text-sm font-medium">Not happy with this report?</span>
         <span className="text-xs text-muted-foreground">
           {unsaved
-            ? "Your latest change is still being saved — a moment, then this offers again."
+            ? "Your latest change is still being saved."
             : "Grading again runs the tests if needed and writes a fresh report. This one is kept."}
         </span>
       </div>
@@ -966,8 +963,8 @@ function RestartRow({ draftId, unsaved }: { draftId: string; unsaved: boolean })
         <span className="text-sm font-medium">Written against older code</span>
         <span className="text-xs text-muted-foreground">
           {unsaved
-            ? "Your latest change is still being saved — a moment, then this offers again."
-            : "Starting again carries every score and every word onto the newer commit, so you can check them against the code that is there and release."}
+            ? "Your latest change is still being saved."
+            : "Copies your scores and text onto a new round at the current commit, which can then be released."}
         </span>
       </div>
       <Button

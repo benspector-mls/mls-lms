@@ -8,7 +8,7 @@ import {
   recentAttendanceSentence,
   type RecentAttendance,
 } from "@/lib/attendance/summary";
-import { CHECK_TREND_RULE, recentChecksSentence, type RecentChecks } from "@/lib/checks/trends";
+import { recentChecksSentence, type RecentChecks } from "@/lib/checks/trends";
 import {
   ASSIGNMENT_DRIFT_RULE,
   DRIFT_REASON_LABEL,
@@ -55,9 +55,8 @@ export function Trends({
       <h2 className="flex items-center gap-1.5 text-sm font-medium">
         Trends
         <HelpTip>
-          The last few weeks rather than the term. Somebody at 88 percent who has slipped this
-          fortnight is the person to talk to today, and a term-long figure hides them behind the
-          good weeks.
+          The last few weeks, not the whole term, so a recent slip is not hidden by a good term
+          average.
         </HelpTip>
       </h2>
       {note && <p className="text-xs text-muted-foreground">{note}</p>}
@@ -68,9 +67,8 @@ export function Trends({
             <HelpTip>
               Flagged after missing {DRIFT_RULE.missedAtLeast} or more of the last{" "}
               {DRIFT_RULE.missedOf} mornings, or arriving late {DRIFT_RULE.lateAtLeast} or more
-              times in the last {DRIFT_RULE.lateOf}. The same rule as the attendance screen&apos;s
-              own list. Only mornings they checked in count towards when they arrive, so an absence
-              neither raises nor lowers those averages.
+              times in the last {DRIFT_RULE.lateOf}. Arrival averages count only mornings they
+              checked in.
             </HelpTip>
           </h3>
           <p className="flex flex-wrap items-center gap-2 text-sm">
@@ -123,12 +121,6 @@ export function Trends({
         <div className="flex flex-col gap-2 border-t border-border pt-3">
           <h3 className="flex items-center gap-1.5 text-xs font-medium uppercase tracking-wide text-muted-foreground">
             Understanding
-            <HelpTip>
-              Their last {CHECK_TREND_RULE.checksOf} checks for understanding in each course: how
-              many they answered, how many ended Blocked on their latest attempt, and whether they
-              asked to go over those with an instructor. A check never flags here. It is an honest
-              reading, not a verdict, so what it means is yours to judge.
-            </HelpTip>
           </h3>
           {coursesWithChecks.length === 0 ? (
             <p className="text-sm">No course has a check for understanding yet.</p>

@@ -100,13 +100,11 @@ function InstructorsCard({ data }: { data: Data }) {
   const onlyOne = data.program.instructors.length <= 1;
 
   return (
-    <section id="instructors" className="scroll-mt-(--outline-offset) flex flex-col gap-4 rounded-lg border border-border p-4">
-      <div className="flex flex-col gap-1">
-        <h2 className="text-sm font-medium">Instructors</h2>
-        <p className="text-xs text-muted-foreground">
-          Everyone here can author, grade, and take attendance in every course of this program.
-        </p>
-      </div>
+    <section
+      id="instructors"
+      className="scroll-mt-(--outline-offset) flex flex-col gap-4 rounded-lg border border-border p-4"
+    >
+      <h2 className="text-sm font-medium">Instructors</h2>
 
       <div className="overflow-x-auto rounded-lg border border-border">
         <Table>
@@ -237,13 +235,11 @@ function InstructorsCard({ data }: { data: Data }) {
         </p>
       ) : (
         /*
-          The rule, said once beside the table rather than discovered by a refusal. The last
-          sentence is the one nobody would guess: an owner who leaves without handing the
-          program on does not leave it ownerless.
+          What the Owner badge means, said once beside the table rather than discovered by a
+          refusal. Succession when an owner leaves is told by the toast at the moment it happens (the longest tenured instructor is made the owner).
         */
         <p className="text-xs text-muted-foreground">
-          Only the owner can archive this program, assign courses, and remove themselves. If the
-          owner leaves, the longest-serving instructor becomes the owner.
+          Only the owner can archive this program and assign courses.
         </p>
       )}
 
@@ -313,13 +309,15 @@ function TeachingGrid({ data }: { data: Data }) {
   }
 
   return (
-    <section id="teaching" className="scroll-mt-(--outline-offset) flex flex-col gap-4 rounded-lg border border-border p-4">
+    <section
+      id="teaching"
+      className="scroll-mt-(--outline-offset) flex flex-col gap-4 rounded-lg border border-border p-4"
+    >
       <div className="flex flex-col gap-1">
         <h2 className="text-sm font-medium">Who teaches what</h2>
         <p className="text-xs text-muted-foreground">
-          This does not change permissions. It decides whose name fellows see on a course, who is
-          added as a collaborator on its repositories, and which course an instructor&apos;s
-          screens open on.
+          Assigning sets whose name fellows see on a course and who is added as a collaborator on
+          its repositories. Every instructor can work in every course regardless.
         </p>
       </div>
 

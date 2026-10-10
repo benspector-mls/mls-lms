@@ -265,11 +265,7 @@ export function CoachingSessionForm({ programId, data }: { programId: string; da
               onChange={(event) => editHeldOn(event.target.value)}
               className="w-fit"
             />
-            <p className="text-xs text-muted-foreground">
-              The day you meet. Started early to prepare? Move it to the day of the conversation —
-              it is what the session is listed under for both of you, and it cannot be changed after
-              completion.
-            </p>
+            <p className="text-xs text-muted-foreground">Cannot be changed after completion.</p>
           </>
         )}
       </section>
@@ -285,8 +281,8 @@ export function CoachingSessionForm({ programId, data }: { programId: string; da
         courses={data.trends.courses}
         note={
           completed
-            ? "As of today, not as of this session. For you only: none of it is recorded, and the fellow does not see it."
-            : "For you only: none of it is recorded when you complete this session, and the fellow does not see it."
+            ? "As of today, not of this session. Staff only; not recorded and not shown to the fellow."
+            : "Staff only; not recorded and not shown to the fellow."
         }
       />
 
@@ -294,7 +290,7 @@ export function CoachingSessionForm({ programId, data }: { programId: string; da
         <p className="text-xs text-muted-foreground">
           {completed
             ? `Recorded when this session was completed, ${formatDateTime(data.endedAt!)}. The fellow sees this.`
-            : "What you are both looking at is what will be recorded when you complete this session. The fellow will see it."}
+            : "Recorded when you complete this session. The fellow will see it."}
         </p>
         {strip === null ? (
           <p className="text-sm text-muted-foreground">The stored record cannot be read.</p>
@@ -426,7 +422,7 @@ export function CoachingSessionForm({ programId, data }: { programId: string; da
         <FellowGoals
           goals={data.goals}
           programId={programId}
-          empty="They have not set any goals yet — a good thing to spend this session on."
+          empty="They have not set any goals yet."
         />
       </section>
 
@@ -464,9 +460,8 @@ export function CoachingSessionForm({ programId, data }: { programId: string; da
           <DialogHeader>
             <DialogTitle>Discard this session?</DialogTitle>
             <DialogDescription>
-              The temperature check and everything written here go, and cannot be brought back.
-              {fellowName} never saw any of it — nothing was shared, because the session was never
-              completed — and their goals are untouched.
+              Everything written here is deleted and cannot be recovered. {fellowName} never saw it,
+              and their goals are untouched.
             </DialogDescription>
           </DialogHeader>
           <DialogFooter>
@@ -491,11 +486,9 @@ export function CoachingSessionForm({ programId, data }: { programId: string; da
           <DialogHeader>
             <DialogTitle>Complete this session?</DialogTitle>
             <DialogDescription>
-              This session is dated {formatSchoolDay(heldOn)}. {fellowName} will see the performance
-              figures in the strip above, recorded as of this moment, under that date. The
-              temperature check and the check-in answers stay staff-only, and nothing recorded — the
-              date included — can be edited afterwards. Their goals are their own either way:
-              completing this changes nothing about them.
+              {fellowName} will see the performance figures above, recorded now and dated{" "}
+              {formatSchoolDay(heldOn)}. The temperature check and check-in answers stay staff-only.
+              Nothing can be edited afterwards, including the date.
             </DialogDescription>
           </DialogHeader>
           <DialogFooter>
