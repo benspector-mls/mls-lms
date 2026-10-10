@@ -23,11 +23,14 @@
  * document order is therefore wrong in one of the two modes, so the bar sorts by position on the
  * screen — left to right between the columns, top to bottom within one — and sorts again when the
  * window is resized, which is the one event that can change the mode without any card re-rendering.
+ * When split, a thin line separates the left column's icons from the right column's, so the
+ * instructor can tell which half of the pane an icon will scroll.
  */
 
 import * as React from "react";
 
 import { Button } from "@/components/ui/button";
+import { Separator } from "@/components/ui/separator";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { cn } from "@/lib/utils";
 
@@ -193,10 +196,7 @@ export function SectionNavBar({
     : [...entries]
         .map(([key, entry]) => ({ key, ...entry, rect: entry.element.getBoundingClientRect() }))
         .sort((a, b) =>
-          // A pixel of tolerance, so two columns whose edges differ by rounding read as one.
-          Math.abs(a.rect.left - b.rect.left) > 1
-            ? a.rect.left - b.rect.left
-            : a.rect.top - b.rect.top,
+          sameColumn(a.rect, b.rect) ? a.rect.top - b.rect.top : a.rect.left - b.rect.left,
         );
 
   return (
@@ -206,23 +206,33 @@ export function SectionNavBar({
           aria-label="Jump to a part of this review"
           className="flex min-w-0 items-center gap-0.5 overflow-x-auto"
         >
-          {ordered.map((entry) => (
-            <Tooltip key={entry.key}>
-              <TooltipTrigger
-                render={
-                  <Button
-                    type="button"
-                    variant="ghost"
-                    size="icon-sm"
-                    aria-label={entry.label}
-                    onClick={() => jumpTo(entry.element)}
-                  />
-                }
-              >
-                <entry.icon className={cn("size-4 text-muted-foreground", entry.iconClassName)} />
-              </TooltipTrigger>
-              <TooltipContent side="bottom">{entry.label}</TooltipContent>
-            </Tooltip>
+          {ordered.map((entry, index) => (
+            <React.Fragment key={entry.key}>
+              {/*
+                  A line where the next icon belongs to another column. Stacked, every card shares
+                  one left edge and no line is drawn; split, the line falls between the work's
+                  icons and the grade's, so the bar reads in the same two halves as the pane.
+                */}
+              {index > 0 && !sameColumn(ordered[index - 1].rect, entry.rect) && (
+                <Separator orientation="vertical" className="mx-1 h-4" />
+              )}
+              <Tooltip>
+                <TooltipTrigger
+                  render={
+                    <Button
+                      type="button"
+                      variant="ghost"
+                      size="icon-sm"
+                      aria-label={entry.label}
+                      onClick={() => jumpTo(entry.element)}
+                    />
+                  }
+                >
+                  <entry.icon className={cn("size-4 text-muted-foreground", entry.iconClassName)} />
+                </TooltipTrigger>
+                <TooltipContent side="bottom">{entry.label}</TooltipContent>
+              </Tooltip>
+            </React.Fragment>
           ))}
         </nav>
       )}
@@ -231,6 +241,15 @@ export function SectionNavBar({
       {actions && <div className="ml-auto flex shrink-0 items-center gap-2">{actions}</div>}
     </div>
   );
+}
+
+/**
+ * Whether two cards sit in the same column. The sort and the divider both ask this, so the line
+ * is drawn exactly where the sort moves from one column to the next. A pixel of tolerance, so two
+ * cards whose left edges differ by rounding read as one column.
+ */
+function sameColumn(a: DOMRect, b: DOMRect): boolean {
+  return Math.abs(a.left - b.left) <= 1;
 }
 
 /**
