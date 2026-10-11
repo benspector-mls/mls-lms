@@ -144,15 +144,22 @@ function useActiveCourseId(): string | null {
  * **It reads only program addresses.** A course address names a course and resolves its program
  * from the course list — see `programOfCourse` — because carrying both identifiers in one URL would
  * give every link two scopes that could disagree and nothing to reconcile them with.
+ *
+ * **`/profile` carries it in the query string**, put there by the Profile link in `UserMenu`. The
+ * profile belongs to no program, but an instructor who opens it mid-task expects the switcher and
+ * the program's views to still be there when they look back at the sidebar, rather than a
+ * placeholder and an empty sidebar that they have to find their way out of.
  */
 function useActiveProgramId(): string | null {
   const segments = usePathname().split("/").filter(Boolean);
+  const searchParams = useSearchParams();
 
   if (segments[0] === "instructor" && segments[1] === "programs" && segments[2]) {
     return segments[2];
   }
   // The fellow-facing side: /programs, and /programs/[programId]/attendance.
   if (segments[0] === "programs" && segments[1]) return segments[1];
+  if (segments[0] === "profile" && segments.length === 1) return searchParams.get("program");
   return null;
 }
 
@@ -924,10 +931,15 @@ function MainNav({
     address names no program, so without the second half the program group would vanish on the
     screens an instructor uses most — and the sidebar would stop offering attendance exactly where
     it is opened every morning.
+
+    `/profile` is the one address outside `/instructor` that keeps the group, from the program the
+    Profile link carried there in its query string — see `useActiveProgramId`.
   */
   const navProgramId = inInstructorArea
     ? (activeProgramId ?? programOfCourse(courses, activeCourseId))
-    : null;
+    : pathname === "/profile"
+      ? activeProgramId
+      : null;
 
   // Only this program's courses, for the reason `CourseSwitcher` records: every year runs
   // the same courses under the same names, so an unscoped list cannot be read.
@@ -1354,8 +1366,11 @@ function AdminGroup({ isAdmin, pathname }: { isAdmin: boolean; pathname: string 
 
 function UserMenu({
   person,
+  program,
 }: {
   person: { displayName: string | null; email: string | null; githubUsername: string | null };
+  /** The program the sidebar has selected, carried to `/profile` so that it stays selected there. */
+  program: string | null;
 }) {
   const router = useRouter();
 
@@ -1437,7 +1452,13 @@ function UserMenu({
           change one of them looks first.
         */}
         <DropdownMenuGroup>
-          <DropdownMenuItem render={<Link href="/profile" />}>
+          <DropdownMenuItem
+            render={
+              <Link
+                href={program ? `/profile?program=${encodeURIComponent(program)}` : "/profile"}
+              />
+            }
+          >
             <UserRound />
             Profile
           </DropdownMenuItem>
@@ -1647,6 +1668,7 @@ function ShellSidebar() {
   */
   const activeCourseId = useActiveCourseId();
   const activeProgramId = useActiveProgramId();
+  const selectedProgram = activeProgramId ?? programOfCourse(courses, activeCourseId);
 
   return (
     <Sidebar collapsible="icon">
@@ -1658,10 +1680,7 @@ function ShellSidebar() {
         */}
         {role === "instructor" && (
           <div className="group-data-[collapsible=icon]:hidden">
-            <ProgramSwitcher
-              programs={programs}
-              selected={activeProgramId ?? programOfCourse(courses, activeCourseId)}
-            />
+            <ProgramSwitcher programs={programs} selected={selectedProgram} />
           </div>
         )}
       </SidebarHeader>
@@ -1670,7 +1689,10 @@ function ShellSidebar() {
       </SidebarContent>
       <SidebarFooter>
         <SidebarSeparator className="mx-0" />
-        {profile && <UserMenu person={profile} />}
+        {/* Instructors only, because only an instructor's sidebar has a program selected to keep. */}
+        {profile && (
+          <UserMenu person={profile} program={role === "instructor" ? selectedProgram : null} />
+        )}
       </SidebarFooter>
     </Sidebar>
   );
