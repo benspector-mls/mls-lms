@@ -12,8 +12,9 @@
  */
 
 import * as React from "react";
-import { Pencil, SaveCheck, SavePen, Undo2 } from "lucide-react";
+import { Check, Pencil, Plus, SaveCheck, SavePen, Undo2 } from "lucide-react";
 import { Markdown, sourceOffsetAt } from "@/components/markdown";
+import { HelpTip } from "@/components/help-tip";
 import { ConfidenceBadge, FlagBadge } from "@/components/status-badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
@@ -21,7 +22,6 @@ import { Input } from "@/components/ui/input";
 import { MarkdownEditor } from "@/components/markdown-editor";
 import { composeReport, rowTotals, type ReportRow } from "@/lib/grade/report-text";
 import { sectionLabel } from "@/lib/status";
-import { cn } from "@/lib/utils";
 import type { ReportParts, Section } from "@/components/instructor/review/shared";
 
 /**
@@ -158,6 +158,13 @@ export function AssembledSectionEditor({
       </SectionHeader>
 
       <CardContent className="flex flex-col gap-4">
+        {/*
+          First, directly under the badges, because a note here can change how everything below
+          it should be read — a file the model never received, an assumption it had to make — and
+          read last it arrived after the instructor had already judged the rows.
+        */}
+        <SectionNotes section={section} />
+
         {unsaved && onReset && (
           <div className="flex justify-end">
             <Button size="sm" variant="ghost" onClick={onReset}>
@@ -187,61 +194,133 @@ export function AssembledSectionEditor({
               emptyText="No summary was written for this section."
             />
 
-            {parts.rows.map((row, index) => {
-              /*
-                A checklist item's section heading, drawn above the first item under it with the
-                subtotal the comment will show. Every other row is a heading of its own.
-              */
-              const opensGroup = row.group !== null && parts.rows[index - 1]?.group !== row.group;
-              const group = opensGroup
-                ? rowTotals(parts.rows.filter((member) => member.group === row.group))
-                : null;
-              return (
-                <React.Fragment key={index}>
-                  {group && (
-                    <div className="flex items-baseline justify-between gap-3 pt-2">
-                      <span className="text-sm font-semibold">{row.group}</span>
-                      <span className="text-sm tabular-nums text-muted-foreground">
-                        {group.earned ?? "–"} / {group.possible}
-                      </span>
-                    </div>
-                  )}
-                  <div className="flex flex-col gap-2 rounded-md border border-border p-3">
-                    <div className="flex items-start justify-between gap-3">
-                      <span className="min-w-0 pt-2 text-sm font-medium">{row.label}</span>
-                      <ScoreInput
-                        value={row.scoreEarned}
-                        possible={row.scorePossible}
-                        onChange={(scoreEarned) => writeRow(index, { scoreEarned })}
-                        onBlur={onScoreBlur}
-                        ariaLabel={`${row.label} score`}
-                      />
-                    </div>
-                    {row.modelReasoning && (
-                      <p className="text-xs text-muted-foreground">
-                        <span className="font-medium">Why this score (not posted): </span>
-                        {row.modelReasoning}
-                      </p>
+            {/*
+              One bordered list with a divider between rows, rather than a box per row with a gap
+              between boxes: the rows read as one table of questions, and the gaps were height
+              every row paid for.
+            */}
+            <div className="divide-y divide-border rounded-md border border-border">
+              {parts.rows.map((row, index) => {
+                /*
+                  A checklist item's section heading, drawn above the first item under it with the
+                  subtotal the comment will show. Every other row is a heading of its own.
+                */
+                const opensGroup = row.group !== null && parts.rows[index - 1]?.group !== row.group;
+                const group = opensGroup
+                  ? rowTotals(parts.rows.filter((member) => member.group === row.group))
+                  : null;
+                return (
+                  <React.Fragment key={index}>
+                    {group && (
+                      <div className="flex items-baseline justify-between gap-3 bg-muted/40 px-3 py-1.5">
+                        <span className="text-sm font-semibold">{row.group}</span>
+                        <span className="text-sm tabular-nums text-muted-foreground">
+                          {group.earned ?? "–"} / {group.possible}
+                        </span>
+                      </div>
                     )}
-                    <EditableMarkdown
-                      heading="Feedback"
-                      value={row.feedbackMarkdown}
-                      onChange={(feedbackMarkdown) => writeRow(index, { feedbackMarkdown })}
-                      ariaLabel={`${row.label} feedback`}
-                      emptyText="No feedback on this row."
-                      rows={6}
-                      compact
+                    <QuestionRow
+                      row={row}
+                      onScore={(scoreEarned) => writeRow(index, { scoreEarned })}
+                      onScoreBlur={onScoreBlur}
+                      onFeedback={(feedbackMarkdown) => writeRow(index, { feedbackMarkdown })}
                     />
-                  </div>
-                </React.Fragment>
-              );
-            })}
+                  </React.Fragment>
+                );
+              })}
+            </div>
           </>
         )}
-
-        <SectionNotes section={section} />
       </CardContent>
     </Card>
+  );
+}
+
+/**
+ * One question: its label and score box on one line, the feedback the student reads, and the
+ * model's reasoning beneath it.
+ *
+ * Built to be short, because a section holds a dozen of these and most full-marks questions have
+ * no feedback at all. A row with nothing to say is the label line and the reasoning, with an "Add
+ * feedback" button beside the score; a row with feedback shows it unboxed, edited by a
+ * double-click or the Edit Feedback button beside the score.
+ */
+function QuestionRow({
+  row,
+  onScore,
+  onScoreBlur,
+  onFeedback,
+}: {
+  row: ReportRow;
+  onScore: (value: number | null) => void;
+  onScoreBlur?: () => void;
+  onFeedback: (value: string) => void;
+}) {
+  const box = useEditInPlace(row.feedbackMarkdown);
+  const hasFeedback = row.feedbackMarkdown.trim() !== "";
+
+  return (
+    <div ref={box.container} className="flex flex-col gap-1.5 px-3 py-2">
+      <div className="flex items-center justify-between gap-3">
+        <span className="min-w-0 text-sm font-medium">{row.label}</span>
+        <div className="flex shrink-0 items-center gap-1">
+          {box.editing ? (
+            <Button size="sm" variant="ghost" onClick={box.close}>
+              <Check data-icon="inline-start" />
+              Done
+            </Button>
+          ) : hasFeedback ? (
+            <Button size="sm" variant="ghost" onClick={() => box.open("button")}>
+              <Pencil data-icon="inline-start" />
+              Edit Feedback
+            </Button>
+          ) : (
+            <Button size="sm" variant="ghost" onClick={() => box.open("button")}>
+              <Plus data-icon="inline-start" />
+              Add feedback
+            </Button>
+          )}
+          <ScoreInput
+            value={row.scoreEarned}
+            possible={row.scorePossible}
+            onChange={onScore}
+            onBlur={onScoreBlur}
+            ariaLabel={`${row.label} score`}
+          />
+        </div>
+      </div>
+
+      {box.editing ? (
+        <MarkdownEditor
+          value={row.feedbackMarkdown}
+          onChange={onFeedback}
+          ariaLabel={`${row.label} feedback`}
+          rows={6}
+          autoFocus
+          initialCursor={box.editing === "double-click" ? box.cursor : undefined}
+          className="font-mono text-xs"
+        />
+      ) : (
+        hasFeedback && (
+          <div onDoubleClick={box.openAtPointer} title="Double-click to edit">
+            <Markdown content={row.feedbackMarkdown} sourceOffsets />
+          </div>
+        )
+      )}
+
+      {/*
+        Beneath the feedback, so the row reads in the order the student's comment does — the
+        score, then what they are told — with the instructor's note after it. In the same amber as
+        the notes card beneath the section, because it is the same kind of thing: written for the
+        instructor and never posted.
+      */}
+      {row.modelReasoning && (
+        <p className="text-xs text-amber-800 dark:text-amber-200">
+          <span className="font-medium text-amber-700 dark:text-amber-300">Model Reasoning: </span>
+          {row.modelReasoning}
+        </p>
+      )}
+    </div>
   );
 }
 
@@ -376,42 +455,19 @@ function ScoreInput({
 }
 
 /**
- * Markdown read as it will render, and edited in place.
+ * Opening a block of markdown for editing in place, and closing it again.
  *
- * Two ways in. The Edit button says the instructor means to write for a while, so the box stays
- * open until they press Preview. Double-clicking the preview is a quick correction, so the box
- * goes back to the preview as soon as they click anywhere outside it, with no button to find.
- * One button press cannot express both, which is why the two ways in are kept apart.
+ * Two ways in. A button says the instructor means to write for a while, so the box stays open
+ * until they close it. Double-clicking the rendered text is a quick correction, so the box goes
+ * back to the rendered text as soon as they click anywhere outside `container`, with no button to
+ * find. One button press cannot express both, which is why the two ways in are kept apart.
  */
-function EditableMarkdown({
-  heading,
-  value,
-  onChange,
-  ariaLabel,
-  emptyText,
-  rows = 16,
-  compact = false,
-  actions,
-  onEditingChange,
-}: {
-  heading: string;
-  value: string;
-  onChange: (value: string) => void;
-  ariaLabel: string;
-  /** What the box says when there is nothing written in it. */
-  emptyText: string;
-  rows?: number;
-  /** Smaller type and padding, for the many boxes of a report edited row by row. */
-  compact?: boolean;
-  /** Buttons drawn before Edit, such as Undo. */
-  actions?: React.ReactNode;
-  onEditingChange?: (editing: boolean) => void;
-}) {
+function useEditInPlace(value: string, onEditingChange?: (editing: boolean) => void) {
   const [editing, setEditing] = React.useState<false | "button" | "double-click">(false);
   /** Where the caret starts when a double-click opened the box: the character under the pointer. */
   const [cursor, setCursor] = React.useState<number | undefined>(undefined);
   /** The label, buttons and box together. A click inside any of them is not a click outside. */
-  const writing = React.useRef<HTMLDivElement>(null);
+  const container = React.useRef<HTMLDivElement>(null);
 
   function open(how: "button" | "double-click", at?: number) {
     setCursor(at);
@@ -432,7 +488,7 @@ function EditableMarkdown({
   React.useEffect(() => {
     if (editing !== "double-click") return;
     function closeOnClickOutside(event: PointerEvent) {
-      if (writing.current?.contains(event.target as Node)) return;
+      if (container.current?.contains(event.target as Node)) return;
       setEditing(false);
       onEditingChange?.(false);
     }
@@ -448,8 +504,38 @@ function EditableMarkdown({
     open("double-click", sourceOffsetAt(event.clientX, event.clientY) ?? value.length);
   }
 
+  return { editing, cursor, container, open, close, openAtPointer };
+}
+
+/** Markdown read as it will render, under a heading, and edited in place — see `useEditInPlace`. */
+function EditableMarkdown({
+  heading,
+  value,
+  onChange,
+  ariaLabel,
+  emptyText,
+  rows = 16,
+  actions,
+  onEditingChange,
+}: {
+  heading: string;
+  value: string;
+  onChange: (value: string) => void;
+  ariaLabel: string;
+  /** What the box says when there is nothing written in it. */
+  emptyText: string;
+  rows?: number;
+  /** Buttons drawn before Edit, such as Undo. */
+  actions?: React.ReactNode;
+  onEditingChange?: (editing: boolean) => void;
+}) {
+  const { editing, cursor, container, open, close, openAtPointer } = useEditInPlace(
+    value,
+    onEditingChange,
+  );
+
   return (
-    <div ref={writing} className="flex flex-col gap-2">
+    <div ref={container} className="flex flex-col gap-2">
       <div className="flex items-center justify-between">
         <span className="text-xs font-medium tracking-wide text-muted-foreground uppercase">
           {heading}
@@ -478,10 +564,7 @@ function EditableMarkdown({
         <div
           onDoubleClick={openAtPointer}
           title="Double-click to edit"
-          className={cn(
-            "rounded-md border border-border bg-muted/20",
-            compact ? "px-3 py-2" : "p-4",
-          )}
+          className="rounded-md border border-border bg-muted/20 p-4"
         >
           <Markdown content={value} sourceOffsets />
         </div>
@@ -489,10 +572,7 @@ function EditableMarkdown({
         <p
           onDoubleClick={openAtPointer}
           title="Double-click to edit"
-          className={cn(
-            "rounded-md border border-dashed border-border px-3 text-center text-sm text-muted-foreground",
-            compact ? "py-2" : "py-4",
-          )}
+          className="rounded-md border border-dashed border-border px-3 py-4 text-center text-sm text-muted-foreground"
         >
           {emptyText}
         </p>
@@ -509,8 +589,14 @@ function SectionNotes({ section }: { section: SectionFacts }) {
     <>
       {instructorNotes.length > 0 && (
         <div className="flex flex-col gap-1.5 rounded-md border border-amber-500/30 bg-amber-500/5 px-3 py-2">
-          <span className="text-[11px] font-medium tracking-wide text-amber-700 uppercase dark:text-amber-300">
-            For you, never shown to the student
+          <span className="flex items-center gap-1 text-[11px] font-medium tracking-wide text-amber-700 uppercase dark:text-amber-300">
+            Model Summary
+            <HelpTip className="text-amber-700 hover:text-amber-900 dark:text-amber-300 dark:hover:text-amber-100">
+              Never sent to the student. The model writes these notes for you while it grades, about
+              anything you should know that does not belong in the feedback: a file it expected and
+              did not receive, an assumption it had to make to give a score, or a rubric criterion
+              that does not fit what the student built.
+            </HelpTip>
           </span>
           {instructorNotes.map((note, index) => (
             <p key={index} className="text-xs text-amber-800 dark:text-amber-200">
