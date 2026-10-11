@@ -26,6 +26,8 @@ import {
   runSummaries,
   studentSummaryLines,
 } from "@/lib/notifications/summary";
+import { createCallerFactory } from "@/trpc/init";
+import { appRouter } from "@/trpc/routers/_app";
 
 import {
   enroll,
@@ -451,15 +453,15 @@ describe("runDigests and the watermark", () => {
   });
 
   it("only people due at this hour, on this day, who are not test students", async () => {
-    // Weekly, on Tuesdays: today is Monday, so not this morning.
-    const weekly = world.students[1]!.studentId;
+    // A digest on Tuesdays only: today is Monday, so not this morning.
+    const tuesdays = world.students[1]!.studentId;
     await tx().profile.update({
-      where: { id: weekly },
+      where: { id: tuesdays },
       data: {
-        slackEventCadence: "WEEKLY",
-        slackEventWeekday: 2,
+        slackEventCadence: "DAILY",
+        slackEventDays: [2],
         slackEventHour: 9,
-        slackUserId: "U-WEEKLY",
+        slackUserId: "U-TUESDAYS",
       },
     });
 
@@ -484,7 +486,7 @@ describe("runDigests and the watermark", () => {
 
     await run();
     const targets = sent.map((dm) => dm.to);
-    expect(targets).not.toContain("U-WEEKLY");
+    expect(targets).not.toContain("U-TUESDAYS");
     expect(targets).not.toContain("U-TEST-STUDENT");
     expect(targets).not.toContain("U-AFTERNOON");
 
@@ -495,10 +497,71 @@ describe("runDigests and the watermark", () => {
     const atFour = await run(new Date("2026-06-15T20:00:00Z"));
     expect(atFour.skipped).toBeGreaterThanOrEqual(1);
 
-    // And on Tuesday the weekly fellow's day comes round.
+    // And on Tuesday the Tuesday fellow's day comes round.
     sent = [];
     const tuesday = await run(new Date("2026-06-16T13:00:00Z"));
     expect(tuesday.skipped + tuesday.digested).toBeGreaterThanOrEqual(1);
+  });
+
+  /*
+    The reason the days need nothing beyond a filter: the window starts at the watermark, so a
+    digest after skipped days covers them. Feedback released on Tuesday evening, after Tuesday's
+    digest, is not sent on Wednesday or Thursday and is in Friday's.
+  */
+  it("a digest on chosen days skips the others and carries their news to the next one", async () => {
+    const reader = await makeAccount(tx());
+    await tx().profile.update({
+      where: { id: reader },
+      data: {
+        slackEventCadence: "DAILY",
+        slackEventDays: [2, 5],
+        slackEventHour: 9,
+        slackUserId: "U-TUE-FRI",
+        // As though Tuesday's 9am digest has just gone out.
+        slackDigestedTo: new Date("2026-06-16T13:00:00Z"),
+      },
+    });
+
+    const assignment = await makeAssignment(tx(), {
+      courseId: world.courseId,
+      courseUnitId: world.unitId,
+      title: "Released Tuesday Evening",
+      pointValue: 10,
+    });
+    const submission = await makeSubmission(tx(), {
+      assignmentId: assignment.id,
+      studentId: reader,
+      graded: { score: 7, possible: 10, isComplete: true },
+    });
+    await approveRound(tx(), {
+      submissionId: submission.id,
+      approvedById: world.instructorId,
+      approvedAt: new Date("2026-06-16T22:00:00Z"),
+      scoreEarned: 7,
+      scorePossible: 10,
+    });
+
+    const toReader = () => sent.filter((dm) => dm.to === "U-TUE-FRI");
+
+    await run(new Date("2026-06-17T13:00:00Z")); // Wednesday, 9am
+    await run(new Date("2026-06-18T13:00:00Z")); // Thursday, 9am
+    expect(toReader()).toEqual([]);
+
+    await run(new Date("2026-06-19T13:00:00Z")); // Friday, 9am
+    expect(toReader()).toHaveLength(1);
+    expect(toReader()[0]!.text).toContain("Released Tuesday Evening");
+  });
+
+  it("refuses a digest with no days, since that would never send", async () => {
+    const reader = await makeAccount(tx());
+    const caller = createCallerFactory(appRouter)({ db: tx(), user: { id: reader } } as never);
+
+    await expect(caller.setSlackEventCadence({ cadence: "DAILY", days: [] })).rejects.toThrow();
+    await expect(caller.setSlackSummaryCadence({ cadence: "DAILY", days: [] })).rejects.toThrow();
+
+    // Repeated and unordered days are stored once each, in week order.
+    const saved = await caller.setSlackEventCadence({ cadence: "DAILY", days: [5, 1, 5, 3] });
+    expect(saved.days).toEqual([1, 3, 5]);
   });
 
   /*
@@ -783,6 +846,40 @@ describe("the summary cadence", () => {
     const afternoon = await runSummaries(new Date("2026-06-15T20:00:00Z"), { send, client: tx() });
     expect(afternoon.summarised).toBe(1);
     expect(sent).toEqual(["U-FELLOW"]);
+  });
+
+  it("a summary on chosen days goes out on those days only", async () => {
+    const world = await makeWorld(tx());
+    const sent: string[] = [];
+    const send = async (to: string) => {
+      sent.push(to);
+      return { ok: true };
+    };
+
+    await makeAssignment(tx(), {
+      courseId: world.courseId,
+      courseUnitId: world.unitId,
+      title: "Still Overdue",
+      dueAt: new Date("2026-06-01T23:59:00Z"),
+    });
+
+    await tx().profile.update({
+      where: { id: world.student.studentId },
+      data: {
+        slackUserId: "U-MONDAYS",
+        slackSummaryCadence: "DAILY",
+        slackSummaryDays: [1],
+        slackSummaryHour: 9,
+      },
+    });
+
+    // Tuesday at nine is the right hour on a day they did not tick.
+    await runSummaries(new Date("2026-06-16T13:00:00Z"), { send, client: tx() });
+    expect(sent).not.toContain("U-MONDAYS");
+
+    // Monday at nine is theirs.
+    await runSummaries(new Date("2026-06-15T13:00:00Z"), { send, client: tx() });
+    expect(sent).toContain("U-MONDAYS");
   });
 });
 

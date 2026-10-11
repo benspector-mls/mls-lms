@@ -323,11 +323,9 @@ export async function runSummaries(
   const users = await client.profile.findMany({
     where: {
       testStudentNumber: null,
+      slackSummaryCadence: "DAILY",
       slackSummaryHour: hour,
-      OR: [
-        { slackSummaryCadence: "DAILY" },
-        { slackSummaryCadence: "WEEKLY", slackSummaryWeekday: weekday },
-      ],
+      slackSummaryDays: { has: weekday },
     },
     select: {
       id: true,

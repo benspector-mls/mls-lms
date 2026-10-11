@@ -19,7 +19,7 @@ import {
 import { resolveSlackUserId } from "./slack";
 
 /**
- * The daily and weekly digests, derived entirely from rows that already exist.
+ * The digests, derived entirely from rows that already exist.
  *
  * There is no notifications table. What a digest says is computed from `GradingDraft.approvedAt`,
  * `SubmissionComment.createdAt`, and the read receipts, over the window since the recipient's
@@ -292,18 +292,16 @@ export async function runDigests(
   const { hour, weekday } = schoolHourAndWeekday(now);
 
   /*
-    Everybody whose chosen hour is the hour it now is in Brooklyn — and, for a weekly digest, whose
-    chosen day is today. Asked of the database rather than decided before the query, because the
-    hour is per person now: there is no single moment when "the digest" goes out.
+    Everybody whose chosen hour is the hour it now is in Brooklyn, on one of the days they chose.
+    Asked of the database rather than decided before the query, because the hour and the days are
+    per person: there is no single moment when "the digest" goes out.
   */
   const users = await client.profile.findMany({
     where: {
       testStudentNumber: null,
+      slackEventCadence: "DAILY",
       slackEventHour: hour,
-      OR: [
-        { slackEventCadence: "DAILY" },
-        { slackEventCadence: "WEEKLY", slackEventWeekday: weekday },
-      ],
+      slackEventDays: { has: weekday },
     },
     select: {
       id: true,
@@ -311,16 +309,15 @@ export async function runDigests(
       email: true,
       slackEmail: true,
       slackUserId: true,
-      slackEventCadence: true,
       slackDigestedTo: true,
     },
   });
 
   for (const user of users) {
     // Defensive lower bound: the cadence mutation writes the watermark when a digest is chosen,
-    // so a null here is a row written before that rule — one period back, never all history.
-    const days = user.slackEventCadence === "WEEKLY" ? 7 : 1;
-    const since = user.slackDigestedTo ?? new Date(now.getTime() - days * 24 * 60 * 60 * 1000);
+    // so a null here is a row written before that rule. A week back, the longest gap a choice of
+    // days allows, rather than all history.
+    const since = user.slackDigestedTo ?? new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000);
     const window = { gt: since, lte: now };
 
     const lines =

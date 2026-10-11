@@ -9,6 +9,7 @@ import { shownInPlace, useServerMutation } from "@/hooks/use-server-mutation";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
 import { Button, buttonVariants } from "@/components/ui/button";
+import { Checkbox } from "@/components/ui/checkbox";
 import { Input } from "@/components/ui/input";
 import {
   Select,
@@ -433,8 +434,12 @@ function CalendarCard({ calendarToken }: { calendarToken: string | null }) {
   );
 }
 
-type EventCadence = SlackNotifications["eventCadence"];
-type SummaryCadence = SlackNotifications["summaryCadence"];
+/*
+  The choices the card offers. The stored enums still carry WEEKLY until no deployed release reads
+  it, but the migration that introduced the days converted every WEEKLY row, so none is ever read.
+*/
+type EventCadence = Exclude<SlackNotifications["eventCadence"], "WEEKLY">;
+type SummaryCadence = Exclude<SlackNotifications["summaryCadence"], "WEEKLY">;
 
 /** Sunday first, the numbering `weekdayOf` returns and the columns store. */
 const WEEKDAYS = ["Sunday", "Monday", "Tuesday", "Wednesday", "Thursday", "Friday", "Saturday"];
@@ -449,17 +454,16 @@ function formatHour(hour: number): string {
 /**
  * What each choice does, shown on hover rather than under the row.
  *
- * Written against the hour and day actually stored, so the tooltip on "Daily digest" says the time
- * that digest would arrive rather than a time from the example in somebody's head.
+ * Written against the hour actually stored, so the tooltip on "Digest" says the time that digest
+ * would arrive rather than a time from the example in somebody's head. The days are not repeated
+ * here because the ticked boxes beside the buttons already show them.
  */
-function captionFor(value: string, hour: number, weekday: number): string {
+function captionFor(value: string, hour: number): string {
   switch (value) {
     case "IMMEDIATE":
       return "A message is sent immediately.";
     case "DAILY":
-      return `One message daily at ${formatHour(hour)}.`;
-    case "WEEKLY":
-      return `One message on ${WEEKDAYS[weekday]} at ${formatHour(hour)}.`;
+      return `One message at ${formatHour(hour)} on the days ticked.`;
     default:
       return "Nothing is sent.";
   }
@@ -470,30 +474,32 @@ const HOURS = Array.from({ length: 24 }, (_, index) => index);
 
 /*
   Required on the Root, for the reason `upcoming-window.tsx` gives: Base UI's trigger renders the
-  stored value unless it is handed a map from value to label, so without these the controls read
-  "1" and "9" instead of "Monday" and "9am". Built from the same arrays the options are built
-  from, so the label in the trigger is the label in the list.
+  stored value unless it is handed a map from value to label, so without this the control reads
+  "9" instead of "9am". Built from the same array the options are built from, so the label in the
+  trigger is the label in the list.
 */
-const WEEKDAY_ITEMS = Object.fromEntries(WEEKDAYS.map((day, index) => [String(index), day]));
 const HOUR_ITEMS = Object.fromEntries(HOURS.map((hour) => [String(hour), formatHour(hour)]));
 
+/**
+ * "Digest" rather than "Daily digest", because a person who ticks Tuesday and Friday would
+ * otherwise read "Daily" beside two days. A digest once a week is a digest with one day ticked.
+ */
 const EVENT_OPTIONS: { value: EventCadence; label: string }[] = [
   { value: "IMMEDIATE", label: "Immediately" },
-  { value: "DAILY", label: "Daily digest" },
-  { value: "WEEKLY", label: "Weekly digest" },
+  { value: "DAILY", label: "Digest" },
   { value: "OFF", label: "Off" },
 ];
 
 /**
- * Three choices rather than four.
+ * "Digest" and "Off", the same words as the setting above it, so the two rows read as one kind of
+ * choice. The days and the hour appear beside "Digest".
  *
  * There is no "immediately" because a standing pile has no moment to be immediate about: the
  * nearest thing would be a message per hand-in, which is a different notification and a due
  * date's worth of them.
  */
 const SUMMARY_OPTIONS: { value: SummaryCadence; label: string }[] = [
-  { value: "DAILY", label: "Daily" },
-  { value: "WEEKLY", label: "Weekly" },
+  { value: "DAILY", label: "Digest" },
   { value: "OFF", label: "Off" },
 ];
 
@@ -512,9 +518,9 @@ const SUMMARY_OPTIONS: { value: SummaryCadence; label: string }[] = [
  * comment is, on the screen where somebody is choosing how often to hear about comments, is a
  * sentence they read past. What each cadence does is on the button, on hover.
  *
- * **The time appears with the choice that needs it**, which is why the hour and the weekday are
- * two controls rather than always-present fields: an hour means nothing to somebody who picked
- * "immediately", and a weekday means nothing to somebody who picked "daily".
+ * **The time appears with the choice that needs it**, which is why the days and the hour are shown
+ * only beside a digest or summary: neither means anything to somebody who picked "immediately",
+ * whose message goes out whenever the event happens.
  */
 function NotificationsCard({ slack, role }: { slack: SlackNotifications; role: Profile["role"] }) {
   const trpc = useTRPC();
@@ -525,19 +531,19 @@ function NotificationsCard({ slack, role }: { slack: SlackNotifications; role: P
     `useServerMutation` refreshes the server component and the props catch up, but a beat later,
     and the pressed control would otherwise not move until after the toast about it.
   */
-  type Chosen = { cadence: string; hour: number; weekday: number };
+  type Chosen = { cadence: string; hour: number; days: number[] };
   const [chosenEvent, setChosenEvent] = React.useState<Chosen | null>(null);
   const [chosenSummary, setChosenSummary] = React.useState<Chosen | null>(null);
 
   const event = chosenEvent ?? {
     cadence: slack.eventCadence,
     hour: slack.eventHour,
-    weekday: slack.eventWeekday,
+    days: slack.eventDays,
   };
   const summary = chosenSummary ?? {
     cadence: slack.summaryCadence,
     hour: slack.summaryHour,
-    weekday: slack.summaryWeekday,
+    days: slack.summaryDays,
   };
 
   const [linkResult, setLinkResult] = React.useState<{ linked: boolean; lookupFailed: boolean } | null>(null);
@@ -578,7 +584,7 @@ function NotificationsCard({ slack, role }: { slack: SlackNotifications; role: P
         options={EVENT_OPTIONS}
         current={event.cadence as EventCadence}
         hour={event.hour}
-        weekday={event.weekday}
+        days={event.days}
         pending={setEvent.isPending}
         onChange={(change) => setEvent.mutate(change)}
       />
@@ -588,7 +594,7 @@ function NotificationsCard({ slack, role }: { slack: SlackNotifications; role: P
         options={SUMMARY_OPTIONS}
         current={summary.cadence as SummaryCadence}
         hour={summary.hour}
-        weekday={summary.weekday}
+        days={summary.days}
         pending={setSummary.isPending}
         onChange={(change) => setSummary.mutate(change)}
       />
@@ -647,18 +653,22 @@ function NotificationsCard({ slack, role }: { slack: SlackNotifications; role: P
 }
 
 /**
- * One setting: what it sends, a row of buttons, and the time controls the chosen one needs.
+ * One setting: what it sends, a row of buttons, and the days and time the chosen one needs.
  *
- * Buttons rather than a dropdown, because the whole set is three or four short words and a
- * dropdown would hide them behind a press. The time and the day are dropdowns, because
- * twenty-four hours and seven days are not a row.
+ * Buttons rather than a dropdown, because the whole set is two or three short words and a dropdown
+ * would hide them behind a press. The days are checkboxes, because any combination of them is a
+ * choice somebody might make. The hour is a dropdown, because twenty-four hours are not a row.
+ *
+ * Every change is sent as it is made, the way the hour already was, so there is no Save button to
+ * forget. The last ticked day cannot be unticked: no days at all would mean "never send", which is
+ * what Off is for, and the server refuses it.
  */
 function Setting<Value extends string>({
   label,
   options,
   current,
   hour,
-  weekday,
+  days,
   pending,
   onChange,
 }: {
@@ -666,12 +676,11 @@ function Setting<Value extends string>({
   options: readonly { value: Value; label: string }[];
   current: Value;
   hour: number;
-  weekday: number;
+  days: readonly number[];
   pending: boolean;
-  onChange: (change: { cadence?: Value; hour?: number; weekday?: number }) => void;
+  onChange: (change: { cadence?: Value; hour?: number; days?: number[] }) => void;
 }) {
-  const showsTime = current === "DAILY" || current === "WEEKLY";
-  const showsDay = current === "WEEKLY";
+  const showsSchedule = current === "DAILY";
 
   return (
     <div className="flex flex-col gap-2">
@@ -684,7 +693,7 @@ function Setting<Value extends string>({
             size="sm"
             variant={option.value === current ? "default" : "outline"}
             aria-pressed={option.value === current}
-            title={captionFor(option.value, hour, weekday)}
+            title={captionFor(option.value, hour)}
             disabled={pending}
             onClick={() => {
               if (option.value !== current) onChange({ cadence: option.value });
@@ -693,28 +702,33 @@ function Setting<Value extends string>({
             {option.label}
           </Button>
         ))}
+      </div>
 
-        {showsDay && (
-          <Select
-            value={String(weekday)}
-            onValueChange={(value) => onChange({ weekday: Number(value) })}
-            items={WEEKDAY_ITEMS}
-            disabled={pending}
-          >
-            <SelectTrigger className="h-8 w-[130px] text-xs" aria-label={`${label}: which day`}>
-              <SelectValue />
-            </SelectTrigger>
-            <SelectContent>
-              {WEEKDAYS.map((day, index) => (
-                <SelectItem key={day} value={String(index)}>
-                  {day}
-                </SelectItem>
-              ))}
-            </SelectContent>
-          </Select>
-        )}
+      {showsSchedule && (
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-2">
+          <fieldset className="flex flex-wrap items-center gap-3">
+            <legend className="sr-only">{`${label}: which days`}</legend>
+            {WEEKDAYS.map((day, weekday) => {
+              const ticked = days.includes(weekday);
+              return (
+                <label key={day} className="flex items-center gap-1.5 text-xs" title={day}>
+                  <Checkbox
+                    checked={ticked}
+                    disabled={pending || (ticked && days.length === 1)}
+                    onCheckedChange={(checked) =>
+                      onChange({
+                        days: checked
+                          ? [...days, weekday].sort((a, b) => a - b)
+                          : days.filter((other) => other !== weekday),
+                      })
+                    }
+                  />
+                  {day.slice(0, 3)}
+                </label>
+              );
+            })}
+          </fieldset>
 
-        {showsTime && (
           <Select
             value={String(hour)}
             onValueChange={(value) => onChange({ hour: Number(value) })}
@@ -732,8 +746,8 @@ function Setting<Value extends string>({
               ))}
             </SelectContent>
           </Select>
-        )}
-      </div>
+        </div>
+      )}
     </div>
   );
 }

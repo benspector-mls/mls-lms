@@ -318,7 +318,7 @@ Only piles with work in them appear; an empty pile is left off the screen. Each 
 
 Triage is one course at a time, on purpose: what you should do next depends on which course you are teaching this hour. The cohort picker narrows it further, to the fellows you grade.
 
-**A fellow's question can also reach you as a Slack DM**, once you turn that on from your Profile — immediately, or as a 9am digest of the questions still waiting. A second setting there sends you a daily or weekly summary of everything in your grading pile, across all your courses. See [Slack notifications](#slack-notifications); the digest and the questions list read the same rule, so neither shows a thread the other would not.
+**A fellow's question can also reach you as a Slack DM**, once you turn that on from your Profile — immediately, or as a digest of the questions still waiting, at the hour and on the days you choose. A second setting there sends you a summary of everything in your grading pile, across all your courses, on the days you choose. See [Slack notifications](#slack-notifications); the digest and the questions list read the same rule, so neither shows a thread the other would not.
 
 Because it is the first screen of a course, it is also where a course name takes you. Clicking one in the sidebar from a program's roster, from the program list, or from anywhere else outside a course opens that course's triage. Clicking one while you are already inside a different course keeps the screen you are on instead — from one course's gradebook, another course's name opens *its* gradebook.
 
@@ -448,9 +448,9 @@ Two things about your work produce a **direct message in the Marcy Lab Slack**: 
 
 **Nothing is sent until you turn it on.** The settings live on your Profile, directly below the calendar address, and both start at **Off** for everybody — this application will not message you in a workspace you share with your whole cohort because somebody decided for you.
 
-**The first setting is for things that happen to your work**: feedback released, and comments. Choose **immediately**, a **daily digest** at 9am carrying everything since the previous one, or a **weekly digest** on Monday at 9am. A digest never repeats what you have already read here — feedback you opened last night, or a comment you read before 9am, does not appear in the morning.
+**The first setting is for things that happen to your work**: feedback released, and comments. Choose **immediately**, or a **digest** carrying everything since the previous one. A digest arrives at the hour you pick, on the days you tick: every day, weekdays only, every day but Sunday, or just Tuesdays and Fridays. A digest after days you left unticked covers those days too, so nothing is lost by skipping them. Immediate messages arrive whenever the event happens, on any day. A digest never repeats what you have already read here — feedback you opened last night, or a comment you read before 9am, does not appear in the morning.
 
-**The second is a summary of what is outstanding**, and it has three choices rather than four: **daily**, **weekly**, or off. There is no "immediately", because a pile of work has no moment to be immediate about. For a fellow the summary lists what is due in the next seven days and anything already overdue, worded as your dashboard words it. For an instructor it lists what is waiting in your grading pile, across every course you teach, broken down by cohort.
+**The second is a summary of what is outstanding**, and it is either a **digest**, at the hour and on the days you choose, or off. There is no "immediately", because a pile of work has no moment to be immediate about. For a fellow the summary lists what is due in the next seven days and anything already overdue, worded as your dashboard words it. For an instructor it lists what is waiting in your grading pile, across every course you teach, broken down by cohort.
 
 **A summary arrives only when there is something in it.** Nothing due and nothing missed means no message, rather than a cheerful one saying so.
 

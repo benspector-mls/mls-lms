@@ -44,8 +44,17 @@ const profileFields = {
  * promise nothing keeps: the cron wakes hourly.
  */
 const sendHour = z.number().int().min(0).max(23);
-/** 0 for Sunday through 6 for Saturday, the numbering `weekdayOf` returns. */
-const sendWeekday = z.number().int().min(0).max(6);
+/**
+ * The days a digest or summary goes out, each 0 for Sunday through 6 for Saturday — the numbering
+ * `weekdayOf` returns. At least one, as the CHECK on the columns requires: no days at all would
+ * mean "never send", which is what OFF says.
+ */
+const sendDays = z.array(z.number().int().min(0).max(6)).min(1).max(7);
+
+/** Stored once each and in week order, so the card lists them as the week runs. */
+function weekOrdered(days: number[]): number[] {
+  return [...new Set(days)].sort((a, b) => a - b);
+}
 
 export const appRouter = createTRPCRouter({
   /** The signed-in user's own profile. */
@@ -191,10 +200,10 @@ export const appRouter = createTRPCRouter({
       select: {
         slackEventCadence: true,
         slackEventHour: true,
-        slackEventWeekday: true,
+        slackEventDays: true,
         slackSummaryCadence: true,
         slackSummaryHour: true,
-        slackSummaryWeekday: true,
+        slackSummaryDays: true,
         slackUserId: true,
         slackEmail: true,
         slackLookupFailedAt: true,
@@ -205,10 +214,10 @@ export const appRouter = createTRPCRouter({
     return {
       eventCadence: profile?.slackEventCadence ?? "OFF",
       eventHour: profile?.slackEventHour ?? 9,
-      eventWeekday: profile?.slackEventWeekday ?? 1,
+      eventDays: profile?.slackEventDays ?? [0, 1, 2, 3, 4, 5, 6],
       summaryCadence: profile?.slackSummaryCadence ?? "OFF",
       summaryHour: profile?.slackSummaryHour ?? 9,
-      summaryWeekday: profile?.slackSummaryWeekday ?? 1,
+      summaryDays: profile?.slackSummaryDays ?? [0, 1, 2, 3, 4, 5, 6],
       linked: profile?.slackUserId != null,
       lookupFailed: profile?.slackLookupFailedAt != null,
       slackEmail: profile?.slackEmail ?? null,
@@ -223,15 +232,15 @@ export const appRouter = createTRPCRouter({
    * Choose how to hear about events on your own work.
    *
    * Switching *into* a digest from IMMEDIATE or OFF writes the watermark to now, so nobody's
-   * first digest is their whole history. Switching between the two digests keeps it — nothing is
-   * lost or repeated, the window just gets read on a different morning.
+   * first digest is their whole history. Changing the days or the hour of a digest keeps it —
+   * nothing is lost or repeated, the window just gets read on a different morning.
    */
   setSlackEventCadence: protectedProcedure
     .input(
       z.object({
-        cadence: z.enum(["IMMEDIATE", "DAILY", "WEEKLY", "OFF"]).optional(),
+        cadence: z.enum(["IMMEDIATE", "DAILY", "OFF"]).optional(),
         hour: sendHour.optional(),
-        weekday: sendWeekday.optional(),
+        days: sendDays.optional(),
       }),
     )
     .mutation(async ({ ctx, input }) => {
@@ -240,25 +249,24 @@ export const appRouter = createTRPCRouter({
         select: { slackEventCadence: true },
       });
 
-      const wasDigest =
-        current?.slackEventCadence === "DAILY" || current?.slackEventCadence === "WEEKLY";
-      const isDigest = input.cadence === "DAILY" || input.cadence === "WEEKLY";
+      const wasDigest = current?.slackEventCadence === "DAILY";
+      const isDigest = input.cadence === "DAILY";
 
       const profile = await ctx.db.profile.update({
         where: { id: ctx.user.id },
         data: {
           ...(input.cadence ? { slackEventCadence: input.cadence } : {}),
           ...(input.hour !== undefined ? { slackEventHour: input.hour } : {}),
-          ...(input.weekday !== undefined ? { slackEventWeekday: input.weekday } : {}),
+          ...(input.days ? { slackEventDays: weekOrdered(input.days) } : {}),
           ...(isDigest && !wasDigest ? { slackDigestedTo: new Date() } : {}),
         },
-        select: { slackEventCadence: true, slackEventHour: true, slackEventWeekday: true },
+        select: { slackEventCadence: true, slackEventHour: true, slackEventDays: true },
       });
 
       return {
         cadence: profile.slackEventCadence,
         hour: profile.slackEventHour,
-        weekday: profile.slackEventWeekday,
+        days: profile.slackEventDays,
       };
     }),
 
@@ -270,15 +278,14 @@ export const appRouter = createTRPCRouter({
    * it has no watermark to initialise and nothing to carry forward. One procedure covering both
    * would be a branch that applies to one of its inputs and not the other.
    *
-   * The input has three values rather than four, matching `SummaryCadence` — see that enum for why
-   * "immediately" is not among them.
+   * The input has no "immediately", matching `SummaryCadence` — see that enum for why.
    */
   setSlackSummaryCadence: protectedProcedure
     .input(
       z.object({
-        cadence: z.enum(["DAILY", "WEEKLY", "OFF"]).optional(),
+        cadence: z.enum(["DAILY", "OFF"]).optional(),
         hour: sendHour.optional(),
-        weekday: sendWeekday.optional(),
+        days: sendDays.optional(),
       }),
     )
     .mutation(async ({ ctx, input }) => {
@@ -287,15 +294,15 @@ export const appRouter = createTRPCRouter({
         data: {
           ...(input.cadence ? { slackSummaryCadence: input.cadence } : {}),
           ...(input.hour !== undefined ? { slackSummaryHour: input.hour } : {}),
-          ...(input.weekday !== undefined ? { slackSummaryWeekday: input.weekday } : {}),
+          ...(input.days ? { slackSummaryDays: weekOrdered(input.days) } : {}),
         },
-        select: { slackSummaryCadence: true, slackSummaryHour: true, slackSummaryWeekday: true },
+        select: { slackSummaryCadence: true, slackSummaryHour: true, slackSummaryDays: true },
       });
 
       return {
         cadence: profile.slackSummaryCadence,
         hour: profile.slackSummaryHour,
-        weekday: profile.slackSummaryWeekday,
+        days: profile.slackSummaryDays,
       };
     }),
 

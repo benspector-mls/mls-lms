@@ -66,8 +66,7 @@ export function commentRecipients(args: {
  * The school clock's hour and weekday at an instant.
  *
  * Everything about when a digest goes out is decided from this pair: the cron wakes every hour and
- * each person is sent to when the hour they chose comes round, and on the weekday they chose if
- * they asked for a weekly one. Read from the school's wall clock rather than from UTC, because
+ * each person is sent to when the hour they chose comes round on one of the days they chose. Read from the school's wall clock rather than from UTC, because
  * nine in Brooklyn is a different UTC hour either side of the clock change — the reason the job
  * wakes hourly rather than being scheduled once.
  *

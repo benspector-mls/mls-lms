@@ -47,8 +47,10 @@ enum Role {
 /// How often somebody hears about events on their own work over Slack. **The default is OFF.** A direct
 /// message arrives in a workspace a person shares with their whole cohort, so being messaged
 /// there is a claim on their attention that nobody should make on the strength of a default.
-/// The profile card beside the calendar feed is where somebody turns notifications on, and the
-/// three other values are the cadences they may then choose between.
+/// The profile card beside the calendar feed is where somebody turns notifications on, and
+/// `IMMEDIATE` and `DAILY` are the cadences they may then choose between. A `DAILY` digest goes
+/// out on the days listed in `Profile.slackEventDays`, so a digest once a week is `DAILY` with one
+/// day. No code writes or reads `WEEKLY`; it is removed once no deployed release reads it.
 ///
 /// Events only. A summary of standing state has no moment to be immediate about, so it takes
 /// `SummaryCadence` instead, which is the same set without `IMMEDIATE`.
@@ -68,6 +70,9 @@ enum NotificationCadence {
 /// A summary describes standing state rather than an event, so there is no instant to send it at:
 /// "immediately" could only mean a message per hand-in, which is a different notification and a
 /// due date's worth of noise. A separate enum makes that unrepresentable rather than discouraged.
+///
+/// `DAILY` goes out on the days listed in `Profile.slackSummaryDays`. No code writes or reads
+/// `WEEKLY`; it is removed once no deployed release reads it.
 enum SummaryCadence {
   DAILY
   WEEKLY
@@ -144,11 +149,22 @@ model Profile {
   /// finest granularity that can be honoured; a minute here would be a promise nothing keeps.
   slackEventHour      Int                 @default(9) @map("slack_event_hour")
   slackSummaryHour    Int                 @default(9) @map("slack_summary_hour")
-  /// Which day a weekly digest or summary goes out, 0 for Sunday through 6 for Saturday — the
-  /// numbering `weekdayOf` returns, so the two cannot disagree about which day is which.
+  /// Which days a digest or summary goes out, 0 for Sunday through 6 for Saturday — the numbering
+  /// `weekdayOf` returns, so the two cannot disagree about which day is which. "Weekdays only",
+  /// "every day but Sunday", and "Tuesdays and Fridays" are all a list of days here.
   ///
-  /// Read only when the matching cadence is WEEKLY. A daily sender keeps whatever is stored here,
-  /// so switching to weekly and back does not lose the day they picked.
+  /// Read only when the matching cadence is `DAILY`; an immediate message goes out whenever the
+  /// event happens. Never empty, which a CHECK enforces: no days at all would mean "never send",
+  /// and `OFF` already says that. All seven by default, so choosing a digest sends every day until
+  /// somebody unticks one.
+  ///
+  /// The digest needs nothing extra to cover the skipped days, because its window starts at the
+  /// `slackDigestedTo` watermark rather than a day ago: Friday's digest of a Tuesday-and-Friday
+  /// reader covers everything since Tuesday's.
+  slackEventDays      Int[]               @default([0, 1, 2, 3, 4, 5, 6]) @map("slack_event_days")
+  slackSummaryDays    Int[]               @default([0, 1, 2, 3, 4, 5, 6]) @map("slack_summary_days")
+  /// No code reads these. They held the one day of a `WEEKLY` cadence, which `slackEventDays` and
+  /// `slackSummaryDays` now express; they are removed once no deployed release reads them.
   slackEventWeekday   Int                 @default(1) @map("slack_event_weekday")
   slackSummaryWeekday Int                 @default(1) @map("slack_summary_weekday")
   /// Their Slack workspace member id (`U…`), written by the first successful
