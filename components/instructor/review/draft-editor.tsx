@@ -858,10 +858,18 @@ export function DraftEditor({
         ref={barRef}
         className={cn(
           panelSurface,
-          "sticky bottom-0 z-10 flex flex-wrap items-center justify-between gap-3 p-3",
+          "@container sticky bottom-0 z-10 flex flex-wrap items-center gap-3 p-3",
         )}
       >
-        <div className="flex items-center gap-3">
+        {/*
+          Two rows when the bar is narrow, one when it is wide. The bar is `@container`, so it
+          measures its own width, which changes with the grade column and not only the window.
+          Narrow, the total and Preview comment share the top row, and Discard and Release Feedback
+          share the bottom row, so no button is pushed off the edge. From `@2xl` (42rem) the bottom
+          row's wrapper becomes `contents`, and `order` puts everything on one line: the total,
+          Discard, Preview comment, then Release Feedback.
+        */}
+        <div className="order-1 flex flex-1 items-center gap-3">
           <div className="flex flex-col">
             <span className="text-xs text-muted-foreground">Total</span>
             {/*
@@ -908,7 +916,23 @@ export function DraftEditor({
           )}
         </div>
 
-        <div className="flex items-center gap-2">
+        {/*
+            Every row-by-row section's comment as it will be posted, in place of its rows. In the
+            bar rather than on each card, because reading what the student will receive is the
+            last thing an instructor does before releasing it. It stays while the release is
+            armed, because a press inside the bar does not cancel the release.
+          */}
+        {rows.some((row) => parts[row.key]) && (
+          <Button
+            variant="ghost"
+            className="order-2 @2xl:order-3"
+            onClick={() => setPreviewing((open) => !open)}
+          >
+            {previewing ? <Pencil data-icon="inline-start" /> : <Eye data-icon="inline-start" />}
+            {previewing ? "Edit rows" : "Preview comment"}
+          </Button>
+        )}
+        <div className="order-3 flex w-full items-center gap-2 @2xl:contents">
           {/*
                 The way out, beside the way on. A round opened and then not wanted — a correction
                 to a grade that turned out to be right, a report an instructor would rather write
@@ -921,6 +945,7 @@ export function DraftEditor({
           {draft && !armed && (
             <Button
               variant="ghost"
+              className="@2xl:order-2"
               disabled={discard.isPending || releasing}
               onClick={() => discard.mutate({ draftId: draft.id })}
             >
@@ -929,70 +954,60 @@ export function DraftEditor({
             </Button>
           )}
           {/*
-            Every row-by-row section's comment as it will be posted, in place of its rows. In the
-            bar rather than on each card, beside the release, because reading what the student
-            will receive is the last thing an instructor does before sending it — and it stays
-            while the release is armed, since a press inside the bar does not stand it down.
-          */}
-          {rows.some((row) => parts[row.key]) && (
-            <Button variant="ghost" onClick={() => setPreviewing((open) => !open)}>
-              {previewing ? <Pencil data-icon="inline-start" /> : <Eye data-icon="inline-start" />}
-              {previewing ? "Edit rows" : "Preview comment"}
-            </Button>
-          )}
-          {/*
                 Two presses where a dialog used to stand. The first arms the button and renames it
                 to say exactly what the second does and to whom; the second releases and the queue
                 moves on without waiting for the reply.
               */}
-          {armed ? (
-            <>
-              {/*
+          <div className="ml-auto flex items-center gap-2 @2xl:order-4">
+            {armed ? (
+              <>
+                {/*
                 The way to stand the button down, visible. Escape and a click elsewhere both
                 cancel too, but an armed destructive button whose only exits are invisible asks
                 the instructor to already know them.
               */}
-              <Button
-                variant="ghost"
-                size="icon"
-                onClick={() => setArmed(false)}
-                title="Cancel"
-                aria-label="Cancel the release"
-              >
-                <X />
-              </Button>
-              <Button
-                ref={confirmRef}
-                variant="destructive"
-                onClick={releaseNow}
-                /*
+                <Button
+                  variant="ghost"
+                  size="icon"
+                  onClick={() => setArmed(false)}
+                  title="Cancel"
+                  aria-label="Cancel the release"
+                >
+                  <X />
+                </Button>
+                <Button
+                  ref={confirmRef}
+                  variant="destructive"
+                  onClick={releaseNow}
+                  /*
                   A held Enter repeats, and focus arrives here while the Enter of Ctrl+Enter may
                   still be down — so a repeat would release with no second press at all. Only a
                   fresh press counts.
                 */
-                onKeyDown={(event) => {
-                  if (event.key === "Enter" && event.repeat) event.preventDefault();
-                }}
+                  onKeyDown={(event) => {
+                    if (event.key === "Enter" && event.repeat) event.preventDefault();
+                  }}
+                >
+                  <CheckCircle2 data-icon="inline-start" />
+                  Confirm: Feedback will be sent to the student
+                </Button>
+              </>
+            ) : (
+              <Button
+                disabled={!canApprove}
+                onClick={() => setArmed(true)}
+                // The shortcut, where somebody who hovers the button will find it.
+                title="Ctrl+Enter, or ⌘+Enter on a Mac"
               >
-                <CheckCircle2 data-icon="inline-start" />
-                Confirm: Feedback will be sent to the student
+                {releasing ? (
+                  <Loader2 data-icon="inline-start" className="animate-spin" />
+                ) : (
+                  <CheckCircle2 data-icon="inline-start" />
+                )}
+                {releasing ? "Releasing…" : "Release Feedback"}
               </Button>
-            </>
-          ) : (
-            <Button
-              disabled={!canApprove}
-              onClick={() => setArmed(true)}
-              // The shortcut, where somebody who hovers the button will find it.
-              title="Ctrl+Enter, or ⌘+Enter on a Mac"
-            >
-              {releasing ? (
-                <Loader2 data-icon="inline-start" className="animate-spin" />
-              ) : (
-                <CheckCircle2 data-icon="inline-start" />
-              )}
-              {releasing ? "Releasing…" : "Release Feedback"}
-            </Button>
-          )}
+            )}
+          </div>
         </div>
       </div>
 
