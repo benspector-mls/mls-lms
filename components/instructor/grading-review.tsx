@@ -8,7 +8,11 @@ import {
   ExternalLink,
   FolderGit2,
   GitPullRequest,
+  FileText,
+  History,
   Loader2,
+  MessagesSquare,
+  PenLine,
   RotateCcw,
   Users,
 } from "lucide-react";
@@ -20,30 +24,28 @@ import { UploadedFileRow } from "@/components/uploaded-file";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Skeleton } from "@/components/ui/skeleton";
 import type { AssignmentKind } from "@/lib/generated/prisma/enums";
-import type { HandInShape } from "@/lib/assignments/spec";
-import { kindIconFor } from "@/components/status-badge";
 import { lateness } from "@/lib/submissions/hand-in";
 import { useTRPC } from "@/trpc/client";
 import { CommentsCard } from "@/components/instructor/review/comments-card";
 import { DraftBody } from "@/components/instructor/review/draft-body";
 import { DraftHistory } from "@/components/instructor/review/draft-history";
 import { Button, buttonVariants } from "@/components/ui/button";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { DraftList, QueueSubmission, StateCard } from "@/components/instructor/review/shared";
 import { DiffPanel, TestEvidence } from "@/components/instructor/review/work-panels";
-import { SectionAnchor } from "@/components/instructor/review/section-nav";
 import { displayNameOf } from "@/lib/people";
 export function GradingReview({
   submission,
   assignmentId,
   assignmentDueAt,
   assignmentKind,
-  assignmentHandInMethods,
   completionThreshold,
   studentHref,
   now,
   onApproved,
   release,
   releasing,
+  split,
 }: {
   submission: QueueSubmission;
   /**
@@ -68,12 +70,6 @@ export function GradingReview({
    * have to decide about it rather than a union two files disagree about.
    */
   assignmentKind: AssignmentKind;
-  /**
-   * How this assignment is handed in, which with the kind decides the icon the attachments carry in
-   * the navigation bar. The same pair `AssignmentKindIcon` reads everywhere else, so the bar shows
-   * the picture an instructor already learned for this kind of work.
-   */
-  assignmentHandInMethods: HandInShape["handInMethods"];
   completionThreshold: number;
   /**
    * Where this student's own record lives, if there is somewhere to go.
@@ -95,6 +91,14 @@ export function GradingReview({
   release: ReleaseGrade;
   /** True while this submission's release is in flight. */
   releasing: boolean;
+  /**
+   * True in grading mode, where the work has its own column beside the report. Elsewhere the pane
+   * is one column and the work is its first tab.
+   *
+   * The screen sets this rather than the pane measuring its own width, so the layout changes only
+   * when the instructor enters or leaves grading mode, never because the window was resized.
+   */
+  split: boolean;
 }) {
   const trpc = useTRPC();
 
@@ -295,13 +299,7 @@ export function GradingReview({
   */
   const work =
     attachments.length > 0 ? (
-      <SectionAnchor
-        label="What the student handed in"
-        icon={kindIconFor({ kind: assignmentKind, handInMethods: assignmentHandInMethods })}
-        className="flex flex-col gap-3"
-      >
-        {attachments}
-      </SectionAnchor>
+      <div className="flex flex-col gap-3">{attachments}</div>
     ) : diffAside ? (
       <DiffPanel
         diff={diff.data}
@@ -341,21 +339,10 @@ export function GradingReview({
     );
 
   /*
-    **The column beside the grade: the work, and the test output beneath it.**
-
-    One rule rather than a ranking between kinds — the left column is everything the grade is
-    *about*, and the right is what is being said to the student and the conversation with them. An
-    instructor then finds the report and the conversation in the same place on every assignment,
-    which a ranking could not promise: the same person grading a Google Doc and a repository used
-    to find them in different columns.
-
-    The suite output sits under the work rather than beside it or under the report, because it is
-    evidence about the same thing. The reasoning behind each score sits in the report itself, on
-    the row whose score it explains.
-
-    Always present, so the pane always splits when there is room for it.
+    The work and its test output: the left column in grading mode, and the Work tab elsewhere. The
+    test output sits under the work because it describes the same code.
   */
-  const aside = (
+  const evidence = (
     <>
       {work}
       {testEvidence}
@@ -363,166 +350,203 @@ export function GradingReview({
   );
 
   /*
-    No header naming who is open, deliberately. Both screens that draw this pane already say it:
-    the grading queue's list names the student, their status and whether a reply is owed on the
-    very row that is highlighted, the fellow record names the fellow at the top of the page, and
-    grading mode names either in the jump dropdown with the status beside it. What a header would
-    hold that those do not lives on the pane itself instead: the editor's approve bar is pinned to
-    the foot of the form, the team's members head the grade column, and the way to the code is on
-    the work.
+    The feedback, the comments and earlier rounds of feedback, as tabs. Outside grading mode the
+    work is a fourth tab, placed first because it is the left column in grading mode and instructors
+    read from the work to the report in both layouts. The first tab is the one that opens.
+
+    The Comments tab shows a dot when a reply is owed, so a waiting question is visible as soon as a
+    student is opened. The labels are kept short so all four fit when the column is narrow.
+
+    Every panel stays mounted (`keepMounted`) because two of them hold unsaved work: the report
+    editor saves and reloads when it unmounts, and the reply box keeps its text in component state.
+    Without `keepMounted`, switching tabs would trigger a save and discard a half-written reply.
+  */
+  /*
+    Written out in full rather than built from a variable, because Tailwind only generates the
+    classes it finds spelled out in the source.
+  */
+  const labelClass = split ? "@max-sm:sr-only" : "@max-md:sr-only";
+
+  const tabs = (
+    <Tabs defaultValue={split ? "report" : "work"} className="gap-3">
+      {/*
+        The labels collapse to icons alone when the tab row is too narrow for them. `@container`
+        makes the row measure its own width rather than the window's, because the grade column can
+        be dragged narrower and the docked list changes how much room the pane has.
+
+        `sr-only` hides a label visually but keeps it as the tab's accessible name, and `title` names
+        the tab on hover. The cut-off is narrower in grading mode, where only three tabs share the
+        row: about 24rem for three labels, about 28rem for four.
+      */}
+      <div className="@container">
+        <TabsList className="w-full">
+          {!split && (
+            <TabsTrigger value="work" title="Work">
+              <FileText data-icon="inline-start" />
+              <span className={labelClass}>Work</span>
+            </TabsTrigger>
+          )}
+          <TabsTrigger value="report" title="Feedback">
+            <PenLine data-icon="inline-start" />
+            <span className={labelClass}>Feedback</span>
+          </TabsTrigger>
+          <TabsTrigger value="conversation" title="Comments">
+            <MessagesSquare data-icon="inline-start" />
+            <span className={labelClass}>Comments</span>
+            {/*
+              Teal, the colour the student list uses for a conversation awaiting a reply, so the dot
+              means the same thing in both places. It stays when the label collapses.
+            */}
+            {comments.data?.awaitsReply && (
+              <span
+                className="size-2 rounded-full bg-teal-500"
+                title="A reply is owed"
+                aria-label="A reply is owed"
+              />
+            )}
+          </TabsTrigger>
+          {previous.length > 0 && (
+            <TabsTrigger value="history" title="History">
+              <History data-icon="inline-start" />
+              {/* The count stays beside the icon when the word collapses. */}
+              <span className={labelClass}>History</span>({previous.length})
+            </TabsTrigger>
+          )}
+        </TabsList>
+      </div>
+
+      {/*
+        `text-base` cancels the panel's default `text-sm`, which would otherwise shrink the text in
+        every card inside it.
+      */}
+      {!split && (
+        <TabsContent value="work" keepMounted className="flex min-w-0 flex-col gap-5 text-base">
+          {evidence}
+        </TabsContent>
+      )}
+
+      <TabsContent value="report" keepMounted className="flex min-w-0 flex-col gap-5 text-base">
+        {/*
+          No key on the round, deliberately. A hand-graded round coming into being, or a refetch of
+          the same round, must not remount the editor under the instructor's hands — the editor
+          itself decides when a *different* round means starting over.
+        */}
+        <DraftBody
+          submission={submission}
+          completionThreshold={completionThreshold}
+          draft={draft}
+          data={data}
+          onApproved={onApproved}
+          release={release}
+          releasing={releasing}
+        />
+      </TabsContent>
+
+      <TabsContent value="conversation" keepMounted className="text-base">
+        <CommentsCard
+          assignmentId={assignmentId}
+          studentId={submission.student.id}
+          studentName={displayNameOf(submission.student, "this fellow")}
+          thread={comments.data}
+          loading={comments.isPending}
+          error={comments.isError}
+          onRetry={() => void comments.refetch()}
+          now={now}
+        />
+      </TabsContent>
+
+      {previous.length > 0 && (
+        <TabsContent value="history" keepMounted className="text-base">
+          <DraftHistory drafts={previous} now={now} />
+        </TabsContent>
+      )}
+    </Tabs>
+  );
+
+  /*
+    The grade column: the team, any notice about a comment that failed to post, then the tabs. The
+    team and the notice sit above the tabs because they apply whichever tab is open. The team is
+    named here rather than over the work because the team decides who receives the release.
+  */
+  const grade = (
+    <div className="flex min-w-0 flex-col gap-5">
+      {submission.team && (
+        <TeamLine
+          team={submission.team}
+          studentId={submission.student.id}
+          studentHref={studentHref}
+        />
+      )}
+      <CommentRecoveryNotice submission={submission} grade={data.grade} />
+      {tabs}
+    </div>
+  );
+
+  /*
+    The pane has no header naming the open student, because both screens that draw it already name
+    them: in the queue's highlighted row, at the top of the fellow record page, and in grading
+    mode's bar.
   */
   return (
     <div className="flex h-full flex-col">
       {/*
-          `@container`, so the two columns below turn on at a width of this pane rather than of the
-          window. It is the pane that has to hold them, and what is left of the window after the
-          360px queue list and the application sidebar is not something the window knows.
+        `relative` on this scroller and on the two column scrollers below, because `sr-only`
+        content is `position: absolute` and an absolute box is clipped only by ancestors on the way
+        to its containing block. Without a positioned ancestor down here, the comment thread's
+        live-region paragraph resolved against the shell's `SidebarInset`, skipped every overflow
+        between them, and stretched the window by the height of its phantom flow position — a blank
+        half-screen of scroll under every graded submission. Positioned, each scroller is the
+        containing block, and the invisible box scrolls and clips with the content it belongs to.
 
-          **Nothing on this element may carry an `@4xl:` class of its own.** An element cannot
-          answer its own container query — a `@4xl:` class here asks about the nearest container
-          *above* this one, of which there is none, so it silently never applies. Everything that
-          changes at the breakpoint therefore lives on the children below, and this element is
-          written once and for both widths: a flex column that scrolls, which is what stacked
-          needs, and which split leaves with nothing to scroll because its one child is then
-          exactly as tall as it is.
-        */}
-      {/*
-          `relative` on this scroller and on the two column scrollers below, because `sr-only`
-          content is `position: absolute` and an absolute box is clipped only by ancestors on the
-          way to its containing block. Without a positioned ancestor down here, the comment
-          thread's live-region paragraph resolved against the shell's `SidebarInset`, skipped
-          every overflow between them, and stretched the window by the height of its phantom flow
-          position — a blank half-screen of scroll under every graded submission. Positioned, each
-          scroller is the containing block, and the invisible box scrolls and clips with the
-          content it belongs to.
-        */}
-      <div className="@container relative flex min-h-0 flex-1 flex-col overflow-y-auto scroll-pt-5 px-5 py-5">
-        {/*
-            One column until there is both something to put beside the grade and the room to put it
-            there, and two after that.
+        Outside grading mode this box scrolls the single column. In grading mode it has nothing to
+        scroll, because its child fills it exactly and each column scrolls itself.
+      */}
+      <div className="relative flex min-h-0 flex-1 flex-col overflow-y-auto scroll-pt-5 px-5 py-5">
+        {split ? (
+          /*
+            Grading mode: the work and the grade side by side, each scrolling on its own, so an
+            instructor can read the work while writing about it.
 
-            What is beside the grade holds its place while the score, the feedback and the history
-            scroll past it, which is the whole point: reading the work and writing about it are the
-            same task and were never on the screen at the same time. `items-start` is what lets the
-            column be its own height rather than the row's — a stretched column has nothing to
-            stick to.
+            The grade column starts between 26rem and 34rem wide, and the work takes the rest. Below
+            26rem the feedback box is too narrow to write in, and above 34rem lines of prose are too
+            long to read comfortably. `GradeColumnHandle` lets the instructor move the line, between
+            a 26rem minimum and 60% of the row.
 
-            **Every pixel past the first thousand or so belongs to the work.** A score box and a
-            paragraph of feedback have a size they want and no use for more: below 26rem the
-            markdown box is too narrow to write in, and past 34rem the prose runs to a measure
-            nobody reads a paragraph across. So the grade starts clamped between those two and the
-            other column takes the rest. 26rem is also exactly half the room at the width the
-            columns appear, so the grade is never squeezed below the work at the point where they
-            are both smallest.
+            Each column can scroll because its height comes from `min-h-0 flex-1` all the way down
+            from the pane, which makes it exactly as tall as the row. A height calculated from the
+            viewport would be wrong, because what sits above the pane differs between the queue, a
+            student's record and grading mode.
 
-            **The instructor can move the line between them**, with `GradeColumnHandle`, because
-            the right split depends on the work: a long diff wants the room, and a long piece of
-            feedback being written wants it back. The drag keeps the 26rem floor and stops the
-            grade at 60% of the row, so neither column can be pushed out of use.
+            Each column is a scrolling box holding a separate flex column of cards. A flex column with
+            a fixed height shrinks its children to fit, which would draw each card smaller than its
+            content.
 
-            **A row of flex children rather than grid columns, and `order` rather than placement.**
-            Stacked, this is a column and the evidence sits last; split, it is a row and the
-            evidence is the left of the two. One piece of markup reads in both orders because
-            `order-last` is undone above the breakpoint.
+            Each scrolling box has `p-1` padding because a card's outline (`ring-1`) is drawn outside
+            the card, and the scrolling box would otherwise clip it.
+          */
+          <div className="mx-auto flex min-h-0 w-full max-w-[100rem] flex-1 flex-row">
+            <div className="relative min-h-0 min-w-0 flex-1 scroll-pt-1 overflow-y-auto p-1">
+              <div className="flex min-w-0 flex-col gap-5">{evidence}</div>
+            </div>
 
-            **Where each column's height comes from is the whole of why it can scroll.** It is
-            `min-h-0 flex-1` down from the pane, which is the same chain the queue's own list uses
-            three files away and the only one this application has ever relied on: the pane knows
-            its height, the row takes it, and a child of the row is exactly as tall as the row is.
-            Nothing here is a `calc` against the viewport — that is a guess about what sits above
-            the pane, which differs between the queue, a student's record and grading mode, and it
-            is wrong on some screen by construction. Too small and a column ends early; too large
-            and its last card is below the fold with nothing that will bring it up.
+            <GradeColumnHandle column={gradeColumn} />
 
-            **What scrolls and what stacks the cards are two elements, not one.** A flex column
-            with a height of its own shrinks its children to fit rather than overflowing, which
-            leaves every card drawn smaller than the content inside it — so the scrolling box is a
-            plain one and the cards are stacked in a column within it. The same shape the queue's
-            list has: a box that scrolls, holding a column that does not.
-
-            **And the scrolling box is padded, which is not decoration.** A card's outline is
-            `ring-1`, and a ring is a shadow drawn *outside* the element rather than a border drawn
-            on it — so against the edge of a scroll container it falls outside the scrollport and
-            is clipped away, leaving cards with their sides and top missing. The padding is what
-            keeps the outline inside the box that clips it.
-          */}
-        <div className="mx-auto flex max-w-5xl flex-col gap-5 @4xl:w-full @4xl:max-w-[100rem] @4xl:min-h-0 @4xl:flex-1 @4xl:flex-row @4xl:gap-0">
-          {/*
-              Stacked, the work reads last: an instructor on a narrow pane reads the feedback the
-              student will read, then the conversation, then scrolls to what the grade is about.
-              Split, it is the left column. `order-last` and its undoing at the breakpoint are what
-              let one piece of markup read in both orders.
-
-              Its own scroll, so a diff and the working beneath it can be read to the end without
-              the report leaving the screen. The padding is there for the cards' outlines.
+            {/*
+              The width is a custom property rather than a class, because a drag rewrites it on
+              every pointer move and does so directly on this element: a React render per move
+              would re-render the editor beneath the pointer sixty times a second.
             */}
-          <div className="relative order-last min-w-0 @4xl:order-none @4xl:min-h-0 @4xl:flex-1 @4xl:scroll-pt-1 @4xl:overflow-y-auto @4xl:p-1">
-            <div className="flex min-w-0 flex-col gap-5">{aside}</div>
-          </div>
-
-          <GradeColumnHandle column={gradeColumn} />
-
-          {/*
-            The width is a custom property rather than a class, because a drag rewrites it on every
-            pointer move and does so directly on this element: a React render per move would
-            re-render the editor beneath the pointer sixty times a second.
-          */}
-          <div
-            ref={gradeColumn}
-            style={{ "--grade-w": gradeColumnWidth(gradeWidth) } as React.CSSProperties}
-            className="relative min-w-0 @4xl:min-h-0 @4xl:w-(--grade-w) @4xl:shrink-0 @4xl:scroll-pt-1 @4xl:overflow-y-auto @4xl:p-1"
-          >
-            <div className="flex min-w-0 flex-col gap-5">
-              {/*
-                  The team is named at the head of the grade column rather than over the work,
-                  because who is on the team is a fact about where the release goes — the same
-                  reason the release dialog spells the members out — and the work column is the
-                  same work whoever it is released to.
-                */}
-              {submission.team && (
-                <TeamLine
-                  team={submission.team}
-                  studentId={submission.student.id}
-                  studentHref={studentHref}
-                />
-              )}
-
-              <CommentRecoveryNotice submission={submission} grade={data.grade} />
-
-              {/*
-                No key on the round, deliberately. A hand-graded round coming into being, or a
-                refetch of the same round, must not remount the editor under the instructor's
-                hands — the editor itself decides when a *different* round means starting over.
-              */}
-              <DraftBody
-                submission={submission}
-                completionThreshold={completionThreshold}
-                draft={draft}
-                data={data}
-                onApproved={onApproved}
-                release={release}
-                releasing={releasing}
-              />
-
-              {previous.length > 0 && <DraftHistory drafts={previous} now={now} />}
-
-              {/*
-                  Last in the column of things said to this fellow — after the report and the
-                  rounds that came before it, which is the order they happened in.
-                */}
-              <CommentsCard
-                assignmentId={assignmentId}
-                studentId={submission.student.id}
-                studentName={displayNameOf(submission.student, "this fellow")}
-                thread={comments.data}
-                loading={comments.isPending}
-                error={comments.isError}
-                onRetry={() => void comments.refetch()}
-                now={now}
-              />
+            <div
+              ref={gradeColumn}
+              style={{ "--grade-w": gradeColumnWidth(gradeWidth) } as React.CSSProperties}
+              className="relative min-h-0 w-(--grade-w) min-w-0 shrink-0 scroll-pt-1 overflow-y-auto p-1"
+            >
+              {grade}
             </div>
           </div>
-        </div>
+        ) : (
+          <div className="mx-auto w-full max-w-5xl">{grade}</div>
+        )}
       </div>
     </div>
   );
@@ -605,8 +629,8 @@ function gradeColumnWidth(px: number | null): string {
 /**
  * The line between the work and the grade, which an instructor drags to give one of them more room.
  *
- * Hidden while the pane is stacked, where there is no line to move. Arrow keys move it for anyone
- * not using a pointer, and a double-click returns it to the default.
+ * Drawn only in grading mode, the only layout with two columns. Arrow keys move it for anyone not
+ * using a pointer, and a double-click returns it to the default.
  *
  * **A drag writes the width onto the column directly and stores it when the pointer lifts.** Stored
  * on every move, each move would re-render the whole pane, editor included; stored only at the end,
@@ -677,7 +701,7 @@ function GradeColumnHandle({ column }: { column: React.RefObject<HTMLDivElement 
       onLostPointerCapture={endDrag}
       onKeyDown={onKeyDown}
       onDoubleClick={() => writeGradeWidth(null)}
-      className="group relative hidden shrink-0 cursor-col-resize touch-none outline-none @4xl:block @4xl:w-6"
+      className="group relative w-6 shrink-0 cursor-col-resize touch-none outline-none"
     >
       {/* The line itself, drawn only while it is being pointed at, focused, or dragged. */}
       <span

@@ -28,7 +28,6 @@ import {
 } from "lucide-react";
 import type { ReleaseGrade } from "@/hooks/use-release-grade";
 import { Markdown } from "@/components/markdown";
-import { useSectionAnchor } from "@/components/instructor/review/section-nav";
 import { FlagBadge } from "@/components/status-badge";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
@@ -464,10 +463,9 @@ function GeneratePanel({
 }) {
   const generate = useGenerateReport();
   const title = retry ? "Generate another report" : "Generate a report";
-  const anchor = useSectionAnchor({ label: title, icon: Sparkles, iconClassName: "text-primary" });
 
   return (
-    <Card ref={anchor}>
+    <Card>
       <CardHeader>
         <CardTitle className="flex items-center gap-2 text-base">
           <Sparkles className="size-4 text-primary" />
@@ -554,14 +552,9 @@ export function ReleasedGradeCard({
   onEdit?: () => void;
 }) {
   const percent = scorePercent(data.grade?.finalScore, data.grade?.finalScorePossible);
-  const anchor = useSectionAnchor({
-    label: "Released",
-    icon: CheckCircle2,
-    iconClassName: "text-emerald-600 dark:text-emerald-400",
-  });
 
   return (
-    <Card ref={anchor}>
+    <Card>
       <CardHeader>
         <div className="flex flex-wrap items-center justify-between gap-3">
           <div className="flex flex-col gap-1">

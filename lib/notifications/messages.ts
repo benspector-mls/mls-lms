@@ -64,7 +64,7 @@ export function commentDmText(args: {
 }): string {
   return (
     `${escapeMrkdwn(args.authorName)} commented on *${escapeMrkdwn(args.assignmentTitle)}*: ` +
-    `“${escapeMrkdwn(args.excerpt)}” ${linked("Open the conversation", args.href)}.`
+    `“${escapeMrkdwn(args.excerpt)}” ${linked("Open the comments", args.href)}.`
   );
 }
 

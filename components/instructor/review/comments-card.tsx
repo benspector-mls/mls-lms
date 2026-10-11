@@ -8,7 +8,6 @@ import { CommentThread } from "@/components/comments/comment-thread";
 import { ResolveQuestionButton } from "@/components/comments/resolve-button";
 import type { Thread } from "@/components/comments/types";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
-import { useSectionAnchor } from "@/components/instructor/review/section-nav";
 
 /**
  * The conversation about one fellow's work.
@@ -17,7 +16,8 @@ import { useSectionAnchor } from "@/components/instructor/review/section-nav";
  * machine has — including the two where a question is likeliest and there is no draft at all.
  *
  * It tracks nothing read: instructors get no unread count, because their signal is the questions
- * list on triage. That the card can sit below a long report is answered by the header badge.
+ * list on triage. On the review pane this card is the Comments tab, whose label shows a dot when a
+ * reply is owed (see `GradingReview`).
  */
 export function CommentsCard({
   assignmentId,
@@ -42,15 +42,14 @@ export function CommentsCard({
   const [announcement, setAnnouncement] = React.useState("");
 
   const count = thread?.comments.length ?? 0;
-  const anchor = useSectionAnchor({ label: "Conversation", icon: MessagesSquare });
 
   return (
-    <Card ref={anchor} id={`comments-${studentId}`}>
+    <Card>
       <CardHeader>
         <div className="flex flex-wrap items-center justify-between gap-2">
           <CardTitle className="flex items-center gap-2">
             <MessagesSquare className="size-4 text-muted-foreground" />
-            Conversation
+            Comments
             {count > 0 && (
               <span className="rounded-full bg-muted px-2 py-0.5 text-xs font-medium tabular-nums text-muted-foreground">
                 {count}

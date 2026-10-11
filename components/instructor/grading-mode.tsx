@@ -82,44 +82,48 @@ export function useGradingMode() {
 }
 
 /*
-  **The way in and the way out, drawn in one place on the screen.**
+  The way into grading mode and the way out.
 
-  Both sit at the right end of the bar above the pane, and only one of them is ever drawn, so
-  entering and leaving the mode happen under the same pointer without the eye moving. The way in
-  used to stand in the list and the way out in the bar that replaced the list, which put them a
-  column apart: an instructor who entered the mode had to find the way back somewhere else.
-
-  Only at `lg` and up, both of them. Below that width there is no second pane to put away, so the
-  layout already is what this mode produces — a button to enter it would collapse a sidebar that is
-  already collapsed, and a button to leave it would go nowhere.
+  The way in is drawn only at `lg` and up, because a narrower window has no room for the work and
+  the report side by side. The way out is drawn at every width while the mode is on. The review pane
+  stays in two columns until the mode ends, so an instructor who narrows the window after entering
+  the mode still needs a way back to one column.
 */
 
-/** The way in: offered while the list is docked beside the pane. */
-export function GradingModeButton({ onEnter }: { onEnter: () => void }) {
+/** The way into grading mode, drawn in the list below its filter tabs. */
+export function GradingModeButton({
+  onEnter,
+  className,
+}: {
+  onEnter: () => void;
+  className?: string;
+}) {
   return (
-    <Button variant="outline" size="sm" onClick={onEnter} className="max-lg:hidden">
+    <Button
+      variant="outline"
+      size="sm"
+      onClick={onEnter}
+      className={cn("max-lg:hidden", className)}
+    >
       <Maximize2 data-icon="inline-start" />
       Grading mode
     </Button>
   );
 }
 
-/** The way out: offered in the same position, while the mode is on. */
-export function GradingModeExitButton({ onExit }: { onExit: () => void }) {
+/** The way out of grading mode, drawn in the grading mode bar beside the list button. */
+function GradingModeExitButton({ onExit }: { onExit: () => void }) {
   return (
-    <Button variant="ghost" size="sm" onClick={onExit} className="max-lg:hidden">
+    <Button variant="ghost" size="sm" onClick={onExit}>
       <Minimize2 data-icon="inline-start" />
-      Exit
+      Exit Grading Mode
     </Button>
   );
 }
 
 /**
- * What is left of the list once it is gone: the way to it, the way to either side of where you
- * are, and who is open.
-
- * The way out of the mode is not here — it is at the right end of the bar below this one, beside
- * where the way in stands when the list is docked. See `GradingModeExitButton`.
+ * The bar that replaces the list in grading mode. It holds a button that opens the list, the way
+ * out of the mode, Previous and Next, and the name and status of what is open.
  *
  * **Movement follows the list as it is currently filtered.** The rows arrive in the order they
  * were drawn, so a search narrowed to one group, or the To do tab, is still in force here — Next
@@ -141,6 +145,7 @@ export function GradingModeBar({
   badges,
   onSelect,
   onOpenList,
+  onExit,
   className,
 }: {
   /** Every submission in the list, in the order it is drawn, under the name to reach it by. */
@@ -174,6 +179,11 @@ export function GradingModeBar({
   onSelect: (id: string) => void;
   /** Slides the list in as a sheet over the pane. */
   onOpenList: () => void;
+  /**
+   * Leaves grading mode. Absent outside grading mode, where this bar serves as the header on a
+   * narrow window and there is no mode to leave.
+   */
+  onExit?: () => void;
   className?: string;
 }) {
   const at = currentId === null ? -1 : submissions.findIndex((row) => row.id === currentId);
@@ -193,15 +203,12 @@ export function GradingModeBar({
     /*
       One line from `md` up, two below it.
 
-      A submission in the middle of being graded can carry four pills — its status, Late, Feedback
-      drafted, and the count of comments — and on a narrow window those sit between a name that
-      has to stay readable and the two buttons the sitting is driven by. So below `md` the pills
-      drop to a line of their own and the line above keeps the controls: getting to the list, the
-      name of what is open, and the way either side of it.
+      Below `md`, one line has no room for the buttons, the name of what is open, and its status
+      pills. So the first line holds the buttons and the name, and the pills move to a second line.
 
-      The controls are wrapped so that they stay one line below `md`, and the wrapper is
-      `contents` from `md` up — its children become items of this row directly, and `order`
-      arranges them around the pills, which have no wrapper to sit inside at that width.
+      The first line is a wrapper with `md:contents`, which makes its children items of this row
+      from `md` up. Their `order` classes then arrange the one line: the list button, a spacer, the
+      pills, the name, then Previous and Next.
     */
     <div
       className={cn(
@@ -215,6 +222,7 @@ export function GradingModeBar({
           {listLabel}
           <span className="text-muted-foreground tabular-nums">({submissions.length})</span>
         </Button>
+        {onExit && <GradingModeExitButton onExit={onExit} />}
 
         {/*
           Everything after this is right-aligned, and an element that grows says so at both widths
@@ -223,25 +231,28 @@ export function GradingModeBar({
         */}
         <div aria-hidden="true" className="flex-1 md:order-2" />
 
-        <div className="flex min-w-0 items-center gap-2 md:order-4">
-          {currentLabel && (
-            <span
-              className="truncate text-sm font-medium"
-              title={currentDetail ? `${currentLabel} · ${currentDetail}` : currentLabel}
-            >
-              {currentHref ? (
-                <Link href={currentHref} className="hover:underline">
-                  {currentLabel}
-                </Link>
-              ) : (
-                currentLabel
-              )}
-              {currentDetail && (
-                <span className="font-normal text-muted-foreground"> · {currentDetail}</span>
-              )}
-            </span>
-          )}
-        </div>
+        {/*
+          The name of what is open. When the line is too narrow for it, the name scrolls sideways
+          with its scroll bar hidden, so the whole name stays reachable without pushing Previous and
+          Next off the line. `title` also shows it in full on hover.
+        */}
+        {currentLabel && (
+          <span
+            className="no-scrollbar min-w-0 overflow-x-auto text-sm font-medium whitespace-nowrap md:order-4"
+            title={currentDetail ? `${currentLabel} · ${currentDetail}` : currentLabel}
+          >
+            {currentHref ? (
+              <Link href={currentHref} className="hover:underline">
+                {currentLabel}
+              </Link>
+            ) : (
+              currentLabel
+            )}
+            {currentDetail && (
+              <span className="font-normal text-muted-foreground"> · {currentDetail}</span>
+            )}
+          </span>
+        )}
 
         {/* Worded where there is room, arrows alone where there is not. */}
         <Button
@@ -268,10 +279,7 @@ export function GradingModeBar({
         </Button>
       </div>
 
-      {/*
-        Wrapping rather than truncating, because a pill half drawn says nothing: four of them on a
-        narrow window take two lines and the bar grows by one line to hold them.
-      */}
+      {/* The pills wrap rather than truncate, because a cut-off pill cannot be read. */}
       {badges && <div className="flex flex-wrap items-center gap-2 md:order-3">{badges}</div>}
     </div>
   );

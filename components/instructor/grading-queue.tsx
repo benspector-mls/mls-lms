@@ -3,25 +3,23 @@
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import * as React from "react";
-import { Inbox, MessageSquare, UserMinus, Users } from "lucide-react";
+import { CalendarClock, Inbox, UserMinus, Users } from "lucide-react";
 
 import { AssignmentPicker } from "@/components/instructor/assignment-picker";
 import { BatchGenerate } from "@/components/instructor/batch-generate";
 import {
   GradingModeBar,
   GradingModeButton,
-  GradingModeExitButton,
   useGradingMode,
 } from "@/components/instructor/grading-mode";
 import { GradingReview } from "@/components/instructor/grading-review";
-import { SectionNavBar, SectionNavProvider } from "@/components/instructor/review/section-nav";
-import { ExtensionButton } from "@/components/instructor/extension-button";
+import { ExtensionsSheet } from "@/components/instructor/extensions-sheet";
 import { FellowConversation, TaskReview } from "@/components/instructor/task-review";
 import { taskIsSelfMarked } from "@/lib/assignments/spec";
 import { CohortPicker } from "@/components/instructor/cohort-picker";
 import { SubmissionRow } from "@/components/instructor/submission-row";
 import { DraftStatusBadge, LatenessBadge, SubmissionStatusBadge } from "@/components/status-badge";
-import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import type { BatchState } from "@/hooks/use-batch-generate";
 import { useReleaseGrade } from "@/hooks/use-release-grade";
 import { studentHref } from "@/lib/links";
@@ -93,6 +91,7 @@ export function GradingQueue({
     survive every change of form.
   */
   const [listOpen, setListOpen] = React.useState(false);
+  const [extending, setExtending] = React.useState(false);
   React.useEffect(() => {
     if (!listOpen) return;
     function onKeyDown(event: KeyboardEvent) {
@@ -302,27 +301,11 @@ export function GradingQueue({
         null);
 
   /*
-    Whose deadline the button above the pane would agree, and null where there is nobody to agree
-    one with or nothing to agree it against.
-
-    **A team where the work is a team's.** The work is handed in once and the deadline belongs to
-    all of them: the server refuses one member of a team by name, and granting the team brings
-    every member's row into agreement. A fellow otherwise — including one who has started nothing,
-    whose row the grant creates.
-
-    **Nothing on an assignment nobody has been given, or one with no deadline.** `grantExtensions`
-    refuses both, so offering the button would open a panel whose every answer the server rejects.
+    Whether this assignment can have extensions. `grantExtensions` refuses an assignment that has
+    not been given out or has no due date, so the button is hidden in those cases rather than
+    opening a sheet where every grant fails.
   */
-  const extensionTarget: { kind: "student" | "team"; id: string } | null =
-    data.assignment.distributedAt === null || data.assignment.dueAt === null
-      ? null
-      : selected?.team
-        ? { kind: "team", id: selected.team.id }
-        : selected
-          ? { kind: "student", id: selected.student.id }
-          : selectedFellow
-            ? { kind: "student", id: selectedFellow.id }
-            : null;
+  const extendable = data.assignment.distributedAt !== null && data.assignment.dueAt !== null;
 
   /** Why the open submission is not in the list beside it, or null when it is. */
   const asideReason =
@@ -453,6 +436,31 @@ export function GradingQueue({
             )}
 
             {/*
+              Grant extensions and Grading mode share one row, with Grading mode on the right. Both
+              are `flex-1`, so either one fills the row when the other is absent. Grant extensions
+              is absent when the assignment cannot have extensions, and Grading mode hides itself
+              below `lg`. When both are missing below `lg`, the row hides too, so it leaves no empty
+              gap.
+
+              Grant extensions opens the same sheet as the curriculum view, which grants deadlines
+              to several students at once and lists the ones already agreed.
+            */}
+            <div className={cn("flex gap-2", !extendable && "max-lg:hidden")}>
+              {extendable && (
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="flex-1"
+                  onClick={() => setExtending(true)}
+                >
+                  <CalendarClock data-icon="inline-start" />
+                  Grant extensions
+                </Button>
+              )}
+              <GradingModeButton onEnter={grading.enter} className="flex-1" />
+            </div>
+
+            {/*
               Scoped to what the list is currently showing rather than to the whole assignment,
               because that is what the instructor is looking at: the Graded tab offers nothing to
               generate. A button above a list of twelve that quietly acted on forty would be worse
@@ -559,136 +567,81 @@ export function GradingQueue({
           </div>
         </aside>
 
-        {/*
-          Everything in this column, because the bar below reads what the pane at the foot of it
-          registers: the provider is what carries one to the other, and it draws nothing itself.
-        */}
-        <SectionNavProvider>
-          <section className="flex min-h-0 flex-col overflow-hidden bg-muted/20">
-            {/*
+        {extendable && (
+          <ExtensionsSheet
+            assignmentId={data.assignment.id}
+            title={data.assignment.title}
+            open={extending}
+            onOpenChange={setExtending}
+          />
+        )}
+
+        <section className="flex min-h-0 flex-col overflow-hidden bg-muted/20">
+          {/*
             Always rendered, shown by width: below `lg` the bar is the layout's own header, and at
             `lg` and up it belongs to grading mode alone — the docked list holds everything it
             says.
           */}
-            <GradingModeBar
-              className={grading.on ? undefined : "lg:hidden"}
-              // Named the way the row beside it was named, members included.
-              submissions={filtered.map((row) => ({ id: row.id, label: rowLabel(row) }))}
-              currentId={selected?.id ?? null}
-              currentLabel={
-                selected
-                  ? rowLabel(selected)
-                  : selectedFellow
-                    ? displayNameOf(selectedFellow, "Unknown student")
-                    : null
-              }
-              currentDetail={selected?.team ? teamMembers(selected.team) : undefined}
-              /*
+          <GradingModeBar
+            className={grading.on ? undefined : "lg:hidden"}
+            // Named the way the row beside it was named, members included.
+            submissions={filtered.map((row) => ({ id: row.id, label: rowLabel(row) }))}
+            currentId={selected?.id ?? null}
+            currentLabel={
+              selected
+                ? rowLabel(selected)
+                : selectedFellow
+                  ? displayNameOf(selectedFellow, "Unknown student")
+                  : null
+            }
+            currentDetail={selected?.team ? teamMembers(selected.team) : undefined}
+            /*
                 The same record the rows in the list link to, which is why it is here at all: in
                 this mode the list is put away, so the bar carries the only name on the screen and
                 has to carry the way to that name's record with it. A team name leads nowhere, as
                 in the list.
               */
-              currentHref={
-                selected
-                  ? selected.team
-                    ? undefined
-                    : studentHref(data.assignment.courseId, selected.student.id)
-                  : selectedFellow
-                    ? studentHref(data.assignment.courseId, selectedFellow.id)
-                    : undefined
-              }
-              /*
+            currentHref={
+              selected
+                ? selected.team
+                  ? undefined
+                  : studentHref(data.assignment.courseId, selected.student.id)
+                : selectedFellow
+                  ? studentHref(data.assignment.courseId, selectedFellow.id)
+                  : undefined
+            }
+            /*
                 The pane below draws no header — the list this bar stands in for is what named the
                 open student's state, so the state stands here instead, beside the name. A task's
                 pane names its own state (done, or not), so only graded work sends badges up.
               */
-              badges={
-                selected && !isTask ? (
-                  <span className="flex flex-wrap items-center gap-2">
-                    <SubmissionStatusBadge status={selected.status} />
-                    <LatenessBadge dueAt={data.assignment.dueAt} submission={selected} />
-                    {/*
+            badges={
+              selected && !isTask ? (
+                <span className="flex flex-wrap items-center gap-2">
+                  <SubmissionStatusBadge status={selected.status} />
+                  <LatenessBadge dueAt={data.assignment.dueAt} submission={selected} />
+                  {/*
                       The draft's own state, on the same rule the hidden row applies: shown only
                       where it says something the submission's status does not. Writing a report
                       does not move the submission, so a draft waiting for approval is a fact
                       this bar would otherwise leave to a list that is no longer on the screen.
                     */}
-                    {selected.activeDraft &&
-                      draftStatusAddsSomething(selected.activeDraft.status) && (
-                        <DraftStatusBadge status={selected.activeDraft.status} />
-                      )}
-                    {/*
-                      The conversation, said the way the hidden row says it: teal while somebody
-                      is owed an answer, muted once nobody is. This mode put the list away, so the
-                      bar is the one place left that can say a reply is owed — and the badge is an
-                      anchor to the thread, the jump the old header's badge carried.
-                    */}
-                    {selected.commentCount > 0 && (
-                      <Badge
-                        variant="outline"
-                        render={<a href={`#comments-${selected.student.id}`} />}
-                        className={cn(
-                          "gap-1 font-normal",
-                          selected.commentsAwaitReply
-                            ? "border-teal-500/40 text-teal-700 dark:text-teal-300"
-                            : "text-muted-foreground",
-                        )}
-                      >
-                        <MessageSquare className="size-3" />
-                        <span className="tabular-nums">{selected.commentCount}</span>
-                        <span className="sr-only">
-                          {selected.commentsAwaitReply
-                            ? " comments, waiting on a reply"
-                            : " comments"}
-                        </span>
-                      </Badge>
+                  {selected.activeDraft &&
+                    draftStatusAddsSomething(selected.activeDraft.status) && (
+                      <DraftStatusBadge status={selected.activeDraft.status} />
                     )}
-                  </span>
-                ) : null
-              }
-              listLabel={
-                filter === "needs_review"
-                  ? "To do"
-                  : filter === "graded"
-                    ? "Graded"
-                    : "All students"
-              }
-              onSelect={select}
-              onOpenList={() => setListOpen(true)}
-            />
+                </span>
+              ) : null
+            }
+            listLabel={
+              filter === "needs_review" ? "To do" : filter === "graded" ? "Graded" : "All students"
+            }
+            onSelect={select}
+            onOpenList={() => setListOpen(true)}
+            onExit={grading.on ? grading.exit : undefined}
+          />
 
-            {/*
-            The jumps into the pane below, and at the far right of the same row the way into
-            grading mode or back out of it. One row rather than two, because both are controls over
-            the pane rather than parts of it, and the pane is drawn in several forms — a report, a
-            task, a fellow who has started nothing — that would otherwise each have to carry them.
-          */}
-            <SectionNavBar
-              className="border-b border-border bg-card px-3 py-1.5"
-              actions={
-                <>
-                  {/*
-                    Before the way into grading mode rather than after it, so that control keeps
-                    the far right of the row it has had since it moved there.
-                  */}
-                  {extensionTarget && (
-                    <ExtensionButton
-                      assignmentId={data.assignment.id}
-                      target={extensionTarget}
-                      extendedDueAt={selected?.extendedDueAt ?? null}
-                    />
-                  )}
-                  {grading.on ? (
-                    <GradingModeExitButton onExit={grading.exit} />
-                  ) : (
-                    <GradingModeButton onEnter={grading.enter} />
-                  )}
-                </>
-              }
-            />
-
-            {/*
+          {/*
             Said before the work rather than left to be noticed. This submission is not in the
             list beside it, and an instructor who read a report and approved it without knowing
             the fellow had left the program would be grading somebody who is not there.
@@ -699,141 +652,140 @@ export function GradingQueue({
             copy of their team's work is about neither — there is nothing to fix, and what the
             instructor wants is a way to the row the work is actually on.
           */}
-            {asideReason && selected && (
-              <div className="flex shrink-0 items-start gap-2 border-b border-border bg-muted/60 px-4 py-2.5 text-sm">
+          {asideReason && selected && (
+            <div className="flex shrink-0 items-start gap-2 border-b border-border bg-muted/60 px-4 py-2.5 text-sm">
+              {asideReason === "removed" ? (
+                <UserMinus className="mt-0.5 size-4 shrink-0 text-muted-foreground" />
+              ) : (
+                <Users className="mt-0.5 size-4 shrink-0 text-muted-foreground" />
+              )}
+              <p className="text-muted-foreground">
+                <span className="font-medium text-foreground">
+                  {selected.student.displayName ??
+                    selected.student.githubUsername ??
+                    selected.student.email ??
+                    "This student"}
+                </span>{" "}
                 {asideReason === "removed" ? (
-                  <UserMinus className="mt-0.5 size-4 shrink-0 text-muted-foreground" />
-                ) : (
-                  <Users className="mt-0.5 size-4 shrink-0 text-muted-foreground" />
-                )}
-                <p className="text-muted-foreground">
-                  <span className="font-medium text-foreground">
-                    {selected.student.displayName ??
-                      selected.student.githubUsername ??
-                      selected.student.email ??
-                      "This student"}
-                  </span>{" "}
-                  {asideReason === "removed" ? (
-                    "has been removed from this program, so this submission is not listed in the queue. Their work stays readable here and in the gradebook."
-                  ) : asideReason === "team_mirror" ? (
-                    <>
-                      has a copy of their team&apos;s grade. The work, the report, and the feedback
-                      are on the team&apos;s own submission.{" "}
-                      {selected.teamSubmissionId && (
-                        /*
+                  "has been removed from this program, so this submission is not listed in the queue. Their work stays readable here and in the gradebook."
+                ) : asideReason === "team_mirror" ? (
+                  <>
+                    has a copy of their team&apos;s grade. The work, the report, and the feedback
+                    are on the team&apos;s own submission.{" "}
+                    {selected.teamSubmissionId && (
+                      /*
                         The link is the point of this case. An instructor arriving from a mirror's
                         gradebook cell would otherwise be parked in a pane with nothing to do and
                         no indication of where to go.
                       */
-                        <button
-                          type="button"
-                          className="font-medium text-foreground underline underline-offset-4"
-                          onClick={() => select(selected.teamSubmissionId!)}
-                        >
-                          Open the team&apos;s submission
-                        </button>
-                      )}
-                    </>
-                  ) : (
-                    "is not in the selected cohort, so this submission is not listed in the queue. Switch to All fellows to see it with the rest."
-                  )}
-                </p>
-              </div>
-            )}
+                      <button
+                        type="button"
+                        className="font-medium text-foreground underline underline-offset-4"
+                        onClick={() => select(selected.teamSubmissionId!)}
+                      >
+                        Open the team&apos;s submission
+                      </button>
+                    )}
+                  </>
+                ) : (
+                  "is not in the selected cohort, so this submission is not listed in the queue. Switch to All fellows to see it with the rest."
+                )}
+              </p>
+            </div>
+          )}
 
-            {/*
+          {/*
             `min-h-0 flex-1` because the review pane sizes itself with `h-full` and scrolls
             inside. Without it, the banner above would push the bottom of the pane — the approve
             button among it — off the screen.
           */}
-            <div className="min-h-0 flex-1">
-              {/*
+          <div className="min-h-0 flex-1">
+            {/*
               A task takes a different pane, and takes it in two situations rather than one: a
               fellow with a row, and a fellow with none. `GradingReview` is built around a
               submission — drafts, test runs, a diff, a score — so a task would be a branch
               suppressing nearly all of it, and the rowless fellow could not be passed to it at all.
             */}
-              {isTask && selectedFellow ? (
-                <TaskReview
-                  key={selectedFellow.id}
-                  assignmentId={data.assignment.id}
-                  student={selectedFellow}
-                  // Nothing on record, which is what having no row means.
-                  isComplete={null}
-                  markedAt={null}
-                  markedBy={null}
-                  selfMarked={selfMarked}
-                  now={now}
-                />
-              ) : isTask && selected ? (
-                <TaskReview
-                  key={selected.id}
-                  assignmentId={data.assignment.id}
-                  student={selected.student}
-                  isComplete={selected.isComplete}
-                  markedAt={selected.gradedAt}
-                  markedBy={selected.gradedBy}
-                  selfMarked={selfMarked}
-                  now={now}
-                />
-              ) : selectedFellow ? (
-                /*
+            {isTask && selectedFellow ? (
+              <TaskReview
+                key={selectedFellow.id}
+                assignmentId={data.assignment.id}
+                student={selectedFellow}
+                // Nothing on record, which is what having no row means.
+                isComplete={null}
+                markedAt={null}
+                markedBy={null}
+                selfMarked={selfMarked}
+                now={now}
+              />
+            ) : isTask && selected ? (
+              <TaskReview
+                key={selected.id}
+                assignmentId={data.assignment.id}
+                student={selected.student}
+                isComplete={selected.isComplete}
+                markedAt={selected.gradedAt}
+                markedBy={selected.gradedBy}
+                selfMarked={selfMarked}
+                now={now}
+              />
+            ) : selectedFellow ? (
+              /*
                 A fellow with no row on graded work. There is no report, test run, or diff to show,
                 so the pane says that nothing has been handed in and offers the conversation, which
                 is what an instructor opens a fellow who has not started to do. Posting the first
                 comment creates their row, and the refresh that follows moves them into
                 `submissions`.
               */
-                <div
-                  key={selectedFellow.id}
-                  // `relative` for the reason `TaskReview` gives: the thread's `sr-only` live region.
-                  className="relative flex h-full flex-col gap-4 overflow-y-auto p-4"
-                >
-                  <p className="text-sm text-muted-foreground">
-                    {displayNameOf(selectedFellow, "This fellow")} has not started this assignment.
-                  </p>
-                  <FellowConversation
-                    assignmentId={data.assignment.id}
-                    studentId={selectedFellow.id}
-                    studentName={displayNameOf(selectedFellow, "this fellow")}
-                    now={now}
-                  />
-                </div>
-              ) : selected ? (
-                // Keyed on the submission so switching students resets the editor rather
-                // than carrying one student's unsaved edits onto another's report.
-                <GradingReview
-                  key={selected.id}
-                  submission={selected}
+              <div
+                key={selectedFellow.id}
+                // `relative` for the reason `TaskReview` gives: the thread's `sr-only` live region.
+                className="relative flex h-full flex-col gap-4 overflow-y-auto p-4"
+              >
+                <p className="text-sm text-muted-foreground">
+                  {displayNameOf(selectedFellow, "This fellow")} has not started this assignment.
+                </p>
+                <FellowConversation
                   assignmentId={data.assignment.id}
-                  assignmentDueAt={data.assignment.dueAt}
-                  // Links each member of a team's line to their own record — "what else has this
-                  // person done" is the question a report prompts about a member.
-                  studentHref={studentHref(data.assignment.courseId, selected.student.id)}
-                  // Read here rather than by the review pane, which would have to wait on its
-                  // own request to find out whether this assignment can have tests at all.
-                  assignmentKind={data.assignment.kind}
-                  assignmentHandInMethods={data.assignment.handInMethods}
-                  completionThreshold={completionThreshold}
+                  studentId={selectedFellow.id}
+                  studentName={displayNameOf(selectedFellow, "this fellow")}
                   now={now}
-                  onApproved={advanceAfterApproval}
-                  release={releasing.release}
-                  releasing={releasing.inFlight.has(selected.id)}
                 />
-              ) : (
-                <div className="flex h-full flex-col items-center justify-center gap-2 p-8 text-center">
-                  <Inbox className="size-10 text-muted-foreground" />
-                  <p className="text-base font-medium">Pick a student</p>
-                  <p className="max-w-sm text-sm text-muted-foreground">
-                    {isTask
-                      ? "Whether they have done this, and the conversation about it, open here."
-                      : "Their report, test results, and repository open here."}
-                  </p>
-                </div>
-              )}
-            </div>
-          </section>
-        </SectionNavProvider>
+              </div>
+            ) : selected ? (
+              // Keyed on the submission so switching students resets the editor rather
+              // than carrying one student's unsaved edits onto another's report.
+              <GradingReview
+                key={selected.id}
+                submission={selected}
+                assignmentId={data.assignment.id}
+                assignmentDueAt={data.assignment.dueAt}
+                // Links each member of a team's line to their own record — "what else has this
+                // person done" is the question a report prompts about a member.
+                studentHref={studentHref(data.assignment.courseId, selected.student.id)}
+                // Read here rather than by the review pane, which would have to wait on its
+                // own request to find out whether this assignment can have tests at all.
+                assignmentKind={data.assignment.kind}
+                completionThreshold={completionThreshold}
+                now={now}
+                onApproved={advanceAfterApproval}
+                release={releasing.release}
+                releasing={releasing.inFlight.has(selected.id)}
+                split={grading.on}
+              />
+            ) : (
+              <div className="flex h-full flex-col items-center justify-center gap-2 p-8 text-center">
+                <Inbox className="size-10 text-muted-foreground" />
+                <p className="text-base font-medium">Pick a student</p>
+                <p className="max-w-sm text-sm text-muted-foreground">
+                  {isTask
+                    ? "Whether they have done this, and the comments about it, open here."
+                    : "Their report, test results, and repository open here."}
+                </p>
+              </div>
+            )}
+          </div>
+        </section>
       </div>
     </div>
   );

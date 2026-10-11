@@ -126,7 +126,7 @@ function DeleteComment({
         <DialogHeader>
           <DialogTitle>Delete this comment?</DialogTitle>
           <DialogDescription>
-            It stays in the conversation as a deleted message, so any reply to it still makes sense.
+            It stays in the comments as a deleted message, so any reply to it still makes sense.
             Nobody will be able to read what it said.
           </DialogDescription>
         </DialogHeader>

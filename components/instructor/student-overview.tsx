@@ -3,18 +3,16 @@
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import * as React from "react";
-import { ArrowLeft, GitBranch, Inbox, Mail, MessageSquare, UserMinus } from "lucide-react";
+import { ArrowLeft, GitBranch, Inbox, Mail, UserMinus } from "lucide-react";
 
 import { BatchGenerate } from "@/components/instructor/batch-generate";
 import { StudentPicker } from "@/components/instructor/student-picker";
 import {
   GradingModeBar,
   GradingModeButton,
-  GradingModeExitButton,
   useGradingMode,
 } from "@/components/instructor/grading-mode";
 import { GradingReview } from "@/components/instructor/grading-review";
-import { SectionNavBar, SectionNavProvider } from "@/components/instructor/review/section-nav";
 import { SubmissionRow } from "@/components/instructor/submission-row";
 import { TaskReview } from "@/components/instructor/task-review";
 import { taskIsSelfMarked } from "@/lib/assignments/spec";
@@ -240,6 +238,13 @@ export function StudentOverview({ data, now }: { data: Data; now: Date }) {
             </div>
 
             {/*
+              The way into grading mode, below the tabs as on the grading queue. Full width, because
+              this page has no Grant extensions button: each row is a different assignment, and
+              extensions are granted per assignment.
+            */}
+            <GradingModeButton onEnter={grading.enter} className="mt-3 w-full" />
+
+            {/*
               Scoped to the filtered list, as on the grading queue, so the button acts on what is
               being looked at. Rows with no submission carry no bucket and are simply not
               candidates — a student cannot have a report generated for work they never started.
@@ -345,123 +350,75 @@ export function StudentOverview({ data, now }: { data: Data; now: Date }) {
           </div>
         </aside>
 
-        {/* Everything in this column — see the grading queue's note on this provider. */}
-        <SectionNavProvider>
-          <section className="flex min-h-0 flex-col overflow-hidden bg-muted/20">
-            {/*
+        <section className="flex min-h-0 flex-col overflow-hidden bg-muted/20">
+          {/*
             Always rendered, shown by width, exactly as on the grading queue: below `lg` the bar
             is the layout's own header, and at `lg` and up it belongs to grading mode alone.
           */}
-            <GradingModeBar
-              className={grading.on ? undefined : "lg:hidden"}
-              /*
+          <GradingModeBar
+            className={grading.on ? undefined : "lg:hidden"}
+            /*
                 Only rows there is something to grade on. An assignment the student has not started
                 has no submission, so it is not somewhere Next can go — the pane would have nothing
                 to open.
               */
-              submissions={filtered.flatMap((row) =>
-                row.submission ? [{ id: row.submission.id, label: row.assignment.title }] : [],
-              )}
-              currentId={selected?.submission?.id ?? null}
-              currentLabel={selected?.assignment.title ?? null}
-              /*
+            submissions={filtered.flatMap((row) =>
+              row.submission ? [{ id: row.submission.id, label: row.assignment.title }] : [],
+            )}
+            currentId={selected?.submission?.id ?? null}
+            currentLabel={selected?.assignment.title ?? null}
+            /*
                 The same address the rows in the list carry, here because this mode put the list
                 away and the bar is the only place the open assignment is named.
               */
-              currentHref={
-                selected
-                  ? gradingQueueHref(
-                      data.course.id,
-                      selected.assignment.id,
-                      selected.submission?.id,
-                    )
-                  : undefined
-              }
-              // The pane below draws no header — the list this bar stands in for is what showed the
-              // open assignment's state, so the state stands here beside the name.
-              badges={
-                selected?.submission ? (
-                  <span className="flex flex-wrap items-center gap-2">
-                    <SubmissionStatusBadge status={selected.submission.status} />
-                    <LatenessBadge
-                      dueAt={selected.assignment.dueAt}
-                      submission={selected.submission}
-                    />
-                    {/*
+            currentHref={
+              selected
+                ? gradingQueueHref(data.course.id, selected.assignment.id, selected.submission?.id)
+                : undefined
+            }
+            // The pane below draws no header — the list this bar stands in for is what showed the
+            // open assignment's state, so the state stands here beside the name.
+            badges={
+              selected?.submission ? (
+                <span className="flex flex-wrap items-center gap-2">
+                  <SubmissionStatusBadge status={selected.submission.status} />
+                  <LatenessBadge
+                    dueAt={selected.assignment.dueAt}
+                    submission={selected.submission}
+                  />
+                  {/*
                       The draft's own state, on the same rule the hidden row applies: shown only
                       where it says something the submission's status does not. Writing a report
                       does not move the submission, so a draft waiting for approval is a fact
                       this bar would otherwise leave to a list that is no longer on the screen.
                     */}
-                    {selected.submission.activeDraft &&
-                      draftStatusAddsSomething(selected.submission.activeDraft.status) && (
-                        <DraftStatusBadge status={selected.submission.activeDraft.status} />
-                      )}
-                    {/*
-                      The conversation, said the way the hidden row says it: teal while somebody
-                      is owed an answer, muted once nobody is. This mode put the list away, so the
-                      bar is the one place left that can say a reply is owed — and the badge is an
-                      anchor to the thread, the jump the old header's badge carried.
-                    */}
-                    {selected.submission.commentCount > 0 && (
-                      <Badge
-                        variant="outline"
-                        render={<a href={`#comments-${data.student.id}`} />}
-                        className={cn(
-                          "gap-1 font-normal",
-                          selected.submission.commentsAwaitReply
-                            ? "border-teal-500/40 text-teal-700 dark:text-teal-300"
-                            : "text-muted-foreground",
-                        )}
-                      >
-                        <MessageSquare className="size-3" />
-                        <span className="tabular-nums">{selected.submission.commentCount}</span>
-                        <span className="sr-only">
-                          {selected.submission.commentsAwaitReply
-                            ? " comments, waiting on a reply"
-                            : " comments"}
-                        </span>
-                      </Badge>
+                  {selected.submission.activeDraft &&
+                    draftStatusAddsSomething(selected.submission.activeDraft.status) && (
+                      <DraftStatusBadge status={selected.submission.activeDraft.status} />
                     )}
-                  </span>
-                ) : null
-              }
-              listLabel={
-                filter === "needs_review"
-                  ? "To do"
-                  : filter === "graded"
-                    ? "Graded"
-                    : filter === "not_started"
-                      ? "Not started"
-                      : "All assignments"
-              }
-              onSelect={select}
-              onOpenList={() => setListOpen(true)}
-            />
+                </span>
+              ) : null
+            }
+            listLabel={
+              filter === "needs_review"
+                ? "To do"
+                : filter === "graded"
+                  ? "Graded"
+                  : filter === "not_started"
+                    ? "Not started"
+                    : "All assignments"
+            }
+            onSelect={select}
+            onOpenList={() => setListOpen(true)}
+            onExit={grading.on ? grading.exit : undefined}
+          />
 
-            {/*
-            The jumps into the pane below, and at the far right of the same row the way into
-            grading mode or back out of it. One row rather than two, because both are controls over
-            the pane rather than parts of it, and the pane is drawn in several forms — a report, a
-            task, a fellow who has started nothing — that would otherwise each have to carry them.
-          */}
-            <SectionNavBar
-              className="border-b border-border bg-card px-3 py-1.5"
-              actions={
-                grading.on ? (
-                  <GradingModeExitButton onExit={grading.exit} />
-                ) : (
-                  <GradingModeButton onEnter={grading.enter} />
-                )
-              }
-            />
-
-            {/*
+          {/*
             `min-h-0 flex-1` because the review pane sizes itself with `h-full` and scrolls inside.
             Without it the header above would push the approve button off the screen.
           */}
-            <div className="min-h-0 flex-1">
-              {/*
+          <div className="min-h-0 flex-1">
+            {/*
               A task takes the pane built for one, exactly as the grading queue decides it: a task
               has no report, no test runs and no score, so `GradingReview` would offer to generate
               a report about work that can never have one. It opens with or without a submission
@@ -469,19 +426,19 @@ export function StudentOverview({ data, now }: { data: Data; now: Date }) {
               nulls say. Whether the fellow could have marked it themselves comes off the row's own
               assignment, because every row on this screen is a different assignment.
             */}
-              {selected?.assignment.kind === "TASK" ? (
-                <TaskReview
-                  key={selected.submission?.id ?? selected.assignment.id}
-                  assignmentId={selected.assignment.id}
-                  student={data.student}
-                  isComplete={selected.submission?.isComplete ?? null}
-                  markedAt={selected.submission?.gradedAt ?? null}
-                  markedBy={selected.submission?.gradedBy ?? null}
-                  selfMarked={taskIsSelfMarked(selected.assignment)}
-                  now={now}
-                />
-              ) : selected?.submission && selected.submission.status !== "NOT_STARTED" ? (
-                /*
+            {selected?.assignment.kind === "TASK" ? (
+              <TaskReview
+                key={selected.submission?.id ?? selected.assignment.id}
+                assignmentId={selected.assignment.id}
+                student={data.student}
+                isComplete={selected.submission?.isComplete ?? null}
+                markedAt={selected.submission?.gradedAt ?? null}
+                markedBy={selected.submission?.gradedBy ?? null}
+                selfMarked={taskIsSelfMarked(selected.assignment)}
+                now={now}
+              />
+            ) : selected?.submission && selected.submission.status !== "NOT_STARTED" ? (
+              /*
                 Keyed on the submission so moving between assignments resets the editor rather
                 than carrying unsaved edits from one report onto another.
 
@@ -492,23 +449,23 @@ export function StudentOverview({ data, now }: { data: Data; now: Date }) {
                 deliberately on this side of the line: a repository has been generated, and the
                 link to it is exactly what an instructor opens the pane for.
               */
-                <GradingReview
-                  key={selected.submission.id}
-                  submission={selected.submission}
-                  assignmentId={selected.assignment.id}
-                  assignmentDueAt={selected.assignment.dueAt}
-                  assignmentKind={selected.assignment.kind}
-                  assignmentHandInMethods={selected.assignment.handInMethods}
-                  // Per row here, where the queue reads it once for the page: every row on this
-                  // screen is a different assignment, and the threshold is what decides whether a
-                  // score passes.
-                  completionThreshold={selected.assignment.completionThreshold}
-                  now={now}
-                  release={releasing.release}
-                  releasing={releasing.inFlight.has(selected.submission.id)}
-                />
-              ) : (
-                /*
+              <GradingReview
+                key={selected.submission.id}
+                submission={selected.submission}
+                assignmentId={selected.assignment.id}
+                assignmentDueAt={selected.assignment.dueAt}
+                assignmentKind={selected.assignment.kind}
+                // Per row here, where the queue reads it once for the page: every row on this
+                // screen is a different assignment, and the threshold is what decides whether a
+                // score passes.
+                completionThreshold={selected.assignment.completionThreshold}
+                now={now}
+                release={releasing.release}
+                releasing={releasing.inFlight.has(selected.submission.id)}
+                split={grading.on}
+              />
+            ) : (
+              /*
                 Two situations, and they used to share one sentence. With every assignment now
                 openable, "nothing here" can mean the fellow has started nothing in the whole
                 course *or* that this one assignment is untouched — and the second is a row an
@@ -518,25 +475,22 @@ export function StudentOverview({ data, now }: { data: Data; now: Date }) {
                 The strip above is the rest of the answer: an extension can be agreed from here,
                 which is the reason an unstarted assignment opens at all.
               */
-                <div className="flex h-full flex-col items-center justify-center gap-2 p-8 text-center">
-                  <Inbox className="size-10 text-muted-foreground" />
-                  <p className="text-base font-medium">Nothing handed in yet</p>
-                  <p className="max-w-sm text-sm text-muted-foreground">
-                    {selected === null ? (
-                      <>
-                        {name} has not started any of this course&apos;s assignments.
-                      </>
-                    ) : (
-                      <>
-                        {name} has handed nothing in for {selected.assignment.title}.
-                      </>
-                    )}
-                  </p>
-                </div>
-              )}
-            </div>
-          </section>
-        </SectionNavProvider>
+              <div className="flex h-full flex-col items-center justify-center gap-2 p-8 text-center">
+                <Inbox className="size-10 text-muted-foreground" />
+                <p className="text-base font-medium">Nothing handed in yet</p>
+                <p className="max-w-sm text-sm text-muted-foreground">
+                  {selected === null ? (
+                    <>{name} has not started any of this course&apos;s assignments.</>
+                  ) : (
+                    <>
+                      {name} has handed nothing in for {selected.assignment.title}.
+                    </>
+                  )}
+                </p>
+              </div>
+            )}
+          </div>
+        </section>
       </div>
     </div>
   );

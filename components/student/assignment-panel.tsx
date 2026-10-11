@@ -1899,7 +1899,7 @@ function RoundComments({
         onClick={() => onRespond(round)}
       >
         <MessageSquare data-icon="inline-start" />
-        {mine.length > 0 ? "Add to this conversation" : "Respond to this feedback"}
+        {mine.length > 0 ? "Add a comment" : "Respond to this feedback"}
       </Button>
     </div>
   );

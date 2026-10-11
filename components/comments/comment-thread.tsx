@@ -69,7 +69,7 @@ export function CommentThread({
       {loading ? (
         <ListSkeleton rows={2} />
       ) : error ? (
-        <ErrorState title="Could not load the conversation" onRetry={onRetry} />
+        <ErrorState title="Could not load the comments" onRetry={onRetry} />
       ) : !thread || thread.comments.length === 0 ? (
         <EmptyState
           icon={<MessageSquare />}
