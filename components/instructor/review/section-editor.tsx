@@ -12,7 +12,7 @@
  */
 
 import * as React from "react";
-import { Check, Pencil, Plus, SaveCheck, SavePen, Undo2 } from "lucide-react";
+import { Check, Eraser, Pencil, SaveCheck, SavePen, Undo2 } from "lucide-react";
 import { Markdown, sourceOffsetAt } from "@/components/markdown";
 import { HelpTip } from "@/components/help-tip";
 import { ConfidenceBadge, FlagBadge } from "@/components/status-badge";
@@ -199,7 +199,11 @@ export function AssembledSectionEditor({
               between boxes: the rows read as one table of questions, and the gaps were height
               every row paid for.
             */}
-            <div className="divide-y divide-border rounded-md border border-border">
+            {/*
+              `@container` lets each row measure the list's width rather than the window's, because
+              the grade column can be dragged narrower — see the tabs in `grading-review.tsx`.
+            */}
+            <div className="@container divide-y divide-border rounded-md border border-border">
               {parts.rows.map((row, index) => {
                 /*
                   A checklist item's section heading, drawn above the first item under it with the
@@ -243,7 +247,8 @@ export function AssembledSectionEditor({
  * Built to be short, because a section holds a dozen of these and most full-marks questions have
  * no feedback at all. A row with nothing to say is the label line and the reasoning, with an "Add
  * feedback" button beside the score; a row with feedback shows it unboxed, edited by a
- * double-click or the Edit Feedback button beside the score.
+ * double-click or the Edit Feedback button beside the score. While the box is open, a Clear
+ * button beside Done empties it, and a Restore button then puts the text back.
  */
 function QuestionRow({
   row,
@@ -256,7 +261,17 @@ function QuestionRow({
   onScoreBlur?: () => void;
   onFeedback: (value: string) => void;
 }) {
-  const box = useEditInPlace(row.feedbackMarkdown);
+  /*
+    The text the Clear button erased, kept so Restore can put it back. The section's Undo cannot be
+    relied on for this: it returns to what was last saved, and the autosave stores the emptied box
+    a few seconds later, after which there is nothing left for Undo to return to. Forgotten when
+    the box closes or anything new is typed, because by then the instructor has moved on.
+  */
+  const [cleared, setCleared] = React.useState<string | null>(null);
+  const forgetCleared = React.useCallback((editing: boolean) => {
+    if (!editing) setCleared(null);
+  }, []);
+  const box = useEditInPlace(row.feedbackMarkdown, forgetCleared);
   const hasFeedback = row.feedbackMarkdown.trim() !== "";
 
   return (
@@ -265,19 +280,67 @@ function QuestionRow({
         <span className="min-w-0 text-sm font-medium">{row.label}</span>
         <div className="flex shrink-0 items-center gap-1">
           {box.editing ? (
-            <Button size="sm" variant="ghost" onClick={box.close}>
-              <Check data-icon="inline-start" />
-              Done
-            </Button>
-          ) : hasFeedback ? (
-            <Button size="sm" variant="ghost" onClick={() => box.open("button")}>
-              <Pencil data-icon="inline-start" />
-              Edit Feedback
-            </Button>
+            <>
+              {/*
+                Empties the box, which on a phone is far quicker than selecting all of the text by
+                hand. Offered only once the box is open, so a stray tap on the row cannot erase
+                feedback, and the box stays open afterwards for anything written in its place.
+                Narrowed to its icon alongside the pen button, for the same reason. While the box
+                is still empty, Restore takes its place and puts the erased text back.
+              */}
+              {cleared !== null && !hasFeedback ? (
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  onClick={() => {
+                    onFeedback(cleared);
+                    setCleared(null);
+                  }}
+                  title="Restore"
+                  className="@max-md:pr-1.5"
+                >
+                  <Undo2 data-icon="inline-start" />
+                  <span className="@max-md:sr-only">Restore</span>
+                </Button>
+              ) : (
+                <Button
+                  size="sm"
+                  variant="ghost"
+                  onClick={() => {
+                    setCleared(row.feedbackMarkdown);
+                    onFeedback("");
+                  }}
+                  disabled={!hasFeedback}
+                  title="Clear"
+                  className="@max-md:pr-1.5"
+                >
+                  <Eraser data-icon="inline-start" />
+                  <span className="@max-md:sr-only">Clear</span>
+                </Button>
+              )}
+              <Button size="sm" variant="ghost" onClick={box.close}>
+                <Check data-icon="inline-start" />
+                Done
+              </Button>
+            </>
           ) : (
-            <Button size="sm" variant="ghost" onClick={() => box.open("button")}>
-              <Plus data-icon="inline-start" />
-              Add feedback
+            /*
+              When the list is narrow the label is hidden and the button is its icon alone, which
+              leaves the question's own label the room to stay on one line. `sr-only` keeps the
+              label as the button's accessible name, `title` names it on hover, and the right
+              padding is trimmed to match the left so the icon sits centred.
+            */
+            <Button
+              size="sm"
+              variant="ghost"
+              onClick={() => box.open("button")}
+              title={hasFeedback ? "Edit Feedback" : "Add feedback"}
+              className="@max-md:pr-1.5"
+            >
+              <Pencil data-icon="inline-start" />
+              <span className="@max-md:sr-only">
+                {hasFeedback ? "Edit Feedback" : "Add feedback"}
+              </span>
             </Button>
           )}
           <ScoreInput
@@ -293,7 +356,10 @@ function QuestionRow({
       {box.editing ? (
         <MarkdownEditor
           value={row.feedbackMarkdown}
-          onChange={onFeedback}
+          onChange={(value) => {
+            setCleared(null);
+            onFeedback(value);
+          }}
           ariaLabel={`${row.label} feedback`}
           rows={6}
           autoFocus
@@ -418,6 +484,12 @@ function ScoreInput({
   onBlur?: () => void;
   ariaLabel: string;
 }) {
+  /*
+    As many characters wide as the score it is out of, so a box out of 15 holds two digits. A typed
+    score longer than that, such as 7.5, widens the box to fit rather than scrolling out of sight.
+  */
+  const characters = Math.max(String(possible).length, String(value ?? "").length);
+
   return (
     <div className="flex shrink-0 items-center gap-1.5">
       <Input
@@ -446,7 +518,14 @@ function ScoreInput({
           onChange(Math.max(0, Math.min(possible, parsed)));
         }}
         onBlur={() => onBlur?.()}
-        className="h-9 w-20 text-right tabular-nums"
+        /*
+          `ch` is the width of a zero in the box's own font, and `tabular-nums` makes every digit
+          that wide. The 1.25rem is the box's padding and the 2px its border. The browser's up and
+          down arrows are hidden because they alone are wider than two digits; the arrow keys
+          still step the score.
+        */
+        style={{ width: `calc(${characters}ch + 1.25rem + 2px)` }}
+        className="h-9 text-right tabular-nums [appearance:textfield] [&::-webkit-inner-spin-button]:appearance-none [&::-webkit-outer-spin-button]:appearance-none"
         aria-label={ariaLabel}
       />
       <span className="text-sm text-muted-foreground">/ {possible}</span>
