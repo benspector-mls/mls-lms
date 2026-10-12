@@ -27,7 +27,13 @@ import {
   UNIT_CATEGORIES,
   type CourseUnitCategory,
 } from "@/lib/course-units";
-import { completionMeta, formatDueDateShort, formatPercent, scorePercent } from "@/lib/status";
+import {
+  completionMeta,
+  formatDueDateShort,
+  formatPercent,
+  scorePercent,
+  TONE_CLASSES,
+} from "@/lib/status";
 import { completeCount } from "@/lib/student/progress";
 import { cn } from "@/lib/utils";
 
@@ -337,6 +343,11 @@ function UnitSection({
     readings opens rather than reading as empty. A unit with nothing yet is worth seeing in the
     list and not worth taking up space open.
 
+    Also collapsed when every assignment in it is complete. A student opening the course page
+    midway through a program would otherwise scroll past every finished module to reach the
+    one they are working in. The summary line still says "5 of 5 complete", so a closed unit
+    reads as done rather than empty.
+
     Forced open when it holds the assignment the address names, which is what makes a link from
     the dashboard land somewhere a student can see. Without it, following one would open the panel
     over a unit still collapsed underneath, and closing the panel would leave them looking at a
@@ -344,8 +355,11 @@ function UnitSection({
   */
   const holdsOpenAssignment =
     openAssignmentId != null && assignments.some((a) => a.id === openAssignmentId);
-  const [open, setOpen] = React.useState(assignments.length > 0 || resources.length > 0);
   const complete = completeCount(assignments);
+  const finished = assignments.length > 0 && complete === assignments.length;
+  const [open, setOpen] = React.useState(
+    !finished && (assignments.length > 0 || resources.length > 0),
+  );
   const meta = CATEGORY_META[category];
 
   /*
@@ -387,6 +401,20 @@ function UnitSection({
             {category !== "MODULE" && (
               <Badge variant="secondary" className="shrink-0 capitalize">
                 {meta.noun}
+              </Badge>
+            )}
+            {/*
+              Whether the student is done with this unit. "Completed" is why a finished unit
+              starts collapsed, and the badge says so where the chevron alone would not; "In
+              Progress" marks the units with work still to do. A unit with no assignments yet
+              gets neither, because there is nothing to have progressed on.
+            */}
+            {work.length > 0 && (
+              <Badge
+                variant="outline"
+                className={cn("shrink-0", finished ? TONE_CLASSES.success : TONE_CLASSES.info)}
+              >
+                {finished ? "Completed" : "In Progress"}
               </Badge>
             )}
             {/*
