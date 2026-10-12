@@ -5,7 +5,23 @@ import * as React from "react";
 import { cn } from "@/lib/utils";
 
 /** One entry in the outline: the `id` of a `<section>` on the page, and the words that name it. */
-export type OutlineSection = { id: string; label: string };
+export type OutlineSection = {
+  id: string;
+  label: string;
+  /**
+   * How many rows the section holds, shown beside the label. An entry with a count of 0 is drawn
+   * but is not a link, because a page that hides its empty sections has nothing for it to jump to.
+   */
+  count?: number;
+  /** The colour of a non-zero count. A count of nought is always muted, whatever its tone. */
+  tone?: keyof typeof toneClasses;
+};
+
+const toneClasses = {
+  danger: "text-destructive",
+  teal: "text-teal-600 dark:text-teal-400",
+  green: "text-emerald-600 dark:text-emerald-400",
+} as const;
 
 /**
  * A page of settings cards with an outline that jumps to each one.
@@ -44,6 +60,13 @@ export type OutlineSection = { id: string; label: string };
  * that second clause is for a short final card that can never reach the top on its own. An
  * observer answers a different question (what is visible) and gives surprising answers for short
  * sections and for a tall section that fills the whole viewport.
+ *
+ * **An entry may carry a count, and a count of nought is drawn without a link.** The student
+ * dashboard hides every section that has no rows, and lists all of its sections here anyway so a
+ * fellow reads "New comments 0" and knows nothing is waiting. An anchor to a section that is not on
+ * the page would scroll nowhere, so the nought entry is plain text in muted colour instead. The
+ * active-section measurement already ignores ids with no element behind them, so a nought entry
+ * can never be highlighted as current.
  */
 export function OutlinedPage({
   width,
@@ -176,20 +199,49 @@ function Outline({ sections, className }: { sections: OutlineSection[]; classNam
         </li>
         {sections.map((section) => {
           const isActive = section.id === active;
+          const empty = section.count === 0;
+
+          /*
+            The label and, when there is one, the count. `whitespace-nowrap` only in the strip,
+            where the list scrolls sideways and a wrapped entry would break the row; in the side
+            column a long label wraps onto a second line rather than running past 10rem.
+          */
+          const content = (
+            <>
+              {section.label}
+              {section.count != null && (
+                <span
+                  className={cn(
+                    "ml-1.5 text-xs tabular-nums",
+                    section.tone && !empty && ["font-medium", toneClasses[section.tone]],
+                  )}
+                >
+                  {section.count}
+                </span>
+              )}
+            </>
+          );
+
           return (
             <li key={section.id} className="shrink-0">
-              <a
-                href={`#${section.id}`}
-                aria-current={isActive ? "location" : undefined}
-                className={cn(
-                  "block rounded-md px-2.5 py-1.5 text-sm whitespace-nowrap transition-colors",
-                  isActive
-                    ? "bg-muted text-foreground"
-                    : "text-muted-foreground hover:bg-muted/60 hover:text-foreground",
-                )}
-              >
-                {section.label}
-              </a>
+              {empty ? (
+                <span className="block rounded-md px-2.5 py-1.5 text-sm text-muted-foreground/60 @min-[16rem]:whitespace-nowrap">
+                  {content}
+                </span>
+              ) : (
+                <a
+                  href={`#${section.id}`}
+                  aria-current={isActive ? "location" : undefined}
+                  className={cn(
+                    "block rounded-md px-2.5 py-1.5 text-sm transition-colors @min-[16rem]:whitespace-nowrap",
+                    isActive
+                      ? "bg-muted text-foreground"
+                      : "text-muted-foreground hover:bg-muted/60 hover:text-foreground",
+                  )}
+                >
+                  {content}
+                </a>
+              )}
             </li>
           );
         })}

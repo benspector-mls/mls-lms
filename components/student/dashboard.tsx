@@ -12,6 +12,7 @@ import {
 } from "lucide-react";
 
 import { EmptyState } from "@/components/list-states";
+import { OutlinedPage, type OutlineSection } from "@/components/outlined-page";
 import { PageHeader } from "@/components/page-header";
 import { AssignmentKindIcon } from "@/components/status-badge";
 import {
@@ -52,6 +53,17 @@ import { UpcomingWindowPicker } from "./upcoming-window";
  * A week by default, and 3, 14 or 30 days from the picker in the header. Work due further out
  * draws no rows at any of those settings, so `laterCount` exists to stop the screen congratulating
  * somebody who has a fortnight of assignments ahead of them.
+ *
+ * **A strip of counts under the title, one per section, each a jump to that section.** The lists
+ * are stacked, and a fellow with a few overdue items and a week of work ahead has a dozen rows
+ * above New comments before they reach it — so a reply from their instructor was below the fold on
+ * a laptop with nothing above the fold to say it existed. The strip is `OutlinedPage`, the same
+ * component the profile and settings pages use; it stays stuck under the shell header while the
+ * page scrolls, so the counts are readable from anywhere on it. Every section is listed, including
+ * the empty ones, because "New comments 0" is the answer to the question a fellow opened the page
+ * with and leaving the entry out would make them wonder whether the screen looked. Attendance is
+ * not in the strip: it is the first thing beneath it, and a jump to something already in view is a
+ * link that does nothing.
  */
 export function StudentDashboard({
   assignments,
@@ -69,160 +81,202 @@ export function StudentDashboard({
 }) {
   const sections = dashboardSections(assignments, now, windowDays);
 
+  /*
+    In page order, which the outline's active-section measurement relies on. The two red counts
+    are the two sections whose headings are red, for the same reason: a missed deadline and work
+    sent back are the two things on this screen that are not merely news. The two kinds of news
+    take the colours they have elsewhere: teal for a conversation, as on the triage screen's
+    questions, and green for a report, which in this list only ever holds work that passed.
+  */
+  const outline: OutlineSection[] = [
+    { id: "comments", label: "New comments", count: sections.unreadComments.length, tone: "teal" },
+    { id: "overdue", label: "Overdue", count: sections.overdue.length, tone: "danger" },
+    {
+      id: "needs-another-attempt",
+      label: "Needs another attempt",
+      count: sections.needsAnotherAttempt.length,
+      tone: "danger",
+    },
+    { id: "coming-up", label: "Coming up", count: sections.upcoming.length },
+    {
+      id: "feedback",
+      label: "Feedback to read",
+      count: sections.unreadFeedback.length,
+      tone: "green",
+    },
+    { id: "in-progress", label: "Started, not handed in", count: sections.inProgress.length },
+  ];
+
   return (
-    <div className="mx-auto flex w-full max-w-4xl flex-col gap-6 p-4 md:p-6">
-      <PageHeader
-        title="Your Work"
-        description="Everything waiting on you, across all of your courses."
-        /*
-          Offered only once there is work to look ahead at. A fellow whose instructor has handed
-          out nothing has nothing to widen the window onto, and the empty state below already tells
-          them so — a picker there would be a control whose every setting gives the same answer.
-        */
-        actions={assignments.length > 0 ? <UpcomingWindowPicker value={windowDays} /> : undefined}
-      />
-
-      {/*
-        Above the work, because check-in is the only thing on this screen with a deadline measured
-        in minutes: it stops accepting codes when the session closes, and being marked absent is not
-        recoverable by the fellow. The rest of the row is a week's worth of squares that costs one
-        line to read.
-      */}
-      <AttendanceStrip initial={week} />
-
-      {dashboardIsEmpty(sections) ? (
-        /*
-          One empty state rather than five, which is what makes a quiet week read as calm instead
-          of as five things having failed to load. It is also the honest message: nothing waiting
-          is a real and good state, not an absence of data.
-
-          Three messages, because there are three ways to draw no rows and they are not the same
-          news. The middle one is what the window costs: work due past its far edge is real, and a
-          screen that said "you are up to date" over the top of it would be telling a student the
-          thing this file exists to never tell them.
-
-          The title names the window rather than saying "this week", which was true only at the
-          default and read as a plain falsehood at the other three settings.
-        */
-        <EmptyState
-          icon={<Sparkles />}
-          title={
-            sections.laterCount > 0
-              ? `Nothing due in the next ${windowDays} days`
-              : "Nothing waiting on you"
-          }
-          description={
-            assignments.length === 0
-              ? "When your instructor hands out work, it will appear here."
-              : sections.laterCount > 0
-                ? `${sections.laterCount} ${sections.laterCount === 1 ? "assignment is" : "assignments are"} due later on. Your courses have the full list.`
-                : "You are up to date."
-          }
+    <OutlinedPage
+      width="4xl"
+      sections={outline}
+      header={
+        <PageHeader
+          title="Your Work"
+          description="Everything waiting on you, across all of your courses."
+          /*
+            Offered only once there is work to look ahead at. A fellow whose instructor has handed
+            out nothing has nothing to widen the window onto, and the empty state below already
+            tells them so — a picker there would be a control whose every setting gives the same
+            answer.
+          */
+          actions={assignments.length > 0 ? <UpcomingWindowPicker value={windowDays} /> : undefined}
         />
-      ) : (
-        <div className="flex flex-col gap-8">
-          {/*
-            Overdue above upcoming, unlike the rest of this file's top-to-bottom ordering by
-            recency. A missed deadline is the most useful thing on the screen and burying it under
-            a week of upcoming work is how it stays missed.
-          */}
-          {sections.overdue.length > 0 && (
-            <Section
-              icon={<AlarmClock className="size-4" />}
-              title="Overdue"
-              count={sections.overdue.length}
-              tone="danger"
-            >
-              {sections.overdue.map((row) => (
-                <DeadlineRow key={row.id} row={row} now={now} overdue />
-              ))}
-            </Section>
-          )}
+      }
+    >
+      <div className="flex flex-col gap-6">
+        {/*
+          Above the work, because check-in is the only thing on this screen with a deadline
+          measured in minutes: it stops accepting codes when the session closes, and being marked
+          absent is not recoverable by the fellow. The rest of the row is a week's worth of squares
+          that costs one line to read.
+        */}
+        <AttendanceStrip initial={week} />
 
-          {/*
-            Above the deadlines a student can still meet, below the ones they have missed. Work
-            that came back below the threshold is outstanding, which is why it sits with the work
-            rather than with the reports — but it was handed in on time, so it does not outrank a
-            deadline that was not met.
-          */}
-          {sections.needsAnotherAttempt.length > 0 && (
-            <Section
-              icon={<RotateCcw className="size-4" />}
-              title="Needs another attempt"
-              count={sections.needsAnotherAttempt.length}
-              tone="danger"
-            >
-              {sections.needsAnotherAttempt.map((row) => (
-                <FeedbackRow key={row.id} row={row} now={now} />
-              ))}
-            </Section>
-          )}
+        {dashboardIsEmpty(sections) ? (
+          /*
+            One empty state rather than five, which is what makes a quiet week read as calm instead
+            of as five things having failed to load. It is also the honest message: nothing waiting
+            is a real and good state, not an absence of data.
 
-          {sections.upcoming.length > 0 && (
-            <Section
-              icon={<CalendarClock className="size-4" />}
-              title="Coming up"
-              count={sections.upcoming.length}
-            >
-              {sections.upcoming.map((row) => (
-                <DeadlineRow key={row.id} row={row} now={now} />
-              ))}
-            </Section>
-          )}
+            Three messages, because there are three ways to draw no rows and they are not the same
+            news. The middle one is what the window costs: work due past its far edge is real, and a
+            screen that said "you are up to date" over the top of it would be telling a student the
+            thing this file exists to never tell them.
 
-          {sections.unreadFeedback.length > 0 && (
-            <Section
-              icon={<MessageSquare className="size-4" />}
-              title="Feedback to read"
-              count={sections.unreadFeedback.length}
-            >
-              {sections.unreadFeedback.map((row) => (
-                <FeedbackRow key={row.id} row={row} now={now} />
-              ))}
-            </Section>
-          )}
+            The title names the window rather than saying "this week", which was true only at the
+            default and read as a plain falsehood at the other three settings.
+          */
+          <EmptyState
+            icon={<Sparkles />}
+            title={
+              sections.laterCount > 0
+                ? `Nothing due in the next ${windowDays} days`
+                : "Nothing waiting on you"
+            }
+            description={
+              assignments.length === 0
+                ? "When your instructor hands out work, it will appear here."
+                : sections.laterCount > 0
+                  ? `${sections.laterCount} ${sections.laterCount === 1 ? "assignment is" : "assignments are"} due later on. Your courses have the full list.`
+                  : "You are up to date."
+            }
+          />
+        ) : (
+          <div className="flex flex-col gap-8">
+            {/*
+              First, above even Overdue, because it is the one section nobody else will chase. A
+              missed deadline also shows on the course page and in the gradebook, and a report waits
+              in the assignment's panel; a reply is a person waiting on an answer, and this screen is
+              the only place that says one arrived. At the top it is above the fold however much
+              work sits below it.
+            */}
+            {sections.unreadComments.length > 0 && (
+              <Section
+                icon={<MessagesSquare className="size-4" />}
+                id="comments"
+                title="New comments"
+                count={sections.unreadComments.length}
+              >
+                {sections.unreadComments.map((row) => (
+                  <CommentsRow key={row.id} row={row} now={now} />
+                ))}
+              </Section>
+            )}
 
-          {/*
-            Below the reports, because a report is about a student's own work having moved and a
-            reply is somebody writing to them — the first is what they came to find out, and the
-            second is what they had no way to find out at all before this section existed.
-          */}
-          {sections.unreadComments.length > 0 && (
-            <Section
-              icon={<MessagesSquare className="size-4" />}
-              title="New comments"
-              count={sections.unreadComments.length}
-            >
-              {sections.unreadComments.map((row) => (
-                <CommentsRow key={row.id} row={row} now={now} />
-              ))}
-            </Section>
-          )}
+            {/*
+              Overdue above upcoming, unlike the rest of this file's top-to-bottom ordering by
+              recency. A missed deadline is the most useful thing on the screen and burying it under
+              a week of upcoming work is how it stays missed.
+            */}
+            {sections.overdue.length > 0 && (
+              <Section
+                icon={<AlarmClock className="size-4" />}
+                id="overdue"
+                title="Overdue"
+                count={sections.overdue.length}
+                tone="danger"
+              >
+                {sections.overdue.map((row) => (
+                  <DeadlineRow key={row.id} row={row} now={now} overdue />
+                ))}
+              </Section>
+            )}
 
-          {/*
-            Last and quieter than the rest. Work a student has taken up is work they already know
-            about, so this is a reminder rather than news — its deadline has said what it needs to
-            say further up the page.
-          */}
-          {sections.inProgress.length > 0 && (
-            <Section
-              icon={<PenLine className="size-4" />}
-              title="Started, not handed in"
-              count={sections.inProgress.length}
-              quiet
-            >
-              {sections.inProgress.map((row) => (
-                <InProgressRow key={row.id} row={row} />
-              ))}
-            </Section>
-          )}
-        </div>
-      )}
-    </div>
+            {/*
+              Above the deadlines a student can still meet, below the ones they have missed. Work
+              that came back below the threshold is outstanding, which is why it sits with the work
+              rather than with the reports — but it was handed in on time, so it does not outrank a
+              deadline that was not met.
+            */}
+            {sections.needsAnotherAttempt.length > 0 && (
+              <Section
+                icon={<RotateCcw className="size-4" />}
+                id="needs-another-attempt"
+                title="Needs another attempt"
+                count={sections.needsAnotherAttempt.length}
+                tone="danger"
+              >
+                {sections.needsAnotherAttempt.map((row) => (
+                  <FeedbackRow key={row.id} row={row} now={now} />
+                ))}
+              </Section>
+            )}
+
+            {sections.upcoming.length > 0 && (
+              <Section
+                icon={<CalendarClock className="size-4" />}
+                id="coming-up"
+                title="Coming up"
+                count={sections.upcoming.length}
+              >
+                {sections.upcoming.map((row) => (
+                  <DeadlineRow key={row.id} row={row} now={now} />
+                ))}
+              </Section>
+            )}
+
+            {sections.unreadFeedback.length > 0 && (
+              <Section
+                icon={<MessageSquare className="size-4" />}
+                id="feedback"
+                title="Feedback to read"
+                count={sections.unreadFeedback.length}
+              >
+                {sections.unreadFeedback.map((row) => (
+                  <FeedbackRow key={row.id} row={row} now={now} />
+                ))}
+              </Section>
+            )}
+
+            {/*
+              Last and quieter than the rest. Work a student has taken up is work they already know
+              about, so this is a reminder rather than news — its deadline has said what it needs to
+              say further up the page.
+            */}
+            {sections.inProgress.length > 0 && (
+              <Section
+                icon={<PenLine className="size-4" />}
+                id="in-progress"
+                title="Started, not handed in"
+                count={sections.inProgress.length}
+                quiet
+              >
+                {sections.inProgress.map((row) => (
+                  <InProgressRow key={row.id} row={row} />
+                ))}
+              </Section>
+            )}
+          </div>
+        )}
+      </div>
+    </OutlinedPage>
   );
 }
 
 function Section({
+  id,
   icon,
   title,
   count,
@@ -230,6 +284,8 @@ function Section({
   quiet,
   children,
 }: {
+  /** What the strip under the title jumps to. Listed there with this section's count. */
+  id: string;
   icon: React.ReactNode;
   title: string;
   count: number;
@@ -239,7 +295,7 @@ function Section({
   children: React.ReactNode;
 }) {
   return (
-    <section className="flex flex-col gap-2">
+    <section id={id} className="scroll-mt-(--outline-offset) flex flex-col gap-2">
       <h2
         className={cn(
           "flex items-center gap-2 font-semibold",
