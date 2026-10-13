@@ -1,4 +1,10 @@
-import { addressBlock, buildSystemPrompt, buildUserPrompt } from "@/lib/grade/prompts";
+import {
+  addressBlock,
+  buildDocumentUserPrompt,
+  buildSystemPrompt,
+  buildUserPrompt,
+} from "@/lib/grade/prompts";
+import type { DocumentContext } from "@/lib/grade/prompts";
 import type { GradingAssets } from "@/lib/grade/assets";
 import type { PreviousReview, SubmissionContext } from "@/lib/grade/prompts";
 
@@ -16,10 +22,12 @@ import type { PreviousReview, SubmissionContext } from "@/lib/grade/prompts";
 const assets: GradingAssets = {
   agentRules: "AGENT RULES",
   rubricSection: "RUBRIC",
+  guidance: "GUIDANCE",
   sampleReport: "SAMPLE",
+  rubricVersionId: "00000000-0000-0000-0000-000000000001",
+  ruleSetVersionId: "00000000-0000-0000-0000-000000000002",
   answerKeys: [],
   excludedAnswerKeys: [],
-  commitSha: "0000000",
   answerKeyCommitSha: null,
 };
 
@@ -137,7 +145,7 @@ describe("the cache boundary", () => {
     so every request is a cache write at 1.25× and nothing on any screen says so. The four token
     counters in `generate-report.ts` would show it, if somebody looked.
   */
-  const system = buildSystemPrompt({ sectionType: "coding_algorithm", assets });
+  const system = buildSystemPrompt({ assets });
 
   it("holds no handle, no team name, and no count of members", () => {
     // `@ada` rather than `ada`: a handle in these prompts is always written with the `@`, which is
@@ -150,7 +158,15 @@ describe("the cache boundary", () => {
   it("is byte-identical for a team and for one student", () => {
     // The property, stated directly: whatever the submission is, the prefix is the same string,
     // so both share one cache entry.
-    expect(buildSystemPrompt({ sectionType: "coding_algorithm", assets })).toBe(system);
+    expect(buildSystemPrompt({ assets })).toBe(system);
+  });
+
+  it("omits the sample block for a rubric with none, and still says how rows are written", () => {
+    const without = buildSystemPrompt({ assets: { ...assets, sampleReport: null } });
+    expect(without).not.toContain("The sample below");
+    expect(without).not.toContain("SAMPLE");
+    expect(without).toContain("one row per graded item");
+    expect(without).toContain("# How your report is assembled");
   });
 
   it("holds the resubmission rules for every submission, so they never vary the prefix", () => {
@@ -261,5 +277,85 @@ describe("the previous review block", () => {
     const text = user({ changes: [{ path: "short-response.md", kind: "modified", patch }] });
     expect(text).toContain("truncated at 30000 characters");
     expect(text).not.toContain("x".repeat(31_000));
+  });
+});
+
+/**
+ * The prompt for work handed in as a document rather than a diff.
+ *
+ * What is held: the exemplar is told to the model as a standard and not as the answer, the
+ * attachments are named so the text and the files are one thing, and the test section says
+ * there are no tests rather than pointing at a reference solution that may not exist.
+ */
+const documentContext = (over: Partial<DocumentContext> = {}): DocumentContext => ({
+  addressees: [{ githubUsername: "ada" }],
+  teamName: null,
+  assignmentTitle: "Reflection",
+  pointValue: 10,
+  instructions: "Write 300 words.",
+  exemplar: null,
+  answerKey: null,
+  parts: [
+    { label: "https://docs.google.com/document/d/x/edit", kind: "text", text: "My reflection." },
+  ],
+  refused: [],
+  previousReview: null,
+  ...over,
+});
+
+describe("buildDocumentUserPrompt", () => {
+  it("names the exemplar as the standard, not the only acceptable answer", () => {
+    const text = buildDocumentUserPrompt({ context: documentContext({ exemplar: "An example." }) });
+    expect(text).toContain("## Exemplar");
+    expect(text).toContain("not the only acceptable answer");
+    expect(text).toContain("An example.");
+  });
+
+  it("tells the model the answer key is never to be revealed", () => {
+    const text = buildDocumentUserPrompt({ context: documentContext({ answerKey: "The key." }) });
+    expect(text).toContain("## Reference solution");
+    expect(text).toContain("Never quote it");
+  });
+
+  it("says when there is no reference at all, and asks for low confidence if it mattered", () => {
+    const text = buildDocumentUserPrompt({ context: documentContext() });
+    expect(text).toContain("no reference solution or exemplar was available");
+    expect(text).not.toContain("## Exemplar");
+  });
+
+  it("lists attached files by label, in order, before the text parts", () => {
+    const text = buildDocumentUserPrompt({
+      context: documentContext({
+        parts: [
+          { label: "deck.pdf", kind: "pdf" },
+          { label: "shot.png", kind: "image" },
+          { label: "notes.md", kind: "text", text: "Notes." },
+        ],
+      }),
+    });
+    expect(text).toContain("2 files are attached to this message");
+    expect(text).toContain("`deck.pdf`, `shot.png`");
+    expect(text).toContain("### notes.md");
+  });
+
+  it("names what the model was not shown", () => {
+    const text = buildDocumentUserPrompt({
+      context: documentContext({ refused: [{ label: "essay.docx", reason: "a Word document" }] }),
+    });
+    expect(text).toContain("`essay.docx` (a Word document)");
+  });
+
+  it("says there are no tests without pointing at a reference solution", () => {
+    const text = buildDocumentUserPrompt({ context: documentContext() });
+    expect(text).toContain("This work has no automated tests");
+    expect(text).not.toContain("and the reference solution");
+  });
+
+  it("carries the previous review for a resubmission", () => {
+    const text = buildDocumentUserPrompt({
+      context: documentContext({ previousReview: review({ headSha: null, changes: null }) }),
+    });
+    expect(text).toContain("## Previous review");
+    expect(text).toContain("written before this pull request existed");
   });
 });

@@ -2,51 +2,43 @@ import "server-only";
 
 import path from "node:path";
 
-import { SECTION_TYPE_REGISTRY, type SectionType } from "../section-types";
+import { db } from "../prisma";
+import { NO_RULE_SET_MESSAGE } from "../rubrics/versions";
 
 /**
- * The grading toolkit and answer keys: the rules, the rubric, the sample reports,
- * and the reference solutions.
+ * What one section is graded against: the rubric, the rule set, the sample report, and the
+ * reference solutions.
  *
- * **Two sources, addressed differently, read the same way.**
+ * **Two sources, read differently.**
  *
- * - *Program assets* — `rubric.md`, `agent-rules.md`, and the sample reports — come from
- *   the repository `GRADING_ASSETS_REPO` names. They are prompt code for the whole
- *   program, not something one assignment has a version of, so an environment variable is
- *   the right place for them.
+ * - *The rubric, its guidance, its sample report and the rule set* are rows in this database —
+ *   `Rubric`, `RubricVersion`, `RuleSet`, `RuleSetVersion` — written in the application. They
+ *   used to be files in the grading-guides repository, and `scripts/port-rubrics.ts` is what
+ *   moved them; `GRADING_ASSETS_REPO` now serves that script and `calibrate`, which still reads
+ *   the sample submissions out of the toolkit.
  * - *Answer keys* come from the repository the assignment itself names, at the paths it
- *   itself names. That is what lets a new cohort keep its reference solutions wherever it
- *   likes, and what stops the curriculum's directory layout from being a constraint on the
- *   application.
+ *   itself names, over the GitHub API. That is what lets a new cohort keep its reference
+ *   solutions wherever it likes, and what stops the curriculum's directory layout from being a
+ *   constraint on the application.
  *
- * Both over the GitHub API, so development and deployment read the same thing the same
- * way and there is no class of bug where an assignment is authored against one listing and
- * graded against another.
- *
- * There used to be a local-clone mode as well, selected by `GRADING_ASSETS_PATH`, for
- * editing `rubric.md` and re-grading without pushing first. It was removed deliberately.
- * Every source of assets after this one is external — rubrics for non-repository
- * assignments will come from Google Drive — so "read it from disk" was never going to
- * generalise, and maintaining two implementations of every read and list to keep one
- * development convenience was the wrong trade.
- *
- * What that costs, so it is not a surprise: tuning the rubric now means committing and
- * pushing, and waiting up to `HEAD_SHA_TTL_MS` for the new commit to be picked up. Set
- * `GRADING_ASSETS_REF` to a branch to iterate on one without touching the default.
- *
- * A commit SHA is recorded on every draft, so a report traces back to the exact rubric and
- * sample report that produced it. Content is fetched at that SHA rather than at a branch
- * name: a run taking ninety seconds must not read half its rubric from before a push and
- * half from after.
+ * Every draft section records the rubric version and the rule set version it was scored
+ * against, and the commit the answer keys were read at, so a report traces back to the exact
+ * text that produced it. Answer keys are fetched at that commit rather than at a branch name: a
+ * run taking ninety seconds must not read half its keys from before a push and half from after.
  */
 
 export type GradingAssets = {
-  /** Tone and formatting rules, the same ones the manual workflow uses. */
+  /** The rule set: tone, layout and labels. The program's, unless the rubric names its own. */
   agentRules: string;
-  /** The section of rubric.md matching the section being graded. */
+  /** The rubric's current text. */
   rubricSection: string;
-  /** The sample report whose structure the output must follow. */
-  sampleReport: string;
+  /** How this rubric's points add up and what each row of the report is. */
+  guidance: string;
+  /** A finished report of the shape the output should take, or null for a rubric without one. */
+  sampleReport: string | null;
+  /** The versions the three texts above were read from, recorded on the draft section. */
+  rubricVersionId: string;
+  ruleSetVersionId: string;
   /** Reference solutions. Labelled as reference, never shown to the student. */
   answerKeys: { path: string; content: string }[];
   /**
@@ -58,18 +50,7 @@ export type GradingAssets = {
    * to confirm rather than assume.
    */
   excludedAnswerKeys: { path: string; reason: string }[];
-  /**
-   * The commit the program assets — rubric, agent rules, sample report — were read at,
-   * recorded on the draft for reproducibility.
-   */
-  commitSha: string;
-  /**
-   * The commit the answer keys were read at, or null when the section names none.
-   *
-   * Separate from `commitSha` because they are separate repositories now, and recording one
-   * of the two would quietly weaken the claim the field exists to support: a report traces
-   * back to the exact rubric *and the exact reference solutions* that produced it.
-   */
+  /** The commit the answer keys were read at, or null when the section names none. */
   answerKeyCommitSha: string | null;
 };
 
@@ -107,7 +88,10 @@ export type AssetEntry = { name: string; type: "file" | "dir" };
  */
 const HEAD_SHA_TTL_MS = 60_000;
 
-/** Keyed by repository, because there is more than one now. */
+/**
+ * Keyed by repository and ref, because there is more than one repository and the port script
+ * reads the toolkit at a named commit while everything else reads a branch.
+ */
 const cachedHeads = new Map<string, { sha: string; at: number }>();
 
 /**
@@ -192,12 +176,13 @@ async function assetSource(
   const { fetchRepoFile, listRepoDirectory } = await import("../github/files");
 
   const now = Date.now();
-  const held = cachedHeads.get(repoFullName);
+  const headKey = `${repoFullName}@${options.ref ?? ""}`;
+  const held = cachedHeads.get(headKey);
   if (!held || now - held.at > HEAD_SHA_TTL_MS) {
     const { resolveRefToSha, getDefaultBranch } = await import("../github/archives");
     try {
       const branch = options.ref ?? (await getDefaultBranch(installationId, { owner, repo }));
-      cachedHeads.set(repoFullName, {
+      cachedHeads.set(headKey, {
         sha: await resolveRefToSha(installationId, { owner, repo, ref: branch }),
         at: now,
       });
@@ -212,7 +197,7 @@ async function assetSource(
     }
   }
 
-  const sha = cachedHeads.get(repoFullName)!.sha;
+  const sha = cachedHeads.get(headKey)!.sha;
 
   return {
     describe: `${repoFullName} at ${sha.slice(0, 7)}`,
@@ -252,13 +237,13 @@ async function assetSource(
 }
 
 /**
- * The repository holding `rubric.md`, `agent-rules.md`, and the sample reports.
+ * The grading-guides repository, for the scripts that still read the toolkit out of it.
  *
- * Program-wide prompt code, which is why this one is named by the environment rather than
- * by an assignment. Every assignment in every course is graded against the same rubric and
- * the same tone rules; an assignment that had its own would be a different program.
+ * Grading no longer does: the rubric, the rule set and the sample report are rows. What is
+ * left in the toolkit is the sample submissions `calibrate` grades and the files
+ * `port:rubrics` read the rows from, which it reads at the commit it is given.
  */
-async function programAssetSource(): Promise<AssetSource> {
+async function programAssetSource(ref?: string): Promise<AssetSource> {
   /*
     A leftover GRADING_ASSETS_PATH is refused rather than ignored. Ignoring it would mean
     someone editing `rubric.md` locally, re-grading, and seeing no change — the variable's
@@ -285,7 +270,7 @@ async function programAssetSource(): Promise<AssetSource> {
 
   return assetSource(repoFullName, {
     installationId: await installationFor(owner, process.env.GRADING_ASSETS_INSTALLATION_ID),
-    ref: process.env.GRADING_ASSETS_REF,
+    ref: ref ?? process.env.GRADING_ASSETS_REF,
   });
 }
 
@@ -299,46 +284,6 @@ async function programAssetSource(): Promise<AssetSource> {
 async function answerKeySource(answerKeyRepo: string): Promise<AssetSource> {
   const { owner } = splitRepo(answerKeyRepo, "The assignment's answer key repository");
   return assetSource(answerKeyRepo, { installationId: await installationFor(owner) });
-}
-
-/** For a file whose absence means there is nothing to grade against. */
-async function readRequired(source: AssetSource, relativePath: string): Promise<string> {
-  const content = await source.read(relativePath);
-  if (content === null) {
-    throw new GradingAssetsError(`Missing grading asset ${relativePath} in ${source.describe}.`);
-  }
-  return content;
-}
-
-/**
- * Extracts one `## `-level section from rubric.md.
- *
- * The whole rubric is roughly 110 lines, so sending all of it would not be
- * expensive. It is sliced anyway because the irrelevant sections are actively
- * misleading: a short response report given the algorithm rubric has a plausible
- * scoring scale to reach for that does not apply.
- */
-export function extractRubricSection(rubric: string, heading: string): string {
-  const lines = rubric.split("\n");
-  const start = lines.findIndex(
-    (line) => line.startsWith("## ") && line.slice(3).trim() === heading,
-  );
-  if (start === -1) {
-    throw new GradingAssetsError(
-      `rubric.md has no "## ${heading}" section. The rubric's headings may have been ` +
-        `renamed — see SECTION_TYPE_REGISTRY in lib/section-types.ts.`,
-    );
-  }
-
-  let end = lines.length;
-  for (let i = start + 1; i < lines.length; i += 1) {
-    if (lines[i].startsWith("## ")) {
-      end = i;
-      break;
-    }
-  }
-
-  return lines.slice(start, end).join("\n").trim();
 }
 
 /**
@@ -422,21 +367,24 @@ export const MAX_ANSWER_KEYS = 40;
  */
 
 /**
- * One file out of `grading-toolkit/`, for the scripts that need a toolkit file the grading
- * pipeline itself does not read — `calibrate` needs the sample submissions and the reports
- * an instructor wrote about them.
+ * One file out of `grading-toolkit/`, for scripts: `calibrate` needs the sample submissions and
+ * the reports an instructor wrote about them, and `port:rubrics` reads the files the rubric rows
+ * were made from, at the commit it names in `ref`.
  *
  * Restricted to that directory rather than taking any path, on the same reasoning as
- * `answerKeyPathIn`: this is a private repository, and a function that reads an arbitrary
- * path out of it is a wider door than any caller needs.
+ * `repoPathIn`: this is a private repository, and a function that reads an arbitrary path out of
+ * it is a wider door than any caller needs.
  */
-export async function readToolkitFile(name: string): Promise<string | null> {
+export async function readToolkitFile(
+  name: string,
+  options: { ref?: string } = {},
+): Promise<string | null> {
   if (name.includes("/") || name.includes("\\") || name.startsWith(".")) {
     throw new GradingAssetsError(
       `Toolkit file ${JSON.stringify(name)} must be a plain filename inside grading-toolkit/.`,
     );
   }
-  const source = await programAssetSource();
+  const source = await programAssetSource(options.ref);
   return source.read(`grading-toolkit/${name}`);
 }
 
@@ -594,7 +542,13 @@ export async function checkAnswerKeyDir(
 }
 
 export async function loadGradingAssets(params: {
-  sectionType: SectionType;
+  /** The rubric the section names. Its current version is what the model reads. */
+  rubricId: string;
+  /**
+   * The program the assignment belongs to, reached through its course, for the rule set every
+   * rubric follows unless it names its own.
+   */
+  programId: string;
   /**
    * The repository the answer keys live in, or null when the assignment names none.
    *
@@ -606,9 +560,6 @@ export async function loadGradingAssets(params: {
   /** The directory inside it whose contents are the reference solutions. */
   answerKeyDir: string | null;
 }): Promise<GradingAssets> {
-  const source = await programAssetSource();
-  const config = SECTION_TYPE_REGISTRY[params.sectionType];
-
   if (params.answerKeyDir !== null && !params.answerKeyRepo) {
     throw new GradingAssetsError(
       `This assignment names an answer key directory (${JSON.stringify(params.answerKeyDir)}) ` +
@@ -616,23 +567,59 @@ export async function loadGradingAssets(params: {
     );
   }
 
-  // In parallel, because against the API these are separate round trips and they do
-  // not depend on each other. Eight sequential requests would add most of a second to
-  // every section graded. The two repositories resolve in parallel with each other too.
-  const [agentRules, rubric, sampleReport, keys] = await Promise.all([
-    readRequired(source, "grading-toolkit/agent-rules.md"),
-    readRequired(source, "grading-toolkit/rubric.md"),
-    readRequired(source, `grading-toolkit/${config.sampleFile}`),
+  // The rows and the repository in parallel: they are separate round trips with nothing in
+  // common, and the answer keys are several requests on their own.
+  const [rubric, program, keys] = await Promise.all([
+    db.rubric.findUnique({
+      where: { id: params.rubricId },
+      select: {
+        name: true,
+        currentVersion: {
+          select: {
+            id: true,
+            rubricMarkdown: true,
+            guidanceMarkdown: true,
+            sampleReportMarkdown: true,
+          },
+        },
+        ruleSet: { select: { currentVersion: { select: { id: true, markdown: true } } } },
+      },
+    }),
+    db.program.findUnique({
+      where: { id: params.programId },
+      select: { ruleSet: { select: { currentVersion: { select: { id: true, markdown: true } } } } },
+    }),
     readAnswerKeys(params.answerKeyRepo, params.answerKeyDir),
   ]);
 
+  if (!rubric) {
+    throw new GradingAssetsError(
+      `No rubric ${params.rubricId}. The assignment's sections name a rubric that no longer exists.`,
+    );
+  }
+  if (!rubric.currentVersion) {
+    throw new GradingAssetsError(
+      `Rubric ${rubric.name} has no version yet, so there is no text to grade against. ` +
+        `For the four ported rubrics, run \`npm run port:rubrics\`.`,
+    );
+  }
+
+  // The rubric's own rule set first, then the program's. Neither is the one failure here that
+  // an instructor fixes somewhere other than the rubric, and the message says where.
+  const ruleSetVersion = rubric.ruleSet?.currentVersion ?? program?.ruleSet?.currentVersion;
+  if (!ruleSetVersion) throw new GradingAssetsError(NO_RULE_SET_MESSAGE);
+
   return {
-    agentRules,
-    rubricSection: extractRubricSection(rubric, config.rubricHeading),
-    sampleReport,
+    agentRules: ruleSetVersion.markdown,
+    rubricSection: rubric.currentVersion.rubricMarkdown,
+    guidance: rubric.currentVersion.guidanceMarkdown,
+    // Optional. The assembly instructions in the system prompt say what each part is; a sample
+    // adds the tone and the level of detail, and a rubric without one goes without that.
+    sampleReport: rubric.currentVersion.sampleReportMarkdown,
+    rubricVersionId: rubric.currentVersion.id,
+    ruleSetVersionId: ruleSetVersion.id,
     answerKeys: keys.answerKeys,
     excludedAnswerKeys: keys.excluded,
-    commitSha: source.commitSha,
     answerKeyCommitSha: keys.commitSha,
   };
 }

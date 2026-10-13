@@ -833,6 +833,8 @@ export const programsRouter = createTRPCRouter({
         isTest: true,
         joinToken: true,
         instructorToken: true,
+        // The grading rules every report in the program follows. Null until an admin chooses.
+        ruleSetId: true,
         instructors: {
           orderBy: [{ isPrimary: "desc" }, { createdAt: "asc" }],
           select: {
@@ -886,8 +888,46 @@ export const programsRouter = createTRPCRouter({
        * hide the Archive button from the one reader who is the recovery path when an owner has left.
        */
       callerActsAsOwner: ownerId === ctx.profile.id || ctx.profile.role === "ADMIN",
+      /** Whether the caller may choose the program's grading rules, which is an admin's call. */
+      callerIsAdmin: ctx.profile.role === "ADMIN",
     };
   }),
+
+  /**
+   * Choose the rule set every report in this program follows.
+   *
+   * **Admins only, and `programProcedure` for the program check**, so an admin names a program
+   * that exists and nobody else names one at all. An instructor's way to a different voice is a
+   * rule set on their own rubric; the program's default is the organization's, and it reaches
+   * every rubric that has not chosen otherwise.
+   *
+   * Takes effect on the next report generated. A draft already written keeps the version it was
+   * written against, and the review screen says a newer one exists.
+   */
+  setRuleSet: programProcedure
+    .input(z.object({ ruleSetId: z.string().uuid().nullable() }))
+    .mutation(async ({ ctx, input }) => {
+      if (ctx.profile.role !== "ADMIN") {
+        throw new TRPCError({
+          code: "FORBIDDEN",
+          message: "Only an admin can choose a program's grading rules.",
+        });
+      }
+      if (input.ruleSetId) {
+        const ruleSet = await ctx.db.ruleSet.findUnique({
+          where: { id: input.ruleSetId },
+          select: { id: true },
+        });
+        if (!ruleSet) {
+          throw new TRPCError({ code: "NOT_FOUND", message: "That rule set does not exist." });
+        }
+      }
+      await ctx.db.program.update({
+        where: { id: input.programId },
+        data: { ruleSetId: input.ruleSetId },
+      });
+      return { ruleSetId: input.ruleSetId };
+    }),
 
   // =====================================================================================
   // Creating and retiring a program

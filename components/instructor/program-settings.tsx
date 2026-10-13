@@ -26,7 +26,7 @@ import {
   DISCIPLINE_META,
   type Discipline,
 } from "@/lib/competencies";
-import { competenciesHref, programsHref, triageHref } from "@/lib/links";
+import { competenciesHref, programsHref, rubricsHref, triageHref } from "@/lib/links";
 import { displayNameOf } from "@/lib/people";
 import { formatDate } from "@/lib/status";
 import { useTRPC } from "@/trpc/client";
@@ -130,6 +130,7 @@ function IdentityCard({ data }: { data: Data }) {
         </p>
       </div>
       <DisciplineField data={data} />
+      <RuleSetField data={data} />
       <TestProgramField data={data} />
     </section>
   );
@@ -193,6 +194,87 @@ function DisciplineField({ data }: { data: Data }) {
           competencies
         </Link>{" "}
         fellows set goals against. Changing it does not change goals already set.
+      </p>
+    </div>
+  );
+}
+
+/**
+ * The grading rules every report in this program follows: the tone, the layout, the labels.
+ *
+ * **An admin's field; everybody else reads it.** A rubric follows the program's rules unless it
+ * names its own, so this one choice is the voice of nearly every report the program sends. A
+ * program with none cannot use AI grading at all, and the assignment form and the review screen
+ * both say to ask an admin — which is why the field is shown to an instructor rather than hidden:
+ * they need to see that it is empty and whose call it is.
+ *
+ * Saved on choosing, like the discipline above. Takes effect on the next report generated; a
+ * draft already written keeps the version it was written against.
+ */
+function RuleSetField({ data }: { data: Data }) {
+  const trpc = useTRPC();
+  const settled = useServerMutation();
+
+  const ruleSets = useQuery(trpc.rubrics.listRuleSets.queryOptions());
+  const save = useMutation(
+    trpc.programs.setRuleSet.mutationOptions(
+      settled({
+        onSuccess: (result) =>
+          toast.success(
+            result.ruleSetId
+              ? "Reports in this program now follow those rules."
+              : "This program has no grading rules, so AI grading is off until an admin chooses some.",
+          ),
+      }),
+    ),
+  );
+
+  const current = ruleSets.data?.find((ruleSet) => ruleSet.id === data.program.ruleSetId) ?? null;
+
+  return (
+    <div className="flex flex-col gap-1.5">
+      <label className="text-xs font-medium" htmlFor="rule-set">
+        Grading rules
+      </label>
+      {data.callerIsAdmin ? (
+        <Select
+          value={data.program.ruleSetId ?? ""}
+          onValueChange={(value) =>
+            save.mutate({ programId: data.program.id, ruleSetId: value || null })
+          }
+          items={Object.fromEntries(
+            (ruleSets.data ?? []).map((ruleSet) => [ruleSet.id, ruleSet.name]),
+          )}
+        >
+          <SelectTrigger
+            id="rule-set"
+            className="w-full sm:w-72"
+            disabled={save.isPending || ruleSets.isPending}
+          >
+            <SelectValue placeholder="None chosen" />
+          </SelectTrigger>
+          <SelectContent>
+            {(ruleSets.data ?? []).map((ruleSet) => (
+              <SelectItem key={ruleSet.id} value={ruleSet.id}>
+                {ruleSet.name}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      ) : (
+        <p id="rule-set" className="text-sm">
+          {current ? current.name : data.program.ruleSetId ? "Chosen" : "None chosen"}
+        </p>
+      )}
+      <p className="text-xs text-muted-foreground">
+        The voice every report in this program is written in — see{" "}
+        <Link href={rubricsHref()} className="underline underline-offset-2">
+          Rubrics
+        </Link>
+        . {data.callerIsAdmin ? "Only an admin can change it." : "An admin chooses it."}{" "}
+        {data.program.ruleSetId === null
+          ? "Until one is chosen, no assignment in this program can be graded by AI."
+          : "Changing it reaches every report generated from now on."}
       </p>
     </div>
   );

@@ -200,6 +200,8 @@ model Profile {
   gradedSubmissions      Submission[]            @relation("GradedBy")
   approvedDrafts         GradingDraft[]          @relation("ApprovedDrafts")
   editedSections         GradingDraftSection[]   @relation("EditedSections")
+  authoredRubrics        Rubric[]                @relation("AuthoredRubrics")
+  authoredRuleSets       RuleSet[]               @relation("AuthoredRuleSets")
   invitesCreated         InstructorInvite[]      @relation("InvitesCreated")
   invitesRedeemed        InstructorInvite[]      @relation("InvitesRedeemed")
   rosterEntriesClaimed   RosterEntry[]           @relation("RosterClaimed")
@@ -401,9 +403,18 @@ model Program {
   /// reason `AttendanceSession.lateAfterMinutes` gives.
   attendanceStartsAt String? @map("attendance_starts_at")
 
+  /// The rule set every report in this program follows, unless its rubric names another.
+  ///
+  /// Set by an admin, and null until one does. A program with none cannot use AI grading: the
+  /// assignment form refuses an AI section and the review screen refuses to generate, both with
+  /// the same sentence asking for an admin to choose. Null rather than a default row, because the
+  /// choice of voice is the organization's to make and a silent default would make it for them.
+  ruleSetId String? @map("rule_set_id") @db.Uuid
+
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
 
+  ruleSet            RuleSet?            @relation(fields: [ruleSetId], references: [id], onDelete: SetNull)
   courses            Course[]
   instructors        ProgramInstructor[]
   cohorts            Cohort[]
@@ -885,10 +896,21 @@ enum RubricScaleType {
   @@schema("public")
 }
 
-/// Seeded with exactly the four sections that already exist in rubric.md:
-/// SHORT_RESPONSE, CODING_ALGORITHM_FLUENCY, CODING_SQL_FLUENCY,
-/// CODING_FRONTEND. This is a fixed taxonomy today, not an instructor-authored
-/// rubric builder.
+/// One rubric: the criteria a section of a submission is scored against, as the instructor wrote
+/// them.
+///
+/// **The row is the identity and `RubricVersion` is the text.** `Assignment.sections[].rubricId`
+/// points here, so the id has to survive every edit; what an edit produces is a new version row,
+/// and the one grading reads is `currentVersionId`. A graded section records the version it was
+/// scored against, which is what lets a report name the exact words that produced it after the
+/// rubric has moved on.
+///
+/// Four rows were seeded from `rubric.md` in the grading-guides repository, and `port:rubrics`
+/// filled their first versions from the same file. Every other row is written in the application.
+///
+/// `scaleType`, `criteria` and `maxScore` predate versions. Nothing the prompt is built from reads
+/// them; they are kept because the seed writes them and nothing is gained by a migration that
+/// drops three columns.
 model Rubric {
   id        String          @id @default(uuid()) @db.Uuid
   name      String          @unique
@@ -896,10 +918,110 @@ model Rubric {
   /// Array of {key, label, max_points, description}.
   criteria  Json            @default("[]")
   maxScore  Int             @map("max_score")
-  createdAt DateTime        @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt DateTime        @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  /// Who wrote it, and so who may edit it besides an admin. Null for the four ported rows, which
+  /// are the program's own and are edited by admins only.
+  createdById String? @map("created_by") @db.Uuid
+
+  /// The version grading reads. Null only between the row being created and its first version
+  /// being written, which `createRubric` does in one transaction; a ported row is null until
+  /// `port:rubrics` has run, and grading refuses it until then rather than grading against nothing.
+  currentVersionId String? @unique @map("current_version_id") @db.Uuid
+
+  /// The rule set this rubric's reports follow, when it is not the program's.
+  ///
+  /// Null means "whatever the program says", which is what nearly every rubric wants and what the
+  /// form offers first: an organization that keeps one voice across every report sets it once on
+  /// the program, and a rubric that needs a different voice names its own here.
+  ruleSetId String? @map("rule_set_id") @db.Uuid
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  createdBy      Profile?        @relation("AuthoredRubrics", fields: [createdById], references: [id], onDelete: SetNull)
+  currentVersion RubricVersion?  @relation("CurrentRubricVersion", fields: [currentVersionId], references: [id], onDelete: Restrict)
+  ruleSet        RuleSet?        @relation(fields: [ruleSetId], references: [id], onDelete: SetNull)
+  versions       RubricVersion[] @relation("RubricVersions")
 
   @@map("rubrics")
+  @@schema("public")
+}
+
+/// One saved state of a rubric's text. Written once and never updated: an edit is a new row with
+/// the next number, and the rubric's `currentVersionId` moves to it.
+///
+/// Three pieces of text, because the prompt is built from three: the rubric itself, the guidance
+/// that says how its points add up and what each row of the report is, and a finished report of
+/// the shape the model's output should take. The sample is optional; a rubric without one sends
+/// none, and the prompt's own assembly instructions say what each part of a report is.
+model RubricVersion {
+  id       String @id @default(uuid()) @db.Uuid
+  rubricId String @map("rubric_id") @db.Uuid
+  /// 1 for the first version, counting up per rubric. What the review bar shows as "v2".
+  number   Int
+
+  rubricMarkdown       String  @map("rubric_markdown")
+  guidanceMarkdown     String  @map("guidance_markdown")
+  sampleReportMarkdown String? @map("sample_report_markdown")
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  rubric   Rubric                @relation("RubricVersions", fields: [rubricId], references: [id], onDelete: Cascade)
+  current  Rubric?               @relation("CurrentRubricVersion")
+  sections GradingDraftSection[]
+
+  @@unique([rubricId, number])
+  @@map("rubric_versions")
+  @@schema("public")
+}
+
+/// The tone, layout and labels every report written under it follows: what `agent-rules.md` was
+/// in the grading-guides repository, as a row an instructor can edit.
+///
+/// **Its own table rather than a column on the rubric**, because what an organization wants shared
+/// is this and not the criteria. A program names one as its default and every rubric graded in the
+/// program follows it unless the rubric names another, so one edit here changes the voice of every
+/// report that follows — which is the point, and why an edit creates a version the report records.
+model RuleSet {
+  id   String @id @default(uuid()) @db.Uuid
+  name String @unique
+
+  /// Who wrote it, and so who may edit it besides an admin. Null for the ported one.
+  createdById String? @map("created_by") @db.Uuid
+
+  /// The version grading reads. Null only between creation and the first version, which
+  /// `createRuleSet` writes in one transaction.
+  currentVersionId String? @unique @map("current_version_id") @db.Uuid
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  createdBy      Profile?         @relation("AuthoredRuleSets", fields: [createdById], references: [id], onDelete: SetNull)
+  currentVersion RuleSetVersion?  @relation("CurrentRuleSetVersion", fields: [currentVersionId], references: [id], onDelete: Restrict)
+  versions       RuleSetVersion[] @relation("RuleSetVersions")
+  rubrics        Rubric[]
+  programs       Program[]
+
+  @@map("rule_sets")
+  @@schema("public")
+}
+
+/// One saved state of a rule set's text, written once. See `RubricVersion`.
+model RuleSetVersion {
+  id        String @id @default(uuid()) @db.Uuid
+  ruleSetId String @map("rule_set_id") @db.Uuid
+  number    Int
+
+  markdown String
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  ruleSet  RuleSet               @relation("RuleSetVersions", fields: [ruleSetId], references: [id], onDelete: Cascade)
+  current  RuleSet?              @relation("CurrentRuleSetVersion")
+  sections GradingDraftSection[]
+
+  @@unique([ruleSetId, number])
+  @@map("rule_set_versions")
   @@schema("public")
 }
 
@@ -1377,9 +1499,8 @@ model Assignment {
   /// not, and nothing about this design publishes them.
   ///
   /// Per assignment rather than one repository for the whole program, which is what
-  /// GRADING_ASSETS_REPO used to be for. That variable keeps a narrower job: `rubric.md`,
-  /// `agent-rules.md`, and the sample reports are program-wide prompt code and are still
-  /// read from it.
+  /// GRADING_ASSETS_REPO used to be for. That variable now serves scripts only: the rubric, the
+  /// rule set and the sample report are rows in this database, see `Rubric` and `RuleSet`.
   answerKeyRepo      String? @map("answer_key_repo")
   /// The directory inside `answerKeyRepo` whose contents *are* the reference solutions.
   ///
@@ -1393,6 +1514,15 @@ model Assignment {
   /// have no reference solutions at all. Recognisable binaries are skipped and the file count
   /// is capped, both reported rather than silent — see lib/grade/assets.ts.
   answerKeyDir       String? @map("answer_key_dir")
+  /// Reference material for an assignment with no repository, both optional and both Google Docs.
+  ///
+  /// An **exemplar** is public — "anyone with the link" — and shows the standard expected rather
+  /// than the one right answer, because most non-technical work asks for the fellow's thinking.
+  /// An **answer key** is private and shared with the application's service account, because a
+  /// key a fellow could open is not a key. Null on the kinds with a repository, whose reference
+  /// solutions are `answerKeyRepo` and `answerKeyDir` above.
+  exemplarDocUrl     String? @map("exemplar_doc_url")
+  answerKeyDocUrl    String? @map("answer_key_doc_url")
   /// The repository name prefix, e.g. "swe-1-4-loops". Generated repositories are named
   /// `{slug}-{assignmentRepoName}-{student github login}`, where the slug comes from the course —
   /// see `Course.slug`. **The uniqueness below is per course rather than per program**, which is
@@ -2002,22 +2132,36 @@ model GradingDraftSection {
   /// record of what the model actually produced — which is what any later judgment
   /// about whether the grading is good enough has to be made from. What gets posted
   /// is the edit where one exists; what gets evaluated is the pair.
-  editedReportMarkdown String?   @map("edited_report_markdown")
-  editedScoreEarned    Float?    @map("edited_score_earned")
+  editedReportMarkdown  String?   @map("edited_report_markdown")
+  editedScoreEarned     Float?    @map("edited_score_earned")
   /// An instructor's revision of a model-generated report's rows and summary. Saving one also
   /// writes the assembled text to `edited_report_markdown` and the rows' sum to
   /// `edited_score_earned`, so every reader of those two columns needs no knowledge of rows.
-  editedRubricItems    Json?     @map("edited_rubric_items")
-  editedSummaryMarkdown String?  @map("edited_summary_markdown")
-  editedAt             DateTime? @map("edited_at") @db.Timestamptz(6)
-  editedById           String?   @map("edited_by") @db.Uuid
+  editedRubricItems     Json?     @map("edited_rubric_items")
+  editedSummaryMarkdown String?   @map("edited_summary_markdown")
+  editedAt              DateTime? @map("edited_at") @db.Timestamptz(6)
+  editedById            String?   @map("edited_by") @db.Uuid
+
+  /// The exact rubric text and rule set text this section was scored against.
+  ///
+  /// Per section rather than per draft, because a checkpoint's short response and coding sections
+  /// are graded against two rubrics in one run. Null for a section written by hand, and for one
+  /// the pipeline wrote before rubrics had versions; those traced their text through
+  /// `modelMetadata.gradingAssetsCommitSha` instead. RESTRICT, because a version a report names
+  /// is the record of what the student was graded against and must outlive any tidying.
+  rubricVersionId  String? @map("rubric_version_id") @db.Uuid
+  ruleSetVersionId String? @map("rule_set_version_id") @db.Uuid
 
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
 
-  gradingDraft GradingDraft @relation(fields: [gradingDraftId], references: [id], onDelete: Cascade)
-  editedBy     Profile?     @relation("EditedSections", fields: [editedById], references: [id], onDelete: SetNull)
+  gradingDraft   GradingDraft    @relation(fields: [gradingDraftId], references: [id], onDelete: Cascade)
+  editedBy       Profile?        @relation("EditedSections", fields: [editedById], references: [id], onDelete: SetNull)
+  rubricVersion  RubricVersion?  @relation(fields: [rubricVersionId], references: [id], onDelete: Restrict)
+  ruleSetVersion RuleSetVersion? @relation(fields: [ruleSetVersionId], references: [id], onDelete: Restrict)
 
+  @@index([rubricVersionId])
+  @@index([ruleSetVersionId])
   @@map("grading_draft_sections")
   @@schema("public")
 }
