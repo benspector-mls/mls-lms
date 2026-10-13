@@ -57,13 +57,14 @@ Copy `.env.example` to `.env.local`; it documents every variable and the traps b
 | `GRADING_LLM_PROVIDER`, `ANTHROPIC_API_KEY`, `GRADING_LLM_EFFORT`                                | report generation                                                            |
 | `ANTHROPIC_MODEL`                                                                                | optional: overrides the model, which defaults to `claude-sonnet-5`           |
 | `CHECK_REVIEW_MODEL`                                                                             | optional: overrides the model that reviews checks for understanding, which defaults to `claude-haiku-4-5` |
-| `GRADING_ASSETS_REPO`                                                                            | the repository holding `rubric.md`, `agent-rules.md`, and the sample reports |
+| `GRADING_ASSETS_REPO`                                                                            | the grading-guides repository, read by `port:rubrics`, `verify:rubric-port` and `calibrate` only |
 | `GRADING_ASSETS_INSTALLATION_ID`                                                                 | optional: overrides which installation reads that repository                 |
-| `GRADING_ASSETS_REF`                                                                             | optional: a branch to read the guides from instead of the default            |
+| `GOOGLE_SERVICE_ACCOUNT_KEY`                                                                     | the JSON key of the service account that reads private answer keys; optional, and without it an answer key cannot be named |
+| `GRADING_ASSETS_REF`                                                                             | optional: a branch for those scripts to read instead of the default          |
 
 `SUPABASE_SERVICE_ROLE_KEY` does double duty: server-side admin operations, and the private bucket uploaded submissions live in. Nothing else can reach that bucket — see [handing in a file](ARCHITECTURE.md#handing-in-a-file).
 
-**`GRADING_ASSETS_REPO` is required everywhere**, development included — there is no local-clone mode. It names the program's prompt code, not the answer keys: an assignment names the repository *its own* reference solutions live in, in a column. See [two asset sources](ARCHITECTURE.md#two-asset-sources).
+**Grading reads no files from `GRADING_ASSETS_REPO`.** The rubric, its guidance, the sample report and the rule set are rows written on the Rubrics screen, and an assignment names the repository *its own* reference solutions live in, in a column. The variable serves three scripts: `npm run port:rubrics`, which wrote the four rubrics and the rule set from the toolkit files, `npm run verify:rubric-port`, and `npm run calibrate`. See [where rubrics, rule sets, and answer keys live](ARCHITECTURE.md#where-rubrics-rule-sets-and-answer-keys-live).
 
 **The installation is resolved from the repository's owner**, so `GRADING_ASSETS_INSTALLATION_ID` is rarely needed. A GitHub App is installed per organization with its own id and its own token, and an assignment may name an answer-key repository in an organization the environment variables say nothing about — so the App asks itself which of its installations covers a given owner, and caches the answer including the negative one. Set the variable only to override that for the assets repository.
 
@@ -161,9 +162,10 @@ Everything below those is a script, because everything below them needs somethin
 
 Vercel, with the environment variables above — the deployment's Supabase values, not the ones in `.env.local`. Four things to know:
 
-- **`GRADING_ASSETS_REPO` must be set**, and the App must be installed on the organization holding the guides *and* on every organization an assignment names as its answer keys. `GRADING_ASSETS_PATH` must not be set anywhere — it now raises `GradingAssetsError` rather than being ignored. Variables are bound when a deployment is created, so changing one requires a redeploy to take effect.
+- **The four rubrics and the rule set are rows, and a fresh database has none.** After the migration, run `npm run port:rubrics -- --commit <sha>` against the deployment with the grading-guides commit to read; until it has run, every report fails with "has no version yet". The App must be installed on every organization an assignment names as its answer keys. `GRADING_ASSETS_PATH` must not be set anywhere — it raises `GradingAssetsError` rather than being ignored. Variables are bound when a deployment is created, so changing one requires a redeploy to take effect.
+- **`GOOGLE_SERVICE_ACCOUNT_KEY` is the JSON Google issued**, pasted whole, with the private key's newlines as the two characters `\n` as Vercel stores them. The service account needs the Drive API enabled on its project and nothing else; instructors share each answer key with its email address as a Viewer. Public documents — a fellow's work, an exemplar — are read with no credential, so a deployment without the key still grades everything but a private answer key.
 - **The webhook URL belongs to the App, not to the deployment.** Changing it on the App takes effect immediately with no redeploy, because the deployed handler reads nothing about where the delivery came from.
-- **The GitHub App must be installed on the organization holding the grading guides**, not only on the one holding student repositories. `npm run verify:assets` is the check that a deployed host can read its rubric at all.
+- **The GitHub App must be installed on the organization holding the grading guides** as well as on the one holding student repositories, because answer keys are read from it. `npm run verify:rubric-port` is the check that the rows match the files they were ported from.
 - **The schema is not deployed with the code.** Vercel builds the application; nothing there applies a migration. A migration reaches the deployment only when somebody runs it, which is the price of the two databases being separate and is why the command says which one it means:
 
 ```sh

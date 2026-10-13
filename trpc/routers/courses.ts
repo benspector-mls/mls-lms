@@ -17,7 +17,7 @@ import {
 import { writeOrder } from "@/lib/courses/order";
 import { assertOwnsProgram, assertOwnsProgramOfCourse, ownerOf } from "@/lib/programs/ownership";
 import { undeliveredApprovalWhere } from "@/lib/grade/approve";
-import { triageBucket } from "@/lib/grade/triage";
+import { draftIsStale, triageBucket } from "@/lib/grade/triage";
 import { removeSubmissionUploads } from "@/lib/uploads/storage";
 
 import { copyAssignmentInto, copyableAssignmentSelect } from "./assignments";
@@ -1333,6 +1333,8 @@ async function courseCells(
       submittedAt: true,
       extendedDueAt: true,
       headSha: true,
+      // For work with no commit, the latest hand-in is what a draft is out of date against.
+      lastActivityAt: true,
       gradedHeadSha: true,
       finalScore: true,
       finalScorePossible: true,
@@ -1345,7 +1347,7 @@ async function courseCells(
         where: { status: { not: "SUPERSEDED" } },
         orderBy: { createdAt: "desc" },
         take: 1,
-        select: { status: true, headSha: true },
+        select: { status: true, headSha: true, createdAt: true },
       },
     },
   });
@@ -1366,13 +1368,11 @@ async function courseCells(
 
   return submissions.map(({ gradingDrafts, ...submission }) => {
     const draft = gradingDrafts[0] ?? null;
-    const draftIsStale =
-      draft != null && submission.headSha != null && draft.headSha !== submission.headSha;
 
     return {
       ...submission,
       bucket: triageBucket(submission.status, draft, {
-        draftIsStale,
+        draftIsStale: draftIsStale(draft, submission),
         hasUndeliveredApproval: undeliveredIds.has(submission.id),
         isManualOnly: manualOnlyByAssignment.get(submission.assignmentId) ?? false,
         /*

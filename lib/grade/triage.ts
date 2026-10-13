@@ -132,3 +132,25 @@ export function triageBucket(
 export function isOutstanding(bucket: TriageBucket | null): boolean {
   return bucket !== null && bucket !== "generating";
 }
+
+/**
+ * Whether a draft describes work the student has since replaced.
+ *
+ * Two columns compared and nothing asked of anybody. For a repository the columns are commits:
+ * the one the draft was written against and the one the pull request is on now, and it is true
+ * the instant a push lands. For work with no commit — a Google Doc, an upload — the columns are
+ * times: a draft written before the latest hand-in describes what was handed in before it.
+ *
+ * One function because several readers need the same answer and they are not near each other —
+ * the row's **Report out of date** badge, the order the queue puts the grades in, the gradebook's
+ * cell, and the bucket. Written four times, two could disagree, which would be a row sorted to
+ * the top of the grades with nothing on it saying why.
+ */
+export function draftIsStale(
+  draft: { headSha: string | null; createdAt: Date } | null,
+  submission: { headSha: string | null; lastActivityAt: Date | null },
+): boolean {
+  if (draft === null) return false;
+  if (submission.headSha !== null) return draft.headSha !== submission.headSha;
+  return submission.lastActivityAt !== null && draft.createdAt < submission.lastActivityAt;
+}

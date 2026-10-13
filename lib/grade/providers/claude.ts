@@ -64,6 +64,39 @@ function resolveEffort(): Effort {
  */
 const MAX_TOKENS = 20_000;
 
+/**
+ * The user turn: the attachments, each as a document or image block, then the text.
+ *
+ * A string when there is nothing attached, which is every repository submission and is what the
+ * request looked like before attachments existed — so that path is byte-for-byte unchanged.
+ */
+function userContent(request: ReportRequest): string | Anthropic.ContentBlockParam[] {
+  if (!request.attachments || request.attachments.length === 0) return request.user;
+
+  const blocks: Anthropic.ContentBlockParam[] = request.attachments.map((attachment) =>
+    attachment.mediaType === "application/pdf"
+      ? {
+          type: "document",
+          title: attachment.label,
+          source: {
+            type: "base64",
+            media_type: "application/pdf",
+            data: attachment.data.toString("base64"),
+          },
+        }
+      : {
+          type: "image",
+          source: {
+            type: "base64",
+            media_type: attachment.mediaType,
+            data: attachment.data.toString("base64"),
+          },
+        },
+  );
+  blocks.push({ type: "text", text: request.user });
+  return blocks;
+}
+
 export function createClaudeGenerator(): ReportGenerator {
   const apiKey = process.env.ANTHROPIC_API_KEY;
   if (!apiKey) {
@@ -100,7 +133,7 @@ export function createClaudeGenerator(): ReportGenerator {
               cache_control: { type: "ephemeral" },
             },
           ],
-          messages: [{ role: "user", content: request.user }],
+          messages: [{ role: "user", content: userContent(request) }],
         });
 
         // Safety classifiers can decline a request, and that arrives as a normal

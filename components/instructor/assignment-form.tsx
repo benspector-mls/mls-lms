@@ -152,6 +152,12 @@ type FormState = {
   runnerConfig: null;
   templateDriveUrl: string;
   /**
+   * The two reference documents a non-repository assignment may hand the model, both optional
+   * and both Google Doc links. Sent only by the two kinds that have them.
+   */
+  exemplarDocUrl: string;
+  answerKeyDocUrl: string;
+  /**
    * Whether a fellow may mark a task done themselves. Only a TASK assignment sends it.
    *
    * Held for every kind like every other field here, so that switching the kind twice while
@@ -186,11 +192,11 @@ const KIND_META: Record<Kind, { label: string; hint: string }> = {
   },
   GOOGLE_DRIVE: {
     label: "Google Drive",
-    hint: "Students take their own copy of a template Doc, Sheet, or Slides deck and submit the link. Graded by hand.",
+    hint: "Students take their own copy of a template Doc, Sheet, or Slides deck and submit the link. Graded by hand or by the model.",
   },
   SELF_DIRECTED: {
     label: "Link or file upload",
-    hint: "Students hand in a link, a file, or either. There is no template. Graded by hand.",
+    hint: "Students hand in a link, a file, or either. There is no template. Graded by hand or by the model.",
   },
   TASK: {
     label: "Task",
@@ -268,8 +274,20 @@ function toDraft(state: FormState): unknown {
     };
   }
 
+  // Empty is absent, as for the instructions: a cleared box is no document rather than a
+  // document whose address is blank.
+  const referenceDocs = {
+    exemplarDocUrl: state.exemplarDocUrl.trim() || null,
+    answerKeyDocUrl: state.answerKeyDocUrl.trim() || null,
+  };
+
   if (state.kind === "GOOGLE_DRIVE") {
-    return { ...shared, kind: "GOOGLE_DRIVE", templateDriveUrl: state.templateDriveUrl.trim() };
+    return {
+      ...shared,
+      kind: "GOOGLE_DRIVE",
+      templateDriveUrl: state.templateDriveUrl.trim(),
+      ...referenceDocs,
+    };
   }
 
   /*
@@ -305,6 +323,7 @@ function toDraft(state: FormState): unknown {
     kind: "SELF_DIRECTED",
     handInMethods: state.handInMethods,
     ...(state.handInMethods.includes("FILE") ? { acceptedFileTypes: state.acceptedFileTypes } : {}),
+    ...referenceDocs,
   };
 }
 
@@ -1138,14 +1157,7 @@ function Editor({
                     }}
                   />
                 </Field>
-                <Field
-                  label="Due time"
-                  hint={
-                    state.dueAt
-                      ? "New York time."
-                      : "Set a date first."
-                  }
-                >
+                <Field label="Due time" hint={state.dueAt ? "New York time." : "Set a date first."}>
                   <Input
                     type="time"
                     disabled={state.dueAt === null}
@@ -1215,6 +1227,44 @@ function Editor({
                     })}
                   </div>
                 </Field>
+              )}
+
+              {/*
+                The two reference documents, only while a section the model grades exists — the
+                schema refuses them on an assignment graded by hand, where nothing reads them. Two
+                fields rather than one with a "public" tick, because the two are read differently
+                and told to the model differently: an exemplar shows the standard and may differ
+                from a correct answer; an answer key is the reference, never shown to the student.
+              */}
+              {!isRepoKind(state.kind) && !isTaskKind(state.kind) && hasAiSection && (
+                <>
+                  <Field
+                    label="Exemplar"
+                    findings={fieldFindings("exemplarDocUrl")}
+                    hint="Optional. A public Google Doc — “Anyone with the link can view” — showing the standard expected. The model treats it as an example, not the only acceptable answer."
+                  >
+                    <Input
+                      value={state.exemplarDocUrl}
+                      placeholder="https://docs.google.com/document/d/…/edit"
+                      onChange={(event) =>
+                        setState({ ...state, exemplarDocUrl: event.target.value })
+                      }
+                    />
+                  </Field>
+                  <Field
+                    label="Answer key"
+                    findings={fieldFindings("answerKeyDocUrl")}
+                    hint="Optional. A private Google Doc shared with the grading service account as a Viewer; saving is refused until it can be opened. Never shown to students. Without one, reports are less consistent and marked low confidence."
+                  >
+                    <Input
+                      value={state.answerKeyDocUrl}
+                      placeholder="https://docs.google.com/document/d/…/edit"
+                      onChange={(event) =>
+                        setState({ ...state, answerKeyDocUrl: event.target.value })
+                      }
+                    />
+                  </Field>
+                </>
               )}
 
               {/*
@@ -1504,7 +1554,35 @@ function Editor({
                       Have the model grade this instead
                     </Button>
                   )}
+                  {!isRepoKind(state.kind) && !isTaskKind(state.kind) && hasManualSection && (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => setState({ ...state, sections: [documentSection()] })}
+                    >
+                      <Sparkles data-icon="inline-start" />
+                      Have the model grade this instead
+                    </Button>
+                  )}
+                  {!isRepoKind(state.kind) && !isTaskKind(state.kind) && hasAiSection && (
+                    <Button
+                      variant="outline"
+                      size="sm"
+                      onClick={() => setState({ ...state, sections: [manualSection()] })}
+                    >
+                      <PencilLine data-icon="inline-start" />
+                      Grade this by hand instead
+                    </Button>
+                  )}
                 </div>
+
+                {!isRepoKind(state.kind) && !isTaskKind(state.kind) && hasAiSection && (
+                  <p className="text-xs text-muted-foreground">
+                    The model reads what the fellow handed in — a Google Doc, a Slides deck, a PDF
+                    or an image — and grades it whole against the rubric above. A Google Sheet or a
+                    Word file is not read; grade those by hand.
+                  </p>
+                )}
 
                 {isRepoKind(state.kind) && hasManualSection && (
                   <p className="text-xs text-muted-foreground">
@@ -1898,6 +1976,14 @@ function manualSection(): SectionDraft {
 }
 
 /**
+ * The one section the model grades on an assignment with no repository. The rubric is chosen
+ * in the editor; it starts empty, and the schema refuses a save until one is named.
+ */
+function documentSection(): SectionDraft {
+  return { grading: "ai", type: "document", pointValue: DEFAULT_POINT_VALUE, rubricId: "" };
+}
+
+/**
  * What a repository assignment says about setting up and handing in, until the instructor
  * writes something else.
  *
@@ -1973,6 +2059,8 @@ function blankDraft({
     runnerPreset: NO_RUNNER,
     runnerConfig: null,
     templateDriveUrl: existingState?.templateDriveUrl ?? "",
+    exemplarDocUrl: existingState?.exemplarDocUrl ?? "",
+    answerKeyDocUrl: existingState?.answerKeyDocUrl ?? "",
     /*
       Ticked unless something already said otherwise. Self-marking is both the commoner case and
       what every task did before the field existed, so it is the answer an instructor who has no
@@ -2009,8 +2097,9 @@ function blankDraft({
       report asks for one with the button below, and one who does not is never handed a
       model-graded section to delete.
 
-      Sections already typed carry across a change of kind whenever the new kind allows them,
-      which for a repository is either mode and for every other kind is hand grading alone.
+      Sections already typed carry across a change of kind whenever the new kind allows them:
+      a repository takes either mode, a document or a file takes hand grading or its own one
+      document section, and a repository section never carries onto a kind with no repository.
 
       **A task has none, and empty is the only shape its branch of the schema accepts.** It is the
       one kind where nothing is read, so there is nothing to write a section against. Sections
@@ -2024,7 +2113,9 @@ function blankDraft({
           ? existingState && existingState.sections.length > 0
             ? existingState.sections
             : [manualSection()]
-          : existingState?.sections.every((section) => section.grading === "manual")
+          : existingState?.sections.every(
+                (section) => section.grading === "manual" || section.type === "document",
+              )
             ? existingState.sections
             : [manualSection()],
   };
@@ -2046,6 +2137,8 @@ function fromDraft(draft: Draft): FormState {
     runnerPreset: draft.runnerPreset,
     runnerConfig: null,
     templateDriveUrl: draft.templateDriveUrl ?? "",
+    exemplarDocUrl: draft.exemplarDocUrl ?? "",
+    answerKeyDocUrl: draft.answerKeyDocUrl ?? "",
     /*
       Ticked when the stored assignment says nothing, which is what a row of any other kind holds
       and what a task saved before the column existed held. `taskIsSelfMarked` reads a null the

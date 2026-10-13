@@ -1,7 +1,7 @@
 import { TRPCError } from "@trpc/server";
 import { z } from "zod";
 
-import { blankSections, inDeclaredOrder, isManualOnly } from "@/lib/assignments/spec";
+import { blankSections, inDeclaredOrder, isManualOnly, readSections } from "@/lib/assignments/spec";
 import { assertWithinRate, DRAFT_GENERATION_LIMIT } from "@/lib/audit/rate-limit";
 import { auditActor, recordEvent } from "@/lib/audit/record";
 import { Prisma } from "@/lib/generated/prisma/client";
@@ -15,7 +15,9 @@ import {
 import { teachableSubmission } from "@/lib/courses/scope";
 import { inTransaction } from "@/lib/prisma";
 import { GradingAssetsError } from "@/lib/grade/assets";
-import { generateReportForSubmission, ReportGenerationError } from "@/lib/grade/generate-report";
+import { generateReportFor } from "@/lib/grade/generate";
+import { NO_RULE_SET_MESSAGE } from "@/lib/rubrics/versions";
+import { ReportGenerationError } from "@/lib/grade/generate-report";
 import { ProviderError } from "@/lib/grade/provider";
 import { composeReport, readReportRows, rowTotals } from "@/lib/grade/report-text";
 import { ReportValidationError } from "@/lib/grade/schema";
@@ -78,6 +80,18 @@ const draftFields = {
       editedRubricItems: true,
       editedSummaryMarkdown: true,
       editedAt: true,
+      /*
+        Which text this section was scored against, by name and version, for the model bar.
+        Null for a section written by hand and for one graded before rubrics had versions.
+      */
+      rubricVersionId: true,
+      ruleSetVersionId: true,
+      rubricVersion: {
+        select: { number: true, rubric: { select: { name: true, currentVersionId: true } } },
+      },
+      ruleSetVersion: {
+        select: { number: true, ruleSet: { select: { name: true, currentVersionId: true } } },
+      },
     },
   },
 } as const;
@@ -170,14 +184,14 @@ export const gradingDraftsRouter = createTRPCRouter({
       });
 
       try {
-        return await generateReportForSubmission(submission.id);
+        return await generateReportFor(submission.id);
       } catch (err) {
         // Preconditions rather than server errors: the submission is not ready, or
         // the assignment is not configured. Both are fixable and neither is a bug.
         if (err instanceof ReportGenerationError) {
           throw new TRPCError({ code: "PRECONDITION_FAILED", message: err.message });
         }
-        // An unset GRADING_ASSETS_REPO, an installation that cannot see it, or a renamed
+        // A rubric with no version yet, a program with no rule set, or a renamed
         // rubric heading. An operator problem, and the message says which.
         if (err instanceof GradingAssetsError) {
           throw new TRPCError({ code: "PRECONDITION_FAILED", message: err.message });
@@ -654,7 +668,18 @@ export const gradingDraftsRouter = createTRPCRouter({
         headSha: true,
         prNumber: true,
         repoFullName: true,
-        assignment: { select: { id: true, title: true, courseId: true, sections: true } },
+        // Whether anything has been handed in, which is what a document assignment grades from.
+        _count: { select: { artifacts: true } },
+        assignment: {
+          select: {
+            id: true,
+            title: true,
+            courseId: true,
+            sections: true,
+            kind: true,
+            course: { select: { program: { select: { ruleSetId: true } } } },
+          },
+        },
       });
 
       const drafts = await ctx.db.gradingDraft.findMany({
@@ -695,10 +720,55 @@ export const gradingDraftsRouter = createTRPCRouter({
         select: { id: true, postedPrCommentId: true },
       });
 
+      /*
+        Whether the model can be asked for a report at all. A repository assignment needs a pull
+        request to read; every other kind needs something handed in. And both need a rule set to
+        write in: a program with none is refused here with the same sentence the assignment form
+        uses, so an instructor who authored the section before an admin chose one is told whose
+        decision it is rather than shown a failed run.
+      */
+      const fromRepository = submission.assignment.kind === "REPO";
+      const nothingToRead = fromRepository
+        ? submission.prNumber === null || submission.headSha === null
+        : submission._count.artifacts === 0;
+      const noRuleSet =
+        !manualOnly &&
+        submission.assignment.course.program.ruleSetId === null &&
+        !(await ctx.db.rubric.findFirst({
+          where: {
+            id: {
+              in: readSections(submission.assignment.sections).flatMap((section) =>
+                typeof section.rubricId === "string" ? [section.rubricId] : [],
+              ),
+            },
+            ruleSetId: { not: null },
+          },
+          select: { id: true },
+        }));
+
       return {
         drafts: drafts.map((draft) => ({
           ...draft,
           sections: inDeclaredOrder(submission.assignment.sections, draft.sections),
+          /**
+           * Whether the rubric or the rule set this draft was graded against has a newer version.
+           *
+           * Told rather than acted on: the draft keeps the version it was written against, and
+           * the review screen offers to regenerate. A draft with no versions on it — written by
+           * hand, or before versions existed — is never out of date by this measure.
+           */
+          outOfDate: {
+            rubric: draft.sections.some(
+              (section) =>
+                section.rubricVersionId !== null &&
+                section.rubricVersion?.rubric.currentVersionId !== section.rubricVersionId,
+            ),
+            ruleSet: draft.sections.some(
+              (section) =>
+                section.ruleSetVersionId !== null &&
+                section.ruleSetVersion?.ruleSet.currentVersionId !== section.ruleSetVersionId,
+            ),
+          },
         })),
         /**
          * Whether this assignment is graded by hand rather than by the pipeline, which decides
@@ -727,18 +797,18 @@ export const gradingDraftsRouter = createTRPCRouter({
          * or an assignment with no sections mapping, cannot produce a report — and
          * saying so is more useful than a button that throws.
          */
-        canGenerate:
-          !manualOnly &&
-          submission.prNumber !== null &&
-          submission.headSha !== null &&
-          declaredSections.length > 0,
+        canGenerate: !manualOnly && !nothingToRead && !noRuleSet && declaredSections.length > 0,
         blockedReason: manualOnly
           ? null
-          : submission.prNumber === null || submission.headSha === null
-            ? "The student has not opened a pull request yet."
+          : nothingToRead
+            ? fromRepository
+              ? "The student has not opened a pull request yet."
+              : "The student has not handed anything in yet."
             : declaredSections.length === 0
               ? "This assignment has no sections mapping, so there is no rubric to grade against."
-              : null,
+              : noRuleSet
+                ? NO_RULE_SET_MESSAGE
+                : null,
         /**
          * Whether the draft on top describes the commit that is currently at the head
          * of the pull request. A draft against an older commit is not wrong, but it

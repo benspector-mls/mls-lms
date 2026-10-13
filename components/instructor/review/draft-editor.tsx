@@ -1020,7 +1020,20 @@ export function DraftEditor({
         waiting. Their way of starting over is to edit what is in front of them, or to discard it.
       */}
       {!manualOnly && draft && draft.modelMetadata !== null && (
-        <RegenerateRow submissionId={submission.id} unsaved={unsaved || saving} />
+        <>
+          {(draft.outOfDate.rubric || draft.outOfDate.ruleSet) && (
+            <p className="rounded-lg border border-amber-300 bg-amber-50 px-4 py-3 text-sm text-amber-900 dark:border-amber-700 dark:bg-amber-950/40 dark:text-amber-200">
+              {draft.outOfDate.rubric && draft.outOfDate.ruleSet
+                ? "The rubric and the grading rules"
+                : draft.outOfDate.rubric
+                  ? "The rubric"
+                  : "The grading rules"}{" "}
+              changed after this draft was generated. Keep editing this draft, or grade again to use
+              the current version.
+            </p>
+          )}
+          <RegenerateRow submissionId={submission.id} unsaved={unsaved || saving} />
+        </>
       )}
 
       {/*
@@ -1144,16 +1157,46 @@ function ModelMetaBar({ draft }: { draft: Draft }) {
     asNumber(usage.cachedPromptTokens) +
     asNumber(usage.cacheWriteTokens);
 
+  /*
+    The rubric and the rule set by name and version, read off the sections rather than the
+    metadata: each section records the version it was scored against, and a checkpoint's two
+    sections name two rubrics. A draft graded before rubrics had versions carries the commit
+    of the file they were read from instead, and shows that.
+  */
+  const versions = (
+    pick: (section: Draft["sections"][number]) => { name: string; number: number } | null,
+  ) =>
+    [
+      ...new Set(
+        draft.sections.flatMap((section) => {
+          const version = pick(section);
+          return version ? [`${version.name} v${version.number}`] : [];
+        }),
+      ),
+    ].join(", ");
+  const rubricVersions = versions((section) =>
+    section.rubricVersion
+      ? { name: section.rubricVersion.rubric.name, number: section.rubricVersion.number }
+      : null,
+  );
+  const ruleSetVersions = versions((section) =>
+    section.ruleSetVersion
+      ? { name: section.ruleSetVersion.ruleSet.name, number: section.ruleSetVersion.number }
+      : null,
+  );
+
   const items = [
     { label: "Model", value: typeof meta.provider === "string" ? meta.provider : "—" },
     { label: "Prompt", value: typeof meta.promptVersion === "string" ? meta.promptVersion : "—" },
     {
       label: "Rubric",
       value:
-        typeof meta.gradingAssetsCommitSha === "string"
+        rubricVersions ||
+        (typeof meta.gradingAssetsCommitSha === "string"
           ? shortSha(meta.gradingAssetsCommitSha)
-          : "—",
+          : "—"),
     },
+    { label: "Rules", value: ruleSetVersions || "—" },
     /*
       A second commit, because the answer keys come from a different repository. Shown rather
       than folded into the one above: "this report was written against these reference
