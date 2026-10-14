@@ -48,6 +48,7 @@ import {
 } from "@/components/ui/sidebar";
 import {
   Breadcrumb,
+  BreadcrumbEllipsis,
   BreadcrumbItem,
   BreadcrumbLink,
   BreadcrumbList,
@@ -1704,27 +1705,79 @@ function ShellBreadcrumb() {
   const { data: programs } = useSuspenseQuery(trpc.programs.listMine.queryOptions());
   const crumbs = useBreadcrumbs(courses, programs);
 
+  const listRef = React.useRef<HTMLOListElement>(null);
+  const [hidden, setHidden] = React.useState({ before: false, after: false });
+
+  const measureHidden = React.useCallback(() => {
+    const list = listRef.current;
+    if (!list) return;
+    const before = list.scrollLeft > 0;
+    // A pixel of slack, because a zoomed page reports fractional widths that never quite meet.
+    const after = list.scrollLeft + list.clientWidth < list.scrollWidth - 1;
+    setHidden((current) =>
+      current.before === before && current.after === after ? current : { before, after },
+    );
+  }, []);
+
+  /*
+    The page you are on is the crumb that matters most, so a trail too wide for the header opens
+    scrolled to its end, and the earlier crumbs are what you scroll back to. Keyed on the labels
+    rather than on `crumbs`, which is a new array every render: keyed on that, every render would
+    snap the trail back to the end while somebody was scrolling it. A label that resolves after
+    its query loads changes the key too, which is right, because it changes the width.
+  */
+  const trail = crumbs.map((crumb) => crumb.label).join("\u0000");
+  React.useLayoutEffect(() => {
+    const list = listRef.current;
+    if (!list) return;
+    list.scrollLeft = list.scrollWidth;
+    measureHidden();
+  }, [trail, measureHidden]);
+
+  // Resizing the window changes how much of the trail fits without scrolling it.
+  React.useEffect(() => {
+    const list = listRef.current;
+    if (!list) return;
+    const observer = new ResizeObserver(measureHidden);
+    observer.observe(list);
+    return () => observer.disconnect();
+  }, [measureHidden]);
+
   return (
-    <Breadcrumb className="min-w-0 flex-1">
-      <BreadcrumbList>
+    <Breadcrumb className="flex min-w-0 flex-1 items-center gap-1.5">
+      {/*
+        The ellipses mark the side the hidden crumbs are on. With the scrollbar hidden, nothing
+        else shows that the trail continues, and a cut-off label would read as the whole of it.
+      */}
+      {hidden.before && <BreadcrumbEllipsis className="shrink-0 text-muted-foreground" />}
+      {/*
+        One line that scrolls sideways when the trail is wider than the header, rather than
+        wrapping or cutting labels short. The header has a fixed height, so a wrapped second line
+        would spill out of it, and a truncated label can hide the one word that tells two courses
+        apart. The bar is hidden because it would be drawn across the labels themselves.
+      */}
+      <BreadcrumbList
+        ref={listRef}
+        onScroll={measureHidden}
+        className="no-scrollbar min-w-0 flex-1 flex-nowrap overflow-x-auto whitespace-nowrap"
+      >
         {crumbs.map((crumb, i) => {
           const isLast = i === crumbs.length - 1;
           return (
             <React.Fragment key={`${crumb.label}-${i}`}>
-              <BreadcrumbItem className={cn(i > 0 && "hidden md:block")}>
+              <BreadcrumbItem>
                 {isLast || !crumb.href ? (
-                  <BreadcrumbPage className="truncate">{crumb.label}</BreadcrumbPage>
+                  <BreadcrumbPage>{crumb.label}</BreadcrumbPage>
                 ) : (
-                  <BreadcrumbLink render={<Link href={crumb.href} />} className="truncate">
-                    {crumb.label}
-                  </BreadcrumbLink>
+                  <BreadcrumbLink render={<Link href={crumb.href} />}>{crumb.label}</BreadcrumbLink>
                 )}
               </BreadcrumbItem>
-              {!isLast && <BreadcrumbSeparator className={cn(i > 0 && "hidden md:block")} />}
+              {!isLast && <BreadcrumbSeparator />}
             </React.Fragment>
           );
         })}
       </BreadcrumbList>
+      {hidden.after && <BreadcrumbEllipsis className="shrink-0 text-muted-foreground" />}
     </Breadcrumb>
   );
 }
