@@ -468,6 +468,90 @@ export async function listAnswerKeyEntries(
   );
 }
 
+/**
+ * The `swe-N-M` part a template's name and its answer key folder's name share, with the module
+ * number `N` captured. `swe-1-4-loops` matches as `swe-1-4`; `swe-checkpoint-4-1` does not match,
+ * because a checkpoint is numbered differently and has no module number in that position.
+ */
+const ASSIGNMENT_NUMBER = /^swe-(\d+)-\d+(?=-|$)/;
+
+/**
+ * The folder holding one assignment's answer keys, found from its template's name, or null.
+ *
+ * The grading guides repository keeps each assignment's keys two folders down, as
+ * `answer-keys/mod-1-js-fundamentals/swe-1-4-loops`, and the Python course's as
+ * `answer-keys-py/mod-1/swe-1-4-loops-python`. An instructor creating an assignment has the
+ * template's name and would otherwise click through both levels to reach a folder whose name
+ * is almost always the same. A template whose name ends in `-python` is looked up in the Python
+ * tree, because the two courses reuse the same `swe-N-M` numbers for different assignments.
+ *
+ * Only the module folders the template's number points at are listed, so a lookup costs two or
+ * three GitHub requests rather than a walk of the repository.
+ */
+export async function findAnswerKeyDir(
+  answerKeyRepo: string,
+  templateName: string,
+): Promise<string | null> {
+  const moduleNumber = ASSIGNMENT_NUMBER.exec(templateName)?.[1];
+  if (!moduleNumber) return null;
+
+  const tree = templateName.endsWith("-python") ? "answer-keys-py" : "answer-keys";
+  const modules = await listAnswerKeyEntries(answerKeyRepo, tree);
+  if (modules === null) return null;
+
+  const dirs: string[] = [];
+  for (const moduleDir of modules) {
+    if (moduleDir.type !== "dir") continue;
+    if (
+      moduleDir.name !== `mod-${moduleNumber}` &&
+      !moduleDir.name.startsWith(`mod-${moduleNumber}-`)
+    ) {
+      continue;
+    }
+    const entries = await listAnswerKeyEntries(answerKeyRepo, `${tree}/${moduleDir.name}`);
+    for (const entry of entries ?? []) {
+      if (entry.type === "dir") dirs.push(`${tree}/${moduleDir.name}/${entry.name}`);
+    }
+  }
+
+  return closestAnswerKeyDir(templateName, dirs);
+}
+
+/**
+ * Of the given folders, the one whose name best matches the template's name, or null when none
+ * shares its `swe-N-M` part.
+ *
+ * Several folders can share that part: `swe-7-1` sits beside `swe-7-1-sr`, and
+ * `swe-6-1-sql-basics` beside `swe-6-1-sql-basics-sr`. The folder whose name agrees with the
+ * template's on the most leading hyphen-separated words is chosen, so an exact name always wins.
+ * When two folders agree on the same number of words, the shorter name is chosen, because the
+ * longer one is a variant of the shorter and a template that names no variant wants the base.
+ */
+export function closestAnswerKeyDir(templateName: string, dirs: string[]): string | null {
+  const assignment = ASSIGNMENT_NUMBER.exec(templateName)?.[0];
+  if (!assignment) return null;
+
+  const wanted = templateName.split("-");
+  let best: { dir: string; shared: number; length: number } | null = null;
+
+  for (const dir of dirs) {
+    const name = path.posix.basename(dir);
+    if (name !== assignment && !name.startsWith(`${assignment}-`)) continue;
+
+    const words = name.split("-");
+    let shared = 0;
+    while (shared < words.length && words[shared] === wanted[shared]) shared += 1;
+
+    const better =
+      best === null ||
+      shared > best.shared ||
+      (shared === best.shared && name.length < best.length);
+    if (better) best = { dir, shared, length: name.length };
+  }
+
+  return best?.dir ?? null;
+}
+
 /** What one answer key directory resolves to: the files that will be read, and what was not. */
 export type AnswerKeySet = {
   /** Full repository paths, in a stable order. */
