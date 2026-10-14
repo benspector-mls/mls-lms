@@ -613,14 +613,24 @@ export async function generateReportForSubmission(submissionId: string): Promise
       */
       const totals = rowTotals(response.output.rubricItems);
 
+      /*
+        The process note is written onto the end of the stored summary, so the student reads it at
+        the top of the report. Joining it here rather than inside `composeReport` means every later
+        reassembly — an instructor's edit, the review screen's preview — carries it without being
+        handed it, and an instructor can edit or delete it in the summary like any other sentence.
+      */
+      let summaryMarkdown = response.output.summaryMarkdown;
+      const processNote = response.output.submissionProcessNote?.trim();
+      if (processNote) summaryMarkdown = `${summaryMarkdown.trim()}\n\n${processNote}`;
+
       await db.gradingDraftSection.create({
         data: {
           gradingDraftId: draft.id,
           sectionType,
-          summaryMarkdown: response.output.summaryMarkdown,
+          summaryMarkdown,
           reportMarkdown: composeReport({
             sectionType,
-            summaryMarkdown: response.output.summaryMarkdown,
+            summaryMarkdown,
             rows: response.output.rubricItems,
           }),
           scoreEarned: totals.earned,

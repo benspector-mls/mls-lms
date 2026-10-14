@@ -618,7 +618,7 @@ export function buildUserPrompt(params: {
   parts.push("");
 
   // The process note is a rule from agent-rules.md: work that did not come from a
-  // `draft` branch gets a kind reminder at the end of the report.
+  // `draft` branch gets a kind reminder at the end of the report's summary.
   if (context.headBranch && context.headBranch !== "draft") {
     parts.push(
       `This submission's pull request comes from a branch named \`${context.headBranch}\` ` +
