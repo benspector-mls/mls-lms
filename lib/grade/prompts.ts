@@ -188,11 +188,17 @@ not per question. The total is therefore:
 
 > (3 technical points x number of questions) + 3 writing points
 
-A four-question assignment is out of 15. Put the writing score in \`rubricItems\` as
-one entry with \`criterion: "writing_quality"\` and the label \`Writing Quality Score
-(Entire Assignment)\`, placed last. Give each question its own entry with
+A four-question assignment is out of 15, and a one-question assignment is out of 6.
+Put the writing score in \`rubricItems\` as one entry with
+\`criterion: "writing_quality"\` and the label \`Writing Quality Score (Entire
+Assignment)\`, placed last. Give each question its own entry with
 \`criterion: "technical"\` and a label of the form \`Question 3: Flexbox vs. CSS Grid\`.
-Do not add a per-question writing score — that inflates the denominator.
+
+**Every short response report has exactly one writing entry, whatever the number of
+questions.** A one-question submission has two entries: the question's technical score
+and the writing score, even though both describe the same answer. Leaving the writing
+entry out scores the section out of 3 when it is worth 6. Do not add a writing score
+to each question as well — that inflates the denominator.
 
 Markdown that does not render (a wrong code fence language, escaped characters) is a
 **writing** deduction, never a technical one. If the underlying content is correct,
