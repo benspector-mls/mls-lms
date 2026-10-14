@@ -2277,8 +2277,13 @@ export const submissionsRouter = createTRPCRouter({
         */
         where: { courseId: input.courseId, distributedAt: { not: null } },
         // Course order — the sequence the instructor set — because reading a student's record is
-        // reading it in the order they met the work.
-        orderBy: [{ courseUnit: { position: "asc" } }, { title: "asc" }],
+        // reading it in the order they met the work. Within a unit, earliest due date first, with
+        // undated work at the end of its unit; the title breaks a tie between two due together.
+        orderBy: [
+          { courseUnit: { position: "asc" } },
+          { dueAt: { sort: "asc", nulls: "last" } },
+          { title: "asc" },
+        ],
         select: {
           id: true,
           title: true,
