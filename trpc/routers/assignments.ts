@@ -11,7 +11,7 @@ import {
   type Accepted,
 } from "@/lib/assignments/accept";
 import { detectRunnerPreset, NOT_A_REPOSITORY } from "@/lib/assignments/detect";
-import { normalizeRepoRef } from "@/lib/assignments/repo-ref";
+import { normalizeRepoRef, repoNameFromRef } from "@/lib/assignments/repo-ref";
 import { distributedToStudent } from "@/lib/assignments/scope";
 import { assertKindImplemented } from "@/lib/assignments/spec";
 import {
@@ -33,7 +33,12 @@ import {
 } from "@/lib/submissions/comments";
 import { effectiveDueAt } from "@/lib/submissions/hand-in";
 import { teamForStudent } from "@/lib/submissions/team";
-import { listAnswerKeyEntries, listAnswerKeys, MAX_ANSWER_KEYS } from "@/lib/grade/assets";
+import {
+  findAnswerKeyDir,
+  listAnswerKeyEntries,
+  listAnswerKeys,
+  MAX_ANSWER_KEYS,
+} from "@/lib/grade/assets";
 
 import {
   courseProcedure,
@@ -1059,6 +1064,22 @@ export const assignmentsRouter = createTRPCRouter({
     .query(async ({ input }) => {
       const set = await listAnswerKeys(input.answerKeyRepo, input.dir);
       return { ...set, limit: MAX_ANSWER_KEYS };
+    }),
+
+  /**
+   * The answer key folder a template's name points at, so the form can fill it in.
+   *
+   * `dir` is null when no folder matches, which is an ordinary answer: the form then leaves the
+   * listing at the repository root for the instructor to walk. Both references are normalized
+   * here, so a pasted URL works the same as a typed `owner/repo`.
+   */
+  findAnswerKeyDir: courseProcedure
+    .input(z.object({ answerKeyRepo: z.string().min(3), templateRepo: z.string().min(3) }))
+    .query(async ({ input }) => {
+      const answerKeyRepo = normalizeRepoRef(input.answerKeyRepo);
+      const templateName = repoNameFromRef(input.templateRepo);
+      if (!answerKeyRepo || !templateName) return { dir: null };
+      return { dir: await findAnswerKeyDir(answerKeyRepo, templateName) };
     }),
 
   /**

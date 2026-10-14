@@ -312,18 +312,15 @@ const DEBOUNCE_MS = 600;
 
 /**
  * Where the reference solution browser starts, and where it returns to when the answer key
- * repository changes.
+ * repository changes: the repository root.
  *
- * The grading guides repository holds the answer keys under `answer-keys/`, and its root holds
- * other things — the grading toolkit among them. Starting the browser one level in means an
- * instructor walking to an assignment's folder begins where the modules are listed rather than
- * scrolling past directories no assignment ever names.
- *
- * A starting point, not a rule. The schema accepts a folder at any depth, including the root,
- * and the breadcrumb above the listing still reaches it in one click — which is what a
- * repository holding a single assignment's solutions and nothing else needs.
+ * The template's name usually finds the assignment's folder (see `findAnswerKeyDir`), so this
+ * is where an instructor lands only when it does not. The root is the one folder every
+ * repository has, and from it an instructor can see the whole layout — `answer-keys/`,
+ * `answer-keys-py/`, or however a repository of their own is arranged — and walk to the folder
+ * themselves.
  */
-const ANSWER_KEYS_START_DIR = "answer-keys";
+const ANSWER_KEYS_START_DIR = "";
 
 export function AssignmentForm({
   courseId,
@@ -552,7 +549,7 @@ function Editor({
     enabled: !existing && Boolean(settled?.templateRepo),
   });
 
-  const applied = React.useRef<{ runner?: string; pasted?: string }>({});
+  const applied = React.useRef<{ runner?: string; pasted?: string; answerKeyDir?: string }>({});
 
   /*
     A pasted address that points inside the repository *is* the answer.
@@ -588,6 +585,38 @@ function Editor({
       setState((prev) => (prev ? { ...prev, answerKeyDir: ANSWER_KEYS_START_DIR } : prev));
     }
   }, [settled?.answerKeyRepo, setState]);
+
+  /*
+    The answer key folder the template's name points at, looked up once both repositories are
+    named. A template called `swe-1-4-loops` finds
+    `answer-keys/mod-1-js-fundamentals/swe-1-4-loops`, which an instructor would otherwise reach
+    by clicking through two levels of folders.
+  */
+  const templateRepo = isRepoKind(kind) ? (settled?.templateRepo ?? "") : "";
+  const answerKeyMatch = useQuery({
+    ...trpc.assignments.findAnswerKeyDir.queryOptions({ courseId, answerKeyRepo, templateRepo }),
+    enabled: !existing && answerKeyRepo.length > 0 && templateRepo.length > 0,
+  });
+
+  /*
+    Applied only while the folder is still at the root or still holds what the last lookup put
+    there. An instructor who pasted a folder's address or walked to one has answered the
+    question, and correcting a typo in the template afterwards must not throw that answer away —
+    the same rule the repository name follows below. A lookup that finds nothing returns the
+    folder to the root, so a match from the previous template is not left behind.
+  */
+  React.useEffect(() => {
+    if (!answerKeyMatch.data) return;
+    const found = answerKeyMatch.data.dir ?? ANSWER_KEYS_START_DIR;
+    const previous = applied.current.answerKeyDir;
+    applied.current.answerKeyDir = found;
+
+    setState((prev) =>
+      prev && (prev.answerKeyDir === ANSWER_KEYS_START_DIR || prev.answerKeyDir === previous)
+        ? { ...prev, answerKeyDir: found }
+        : prev,
+    );
+  }, [answerKeyMatch.data, setState]);
 
   React.useEffect(() => {
     const template = settled?.templateRepo;
@@ -1049,6 +1078,17 @@ function Editor({
                     resolved={answerKeys.data ?? null}
                     loading={answerKeys.isFetching}
                   />
+                  {/*
+                    Said only while the listing is still at the root, so that an instructor
+                    looking at a whole repository knows the lookup ran and found nothing, rather
+                    than wondering whether it ran at all.
+                  */}
+                  {answerKeyMatch.data?.dir === null &&
+                    state.answerKeyDir === ANSWER_KEYS_START_DIR && (
+                      <p className="text-xs text-muted-foreground">
+                        No answer key folder matches this template’s name. Choose the folder above.
+                      </p>
+                    )}
                 </Field>
 
                 <div className="grid gap-4 sm:grid-cols-2">
@@ -1963,8 +2003,8 @@ function blankDraft({
     dueAt: existingState?.dueAt ?? null,
     templateRepo: repo ? (existingState?.templateRepo ?? "") : "",
     answerKeyRepo: repo ? existingState?.answerKeyRepo || defaults.answerKeyRepo || "" : "",
-    // Where the answer keys live until an address with a path is pasted, or a folder is
-    // chosen below.
+    // The repository root until the template's name finds a folder, an address with a path is
+    // pasted, or a folder is chosen below.
     answerKeyDir: repo ? (existingState?.answerKeyDir ?? ANSWER_KEYS_START_DIR) : "",
     // Follows the template's own name once one is named — see the effect in `Editor`.
     assignmentRepoName: repo ? (existingState?.assignmentRepoName ?? "") : "",
