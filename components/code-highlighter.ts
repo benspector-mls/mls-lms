@@ -20,19 +20,32 @@ import type { DiffLanguage } from "@/lib/diff/languages";
  * procedure in the deployment would then carry. Here it is a dynamic import, on one screen, for
  * the languages that screen actually needs.
  *
- * **Measured from this repository's own production build**, gzipped: the core, the engine and the
- * two themes come to 28kB in one chunk, and each grammar is a chunk of its own — 17kB for
- * TypeScript, 9kB for Python, 8kB for SQL, 6kB for Markdown. So reading a TypeScript diff costs
- * about 45kB, none of it on any other screen and none of it in the shared bundle. Re-measure by
- * looking for the chunks that mention `shiki` after `npm run build`.
+ * **Measured from this repository's own production build**, gzipped: the core and the two themes
+ * come to 29kB in one chunk, the engine and its pattern compiler to 19kB in another, and each
+ * grammar is a chunk of its own — 17kB for TypeScript, 9kB for Python, 8kB for SQL, 6kB for
+ * Markdown. So reading a TypeScript diff costs about 65kB, none of it on any other screen and none
+ * of it in the shared bundle. Re-measure by looking for the chunks that mention `shiki` after
+ * `npm run build`.
  *
  * The pieces rather than the `shiki` meta package, and the same call `lib/github/app-client.ts`
  * makes about Octokit: take what is used. The precompiled grammars ship their patterns as regular
- * expression literals, so `createJavaScriptRawEngine` runs them directly and there is no WebAssembly
- * asset to serve and no translation step at load. The cost is that those literals use the ES2024
- * `v` flag, so a browser older than Chrome 112, Safari 17 or Firefox 116 fails to evaluate the
+ * expression literals, so the engine runs them directly and there is no WebAssembly asset to serve
+ * and no translation step for them at load. The cost is that those literals use the ES2024 `v`
+ * flag, so a browser older than Chrome 112, Safari 17 or Firefox 116 fails to evaluate the
  * module — which `useDiffHighlight` catches, leaving the diff in plain monospace. Unhighlighted
  * code is a perfectly good diff; a blank card is not.
+ *
+ * **Markdown is the one grammar loaded uncompiled, because precompiling breaks its fenced code
+ * blocks.** A fence closes only on a line matching the fence that opened it, so the grammar's end
+ * pattern refers back to what its begin pattern captured. That reference is filled in at
+ * tokenizing time from the pattern's source text, and a precompiled literal has no source text to
+ * fill it into, so the precompiler replaces it with a group that never matches. The result is a
+ * code block that never closes: every line after a ```` ```python ```` block is coloured as
+ * Python. The uncompiled grammar keeps its patterns as strings, which is why the engine is
+ * `createJavaScriptRegexEngine` — it compiles a string pattern when it first meets one and passes
+ * a precompiled literal straight through, so the other grammars are unaffected. Before adding a
+ * language, check its precompiled module for an `end` pattern containing `(?!)`; that is the sign
+ * of the same loss.
  */
 
 /**
@@ -49,37 +62,85 @@ const GRAMMARS = {
   json: () => import("@shikijs/langs-precompiled/json"),
   css: () => import("@shikijs/langs-precompiled/css"),
   html: () => import("@shikijs/langs-precompiled/html"),
-  markdown: () => import("@shikijs/langs-precompiled/markdown"),
+  // Uncompiled: see the module comment on fenced code blocks.
+  markdown: () => import("@shikijs/langs/markdown"),
   sql: () => import("@shikijs/langs-precompiled/sql"),
   shellscript: () => import("@shikijs/langs-precompiled/shellscript"),
   python: () => import("@shikijs/langs-precompiled/python"),
 } satisfies Record<DiffLanguage, () => Promise<unknown>>;
+
+/**
+ * The grammar a fenced code block in Markdown needs, by the language name on its opening fence.
+ *
+ * The Markdown grammar colours a fenced block with the grammar its fence names, but only when that
+ * grammar is already loaded — it never fetches one. Without this table, a ```` ```python ```` block
+ * would be coloured or plain depending on whether the reader happened to open a Python file first,
+ * so the same README could look different on two visits. A name maps to the grammar the Markdown
+ * grammar actually uses for it, which is why `jsx` maps to JavaScript: its fence rule includes
+ * `source.js`, not the JSX grammar. A name missing from this table leaves its block plain.
+ */
+const FENCE_LANGUAGES: Record<string, DiffLanguage> = {
+  python: "python",
+  py: "python",
+  js: "javascript",
+  javascript: "javascript",
+  jsx: "javascript",
+  ts: "typescript",
+  typescript: "typescript",
+  tsx: "tsx",
+  json: "json",
+  css: "css",
+  html: "html",
+  sql: "sql",
+  sh: "shellscript",
+  bash: "shellscript",
+  zsh: "shellscript",
+  shell: "shellscript",
+};
+
+/** The language name on an opening fence, such as `python` in ```` ```python ````. */
+const FENCE_NAME = /^[ \t]*(?:`{3,}|~{3,})[ \t]*([\w-]+)/gm;
 
 /** One highlighter for the page, created on the first file anybody expands. */
 let highlighterPromise: Promise<Awaited<ReturnType<typeof create>>> | null = null;
 const loaded = new Set<DiffLanguage>();
 
 /**
- * The highlighter, with this language's grammar fetched.
+ * The highlighter, with this language's grammar fetched — and, for Markdown, the grammar of every
+ * fenced code block in `text` that `FENCE_LANGUAGES` names.
  *
  * Both entry points go through here, so a grammar is downloaded once however it is first asked
- * for — a Python upload read beside a Python diff pays for one.
+ * for — a Python upload read beside a Python diff pays for one, and so does a README whose Python
+ * block is read after either.
  */
-async function withLanguage(language: DiffLanguage) {
+async function withLanguage(language: DiffLanguage, text: string) {
   highlighterPromise ??= create();
   const highlighter = await highlighterPromise;
 
-  if (!loaded.has(language)) {
-    const grammar = await GRAMMARS[language]();
-    await highlighter.loadLanguage((grammar as { default: never }).default);
-    loaded.add(language);
+  const languages = new Set([language]);
+  if (language === "markdown") {
+    for (const match of text.matchAll(FENCE_NAME)) {
+      const fenced = FENCE_LANGUAGES[match[1].toLowerCase()];
+      if (fenced) languages.add(fenced);
+    }
   }
+
+  // Fetched side by side, so a Markdown file waits for its largest grammar rather than the sum.
+  await Promise.all(
+    [...languages]
+      .filter((each) => !loaded.has(each))
+      .map(async (each) => {
+        const grammar = await GRAMMARS[each]();
+        await highlighter.loadLanguage((grammar as { default: never }).default);
+        loaded.add(each);
+      }),
+  );
 
   return highlighter;
 }
 
 async function create() {
-  const [{ createHighlighterCore }, { createJavaScriptRawEngine }, light, dark] = await Promise.all(
+  const [{ createHighlighterCore }, { createJavaScriptRegexEngine }, light, dark] = await Promise.all(
     [
       import("@shikijs/core"),
       import("@shikijs/engine-javascript"),
@@ -92,7 +153,7 @@ async function create() {
     themes: [light.default, dark.default],
     // None up front. Each is fetched by `GRAMMARS` when a file that needs it is opened.
     langs: [],
-    engine: createJavaScriptRawEngine(),
+    engine: createJavaScriptRegexEngine(),
   });
 }
 
@@ -118,8 +179,6 @@ export async function highlightDiffLines(
   hunks: DiffHunk[],
   language: DiffLanguage,
 ): Promise<(ThemedToken[] | null)[]> {
-  const highlighter = await withLanguage(language);
-
   /*
     Which rendered line each side's text came from, recorded on the way, so mapping the tokens
     back afterwards is an index lookup rather than a second walk that has to agree with this one.
@@ -139,6 +198,8 @@ export async function highlightDiffLines(
     return { side: "head" as const, index: head.push(text) - 1 };
   });
 
+  // Both sides, because a fence on a removed line still needs its grammar to colour that line.
+  const highlighter = await withLanguage(language, [...base, ...head].join("\n"));
   const options = themeOptions(language);
 
   const tokensBySide = {
@@ -179,7 +240,7 @@ export async function highlightFileLines(
   text: string,
   language: DiffLanguage,
 ): Promise<(ThemedToken[] | null)[]> {
-  const highlighter = await withLanguage(language);
+  const highlighter = await withLanguage(language, text);
 
   return highlighter.codeToTokens(text, themeOptions(language)).tokens;
 }
