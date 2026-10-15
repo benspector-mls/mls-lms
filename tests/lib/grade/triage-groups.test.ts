@@ -13,10 +13,11 @@ function row(
   assignmentId: string,
   title: string,
   student: Partial<GroupableRow["student"]> = {},
+  dueAt: Date | null = null,
 ): GroupableRow {
   return {
     id,
-    assignment: { id: assignmentId, courseId: COURSE, title },
+    assignment: { id: assignmentId, courseId: COURSE, title, dueAt },
     student: { displayName: `Student ${id}`, email: `${id}@example.com`, ...student },
   };
 }
@@ -62,7 +63,7 @@ describe("who a row is waiting on", () => {
   });
 });
 
-describe("grouping a bucket by assignment", () => {
+describe("grouping the pile by assignment", () => {
   it("names every member of a team under the assignment's title", () => {
     const groups = groupByAssignment([
       teamRow("1", "a1", "Project", ["Ben Spector", "Liz Treacy"]),
@@ -123,22 +124,43 @@ describe("grouping a bucket by assignment", () => {
     expect(total).toBe(rows.length);
   });
 
-  it("orders the biggest pile first, because that is the one to pick up", () => {
+  it("orders the earliest due date first, because that work has waited longest", () => {
     const groups = groupByAssignment([
-      row("1", "a1", "Recursion"),
-      row("2", "a2", "Loops"),
-      row("3", "a2", "Loops"),
-      row("4", "a2", "Loops"),
+      row("1", "a1", "Recursion", {}, new Date("2026-10-10T23:59:00Z")),
+      row("2", "a2", "Loops", {}, new Date("2026-10-03T23:59:00Z")),
+      row("3", "a2", "Loops", {}, new Date("2026-10-03T23:59:00Z")),
+      row("4", "a3", "Arrays", {}, new Date("2026-10-17T23:59:00Z")),
     ]);
 
-    expect(groups.map((g) => g.title)).toEqual(["Loops", "Recursion"]);
+    expect(groups.map((g) => g.title)).toEqual(["Loops", "Recursion", "Arrays"]);
+  });
+
+  // An assignment with no deadline cannot be more urgent than one that has a deadline.
+  it("puts work with no due date last", () => {
+    const groups = groupByAssignment([
+      row("1", "a1", "Undated"),
+      row("2", "a2", "Dated", {}, new Date("2026-12-01T23:59:00Z")),
+    ]);
+
+    expect(groups.map((g) => g.title)).toEqual(["Dated", "Undated"]);
   });
 
   // Without a tie-break the order would come from whatever the payload happened to hold, which
   // can differ between two renders of one screen.
   it("breaks a tie on title, so the order is total", () => {
-    const groups = groupByAssignment([row("1", "a2", "Zebras"), row("2", "a1", "Arrays")]);
-    expect(groups.map((g) => g.title)).toEqual(["Arrays", "Zebras"]);
+    const due = new Date("2026-10-10T23:59:00Z");
+    const groups = groupByAssignment([
+      row("1", "a2", "Zebras", {}, due),
+      row("2", "a1", "Arrays", {}, due),
+      row("3", "a4", "Yaks"),
+      row("4", "a3", "Badgers"),
+    ]);
+    expect(groups.map((g) => g.title)).toEqual(["Arrays", "Zebras", "Badgers", "Yaks"]);
+  });
+
+  it("carries the due date, so the screen can show it and split on it", () => {
+    const due = new Date("2026-10-10T23:59:00Z");
+    expect(groupByAssignment([row("1", "a1", "Recursion", {}, due)])[0]!.dueAt).toEqual(due);
   });
 
   it("collects the students who are waiting, in row order", () => {

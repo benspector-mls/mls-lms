@@ -20,7 +20,7 @@ type Named = { displayName: string | null; email: string | null };
 /** The parts of a triage row this reads. Structural, so a test can build a queue in a few lines. */
 export type GroupableRow = {
   id: string;
-  assignment: { id: string; courseId: string; title: string };
+  assignment: { id: string; courseId: string; title: string; dueAt: Date | null };
   student: Named;
   /**
    * The team this work was handed in by, with every member on it. Absent or null for work a
@@ -36,12 +36,14 @@ export type AssignmentGroup<R extends GroupableRow> = {
   assignmentId: string;
   courseId: string;
   title: string;
-  /** Every row in this bucket for this assignment, in the order the payload had them. */
+  /** The assignment's deadline, which is what the groups are ordered by. Null for undated work. */
+  dueAt: Date | null;
+  /** Every row for this assignment, in the order the payload had them. */
   rows: R[];
   /**
    * Who is waiting, in the order their rows appear, without repeats.
    *
-   * A student can hold two rows in one bucket only if they have two submissions against one
+   * A student can hold two rows for one assignment only if they have two submissions against one
    * assignment, which the schema forbids — but the deduplication is here anyway, because a
    * subtext that named somebody twice would read as two people with the same name. A team's row
    * contributes every member, and a set is a partition, so no two rows for one assignment can
@@ -74,12 +76,12 @@ export function rowNames(row: GroupableRow): string[] {
 }
 
 /**
- * One bucket's rows, grouped into the assignments they belong to.
+ * Rows grouped into the assignments they belong to.
  *
- * Ordered by how many are waiting, most first, with the title as a tie-break so the order is
- * total and two renders put the groups in the same places. Most-first because the question the
- * screen answers is what to pick up, and the biggest pile is the usual answer — an alphabetical
- * list would put that decision back on the reader.
+ * Ordered by due date, earliest first, because the question the screen answers is which work is
+ * most urgent, and the assignment whose deadline passed longest ago has kept its fellows waiting
+ * longest. Work with no due date has no deadline to be urgent against, so it comes last. The title
+ * breaks a tie, so the order is total and two renders put the groups in the same places.
  */
 export function groupByAssignment<R extends GroupableRow>(
   rows: readonly R[],
@@ -101,14 +103,18 @@ export function groupByAssignment<R extends GroupableRow>(
       assignmentId: row.assignment.id,
       courseId: row.assignment.courseId,
       title: row.assignment.title,
+      dueAt: row.assignment.dueAt,
       rows: [row],
       studentNames: rowNames(row),
     });
   }
 
-  return [...groups.values()].sort(
-    (a, b) => b.rows.length - a.rows.length || a.title.localeCompare(b.title),
-  );
+  return [...groups.values()].sort((a, b) => {
+    const aDue = a.dueAt === null ? Infinity : new Date(a.dueAt).getTime();
+    const bDue = b.dueAt === null ? Infinity : new Date(b.dueAt).getTime();
+    if (aDue !== bDue) return aDue < bDue ? -1 : 1;
+    return a.title.localeCompare(b.title);
+  });
 }
 
 /** How many names fit on one line of subtext before the rest become a count. */

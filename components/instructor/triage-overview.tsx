@@ -4,17 +4,14 @@ import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import * as React from "react";
 import {
+  AlarmClock,
   Archive,
   ArrowRight,
+  CalendarClock,
   ChevronRight,
   Clock,
-  FileText,
   Inbox,
   MessageCircleQuestion,
-  MessageSquareOff,
-  PencilLine,
-  Sparkles,
-  XCircle,
 } from "lucide-react";
 
 import { ResolveQuestionButton } from "@/components/comments/resolve-button";
@@ -23,7 +20,6 @@ import { PageHeader } from "@/components/page-header";
 import { TestStudentBadge } from "@/components/test-student-badge";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
-import { Separator } from "@/components/ui/separator";
 import { CohortPicker } from "@/components/instructor/cohort-picker";
 import { WorkFilter } from "@/components/instructor/work-filter";
 import {
@@ -34,7 +30,7 @@ import {
 import { filterIsActive, matchesColumnFilter, parseColumnFilter } from "@/lib/gradebook/filters";
 import { groupByAssignment, nameSubtext, type AssignmentGroup } from "@/lib/grade/triage-groups";
 import { gradingQueueHref, studentHref } from "@/lib/links";
-import { formatRelative } from "@/lib/status";
+import { formatDueDateShort, formatRelative } from "@/lib/status";
 import { lateness } from "@/lib/submissions/hand-in";
 import type { AssignmentKind } from "@/lib/generated/prisma/enums";
 import { cn } from "@/lib/utils";
@@ -43,10 +39,13 @@ import type { RouterOutputs } from "@/trpc/types";
 /**
  * What is waiting on the instructor in one course.
  *
- * Organized by what to do about it rather than by assignment, because the question this
- * screen answers is "what next". The buckets together are the whole of the outstanding
- * grading: everything a student has declared finished and nobody has approved is in one of
- * them, so clearing them is being caught up.
+ * One list of assignments with work waiting, ordered by due date, because the question this
+ * screen answers is which work is most urgent. The list is split in two at the present moment:
+ * assignments whose due date has passed, and assignments whose due date has not arrived yet. What
+ * has to be done to each submission (generating a report, reviewing a draft, grading by hand) is
+ * decided in the grading queue the row opens, so the screen does not divide the pile by it. Every
+ * submission a student has declared finished and nobody has approved is in the list, so an empty
+ * list means being caught up.
  *
  * One course at a time, which is what makes "caught up" mean anything. Two courses' work
  * interleaved has no state in which the screen is empty and no order in which to work it.
@@ -54,7 +53,7 @@ import type { RouterOutputs } from "@/trpc/types";
  * the work filter, to one unit, one way of handing in, or one stretch of the calendar.
  *
  * **A client component, because of those two.** The pile arrives whole and is narrowed here, from
- * the rows this render already holds — so the heading, the buckets and the questions cannot come
+ * the rows this render already holds — so the heading, the list and the questions cannot come
  * to describe different sets of work, and a change of filter costs no request. The cohort is the
  * exception and has to be: it decides which fellows the server reads at all.
  */
@@ -62,72 +61,6 @@ import type { RouterOutputs } from "@/trpc/types";
 type Triage = RouterOutputs["submissions"]["triage"];
 type Row = Triage["submissions"][number];
 type Waiting = Triage["awaitingReply"][number];
-
-/**
- * The buckets that represent work. `generating` is not among them — a run already in
- * flight needs waiting on rather than doing, and it sits at the foot of the screen.
- */
-type BucketKey =
-  "needs_report" | "needs_manual_grade" | "draft_ready" | "grading_failed" | "comment_not_posted";
-
-/** Every bucket that counts toward "how much is left", in the order they are worked. */
-const WORK_BUCKETS: BucketKey[] = [
-  "needs_manual_grade",
-  "needs_report",
-  "draft_ready",
-  "grading_failed",
-  "comment_not_posted",
-];
-
-const BUCKET_META: Record<
-  BucketKey,
-  {
-    label: string;
-    description: string;
-    icon: React.ComponentType<{ className?: string }>;
-    tone: string;
-    accent: string;
-  }
-> = {
-  needs_report: {
-    label: "No report yet",
-    description:
-      "Submitted work with no current report. A report about code the student has since replaced counts as none.",
-    icon: FileText,
-    tone: "text-sky-600 dark:text-sky-400",
-    accent: "bg-sky-500/10",
-  },
-  needs_manual_grade: {
-    label: "To grade by hand",
-    description:
-      "Documents and uploads, which the pipeline cannot grade. Read the work, write the feedback, and release it.",
-    icon: PencilLine,
-    tone: "text-violet-600 dark:text-violet-400",
-    accent: "bg-violet-500/10",
-  },
-  draft_ready: {
-    label: "Drafts ready to review",
-    description: "A report was produced. Read it, edit what you disagree with, then approve.",
-    icon: Sparkles,
-    tone: "text-primary",
-    accent: "bg-primary/10",
-  },
-  grading_failed: {
-    label: "Grading failed",
-    description: "The pipeline errored before producing a report. Run it again or grade by hand.",
-    icon: XCircle,
-    tone: "text-destructive",
-    accent: "bg-destructive/10",
-  },
-  comment_not_posted: {
-    label: "Approved, never delivered",
-    description:
-      "The grade is recorded but the comment never reached the pull request, so the student has not been told. Post it again.",
-    icon: MessageSquareOff,
-    tone: "text-amber-600 dark:text-amber-400",
-    accent: "bg-amber-500/10",
-  },
-};
 
 export function TriageOverview({
   triage,
@@ -173,8 +106,8 @@ export function TriageOverview({
   );
 
   /*
-    Narrowed once, here, and everything below counted from the result — the buckets, the questions,
-    and both figures in the heading. That is what makes "3 submissions left to grade" and the piles
+    Narrowed once, here, and everything below counted from the result — the list, the questions,
+    and both figures in the heading. That is what makes "3 submissions left to grade" and the list
     beneath it the same claim stated twice rather than two claims that could disagree.
   */
   const rows = React.useMemo(
@@ -196,19 +129,27 @@ export function TriageOverview({
     return [...present];
   }, [triage.submissions]);
 
-  const buckets = bucketize(rows);
-  const generating = rows.filter((row) => row.bucket === "generating");
-
-  // The whole of what is left. Every bucket counts toward it, so the number at the top
-  // of the screen and the piles below it are the same claim stated two ways.
-  const remaining = WORK_BUCKETS.reduce((total, key) => total + buckets[key].length, 0);
+  /*
+    Every row the procedure placed in a bucket is work an instructor still has to finish, including
+    a report being generated right now: once the report exists, somebody still has to read and
+    approve it. A row with no bucket, such as one team member's copy of the team's grade, is
+    nobody's work.
+  */
+  const pending = rows.filter((row) => row.bucket !== null);
+  const remaining = pending.length;
 
   /*
-    Only the buckets with work in them. An empty card is one the instructor has to scroll past to
-    reach the next thing to do, and the heading's "N submissions left to grade" already counts
-    everything the cards would.
+    Split at the present moment by the same rule the filter's "Past due" uses: due strictly before
+    now. An assignment with no due date has no deadline to have passed, so it is not yet due, and
+    `groupByAssignment` puts it at the end of that list.
   */
-  const fullBuckets = WORK_BUCKETS.filter((key) => buckets[key].length > 0);
+  const groups = groupByAssignment(pending);
+  const pastDue = groups.filter(
+    (group) => group.dueAt !== null && new Date(group.dueAt).getTime() < now.getTime(),
+  );
+  const notYetDue = groups.filter(
+    (group) => group.dueAt === null || new Date(group.dueAt).getTime() >= now.getTime(),
+  );
 
   // Not folded into `remaining`, which is spent in "N submissions left to grade".
   const waiting = questions.length;
@@ -310,69 +251,44 @@ export function TriageOverview({
           }
         />
       ) : remaining === 0 ? null : (
+        /*
+          Only the sections with work in them. An empty card is one the instructor has to scroll
+          past to reach the next thing to do.
+        */
         <div className="flex flex-col gap-4">
-          {fullBuckets.map((key) => (
-            <TriageBucket key={key} bucketKey={key} rows={buckets[key]} now={now} />
-          ))}
+          {pastDue.length > 0 && (
+            <TriageDueSection
+              label="Past due"
+              description="Assignments whose due date has passed, the longest overdue first."
+              icon={AlarmClock}
+              tone="text-amber-600 dark:text-amber-400"
+              accent="bg-amber-500/10"
+              groups={pastDue}
+            />
+          )}
+          {notYetDue.length > 0 && (
+            <TriageDueSection
+              label="Not yet due"
+              description="Assignments due later, the soonest first. Assignments with no due date come last."
+              icon={CalendarClock}
+              tone="text-sky-600 dark:text-sky-400"
+              accent="bg-sky-500/10"
+              groups={notYetDue}
+            />
+          )}
         </div>
-      )}
-
-      {/*
-        Runs already in flight. Below the fold and outside the count on purpose: they are
-        neither work remaining nor work done, and nothing about them needs deciding.
-      */}
-      {generating.length > 0 && (
-        <>
-          <Separator />
-          <section>
-            <div className="mb-3 flex items-center gap-2">
-              <h2 className="text-sm font-medium">Reports being generated</h2>
-              <span className="rounded-full bg-muted px-2 py-0.5 text-xs font-medium tabular-nums text-muted-foreground">
-                {generating.length}
-              </span>
-            </div>
-            <Card>
-              <CardContent className="flex flex-col gap-1 py-2">
-                {/* Grouped the same way the buckets are, so one screen has one kind of row. */}
-                {groupByAssignment(generating).map((group) => (
-                  <AssignmentRow key={group.assignmentId} group={group} now={now} />
-                ))}
-              </CardContent>
-            </Card>
-          </section>
-        </>
       )}
     </div>
   );
 }
 
 /**
- * Files rows under the bucket the procedure assigned. The decision is made there, once,
- * so a card's count and the rows inside it cannot come from two different readings.
- */
-function bucketize(rows: Row[]): Record<BucketKey, Row[]> {
-  const buckets: Record<BucketKey, Row[]> = {
-    needs_report: [],
-    needs_manual_grade: [],
-    draft_ready: [],
-    grading_failed: [],
-    comment_not_posted: [],
-  };
-
-  for (const row of rows) {
-    if (row.bucket && row.bucket in buckets) buckets[row.bucket as BucketKey].push(row);
-  }
-
-  return buckets;
-}
-
-/**
- * The box every pile on this screen is drawn in. It knows nothing about buckets, which is how the
+ * The box every pile on this screen is drawn in. It knows nothing about due dates, which is how the
  * questions list uses it without being one. Every caller draws it only when it has rows, so it
  * has no empty state of its own.
  *
- * **Collapsible, and open on every visit.** An instructor working through drafts can fold away the
- * piles above it, and folding is not remembered, because a pile left closed from last week is work
+ * **Collapsible, and open on every visit.** An instructor working through one section can fold away
+ * the piles above it, and folding is not remembered, because a pile left closed from last week is work
  * the screen would be hiding.
  *
  * The heading is built from spans rather than `CardTitle` and `CardDescription`, which render
@@ -409,8 +325,8 @@ function TriageSection({
               {label}
               {/*
                 Submissions, not assignments. This is the figure the whole screen is counted in,
-                and it stays the count of rows even though the rows beneath are now grouped —
-                otherwise a bucket holding twelve submissions across four assignments would read
+                and it stays the count of rows even though the rows beneath are grouped —
+                otherwise a section holding twelve submissions across four assignments would read
                 as four pieces of work outstanding.
               */}
               <span className="rounded-full bg-muted px-2 py-0.5 text-xs font-medium tabular-nums text-muted-foreground">
@@ -435,10 +351,10 @@ function TriageSection({
 /**
  * Threads where a fellow asked something and nobody has answered.
  *
- * A list of its own rather than a bucket: `triageBucket` returns one value per submission, and work
- * can need a report and hold a question at once.
+ * A list of its own rather than part of the work list: answering a question is a different job from
+ * grading, and a question can be asked before anything was handed in.
  *
- * Teal, because the buckets have taken the other colours and emerald means a pass.
+ * Teal, because the due-date sections have taken amber and sky and emerald means a pass.
  */
 function TriageQuestions({ rows, now }: { rows: Waiting[]; now: Date }) {
   return (
@@ -522,22 +438,36 @@ function QuestionRow({ row, now }: { row: Waiting; now: Date }) {
   );
 }
 
-function TriageBucket({ bucketKey, rows, now }: { bucketKey: BucketKey; rows: Row[]; now: Date }) {
-  const meta = BUCKET_META[bucketKey];
-  const groups = groupByAssignment(rows);
+/** One side of the due-date split: the assignments in it, in the order they were grouped. */
+function TriageDueSection({
+  label,
+  description,
+  icon,
+  tone,
+  accent,
+  groups,
+}: {
+  label: string;
+  description: string;
+  icon: React.ComponentType<{ className?: string }>;
+  tone: string;
+  accent: string;
+  groups: AssignmentGroup<Row>[];
+}) {
+  const count = groups.reduce((total, group) => total + group.rows.length, 0);
 
   return (
     <TriageSection
-      label={meta.label}
-      description={meta.description}
-      icon={meta.icon}
-      tone={meta.tone}
-      accent={meta.accent}
-      count={rows.length}
+      label={label}
+      description={description}
+      icon={icon}
+      tone={tone}
+      accent={accent}
+      count={count}
     >
       <div className="flex flex-col gap-1">
         {groups.map((group) => (
-          <AssignmentRow key={group.assignmentId} group={group} now={now} />
+          <AssignmentRow key={group.assignmentId} group={group} />
         ))}
       </div>
     </TriageSection>
@@ -545,7 +475,7 @@ function TriageBucket({ bucketKey, rows, now }: { bucketKey: BucketKey; rows: Ro
 }
 
 /**
- * One assignment inside a bucket: its title, how many are waiting, and who they are.
+ * One assignment in the list: its title, how many are waiting, who they are, and when it was due.
  *
  * **A row per assignment rather than per submission**, because that is the unit of work. Opening
  * it goes to the assignment's grading queue with nothing selected, which is where the twelve are
@@ -556,7 +486,7 @@ function TriageBucket({ bucketKey, rows, now }: { bucketKey: BucketKey; rows: Ro
  * student is in the pile can see it without opening the assignment, and past three names the list
  * stops being scannable and becomes a paragraph.
  */
-function AssignmentRow({ group, now }: { group: AssignmentGroup<Row>; now: Date }) {
+function AssignmentRow({ group }: { group: AssignmentGroup<Row> }) {
   const anyTestStudent = group.rows.some((row) => row.student.testStudentNumber !== null);
   /*
     Late in the sense the school cares about: a missed deadline that was not renegotiated. A fellow
@@ -570,18 +500,6 @@ function AssignmentRow({ group, now }: { group: AssignmentGroup<Row>; now: Date 
     written against — and the row is the last place an instructor sees before opening the queue.
   */
   const anyRevised = group.rows.some((row) => row.status === "RESUBMITTED");
-
-  /*
-    The most recent thing that happened across the whole group, which is what "how stale is this
-    pile" means once the rows are one row. The oldest would name the submission that has waited
-    longest, which is a different and less useful question here — the pile is worked as a unit.
-  */
-  const lastActivity = group.rows.reduce<Date | null>((latest, row) => {
-    const at = row.lastActivityAt ?? row.submittedAt;
-    if (at == null) return latest;
-    const when = new Date(at);
-    return latest === null || when > latest ? when : latest;
-  }, null);
 
   return (
     <Link
@@ -610,9 +528,10 @@ function AssignmentRow({ group, now }: { group: AssignmentGroup<Row>; now: Date 
         <p className="truncate text-sm text-muted-foreground">{nameSubtext(group.studentNames)}</p>
       </div>
 
+      {/* The due date, because it is what the list is ordered by and what makes a row urgent. */}
       <div className="hidden items-center gap-1.5 text-xs whitespace-nowrap text-muted-foreground sm:flex">
-        <Clock className="size-3.5" />
-        {lastActivity ? formatRelative(lastActivity, now) : "—"}
+        <CalendarClock className="size-3.5" />
+        {group.dueAt === null ? "No due date" : `Due ${formatDueDateShort(group.dueAt)}`}
       </div>
 
       <ArrowRight className="size-4 shrink-0 text-muted-foreground" />
