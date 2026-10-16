@@ -2,6 +2,7 @@ import Link from "next/link";
 import { Archive, ArrowRight, CircleCheck, EyeOff, GitBranch, UserMinus } from "lucide-react";
 
 import { CoachingTopics } from "@/components/coaching-topics";
+import { CoachingDownload } from "@/components/instructor/coaching-download";
 import { FellowGoals } from "@/components/instructor/fellow-goals";
 import { InstructorNotes } from "@/components/instructor/instructor-notes";
 import { ProgramStudentPicker } from "@/components/instructor/program-student-picker";
@@ -11,6 +12,7 @@ import { StartCoachingSession } from "@/components/instructor/start-coaching-ses
 import { Trends } from "@/components/instructor/trends";
 import { ViewAsButton } from "@/components/instructor/view-as-button";
 import { TEMPERATURE_MAX, temperatureTone } from "@/lib/coaching";
+import { coachingCsv } from "@/lib/coaching/csv";
 import { coachingSessionHref, studentHref } from "@/lib/links";
 import { attendanceProvenance } from "@/lib/status";
 import { TestStudentBadge } from "@/components/test-student-badge";
@@ -415,14 +417,31 @@ export function ProgramStudent({
           </section>
 
           <section className="flex flex-col gap-2">
-            <div className="flex flex-col gap-0.5">
-              <h2 className="text-sm font-medium">
-                Coaching sessions · {coaching.sessions.length}
-              </h2>
-              <p className="text-xs text-muted-foreground">
-                The check-in answers are staff-only; completing a session shares a dated snapshot of
-                the figures above with {name}.
-              </p>
+            <div className="flex flex-wrap items-start justify-between gap-3">
+              <div className="flex min-w-0 flex-col gap-0.5">
+                <h2 className="text-sm font-medium">
+                  Coaching sessions · {coaching.sessions.length}
+                </h2>
+                <p className="text-xs text-muted-foreground">
+                  The check-in answers are staff-only; completing a session shares a dated snapshot
+                  of the figures above with {name}.
+                </p>
+              </div>
+              {/*
+                Offered only when there is a session to put in it: a download beside an empty list
+                hands over a file of column headings, the rule the gradebook and attendance follow.
+              */}
+              {coaching.sessions.length > 0 && (
+                <CoachingDownload
+                  csv={coachingCsv({
+                    person: data.student,
+                    program: data.program,
+                    sessions: coaching.sessions,
+                  })}
+                  fellow={name}
+                  term={data.program.term}
+                />
+              )}
             </div>
 
             {coaching.sessions.length > 0 && (

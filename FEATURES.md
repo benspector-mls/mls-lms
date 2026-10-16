@@ -297,6 +297,8 @@ Open a fellow from the roster and their record has two tabs under their details.
 
 **Completing a session shares the snapshot.** Until then it is a staff-only draft the fellow cannot see; completing it gives them the dated figures and closes the form to further editing. The temperature check and the check-in answers stay staff-only for good, and their goals are unaffected either way.
 
+**Download CSV** beside the sessions on a fellow's record gives their whole coaching history as a spreadsheet: one row per session, oldest first, with the temperature, every answer under its prompt, and the attendance and per-course figures each completed session recorded. A session still in progress is a row marked "In progress" with its figures left empty, because it has not recorded any. The file holds the staff-only answers, so treat it as you would the record itself.
+
 **Started one on the wrong person?** **Discard** it. A draft goes entirely, the fellow never saw any of it, and their goals are untouched. It is offered on drafts only — once a session is completed the fellow has read its snapshot, and taking that back is a different thing from throwing away a form nobody saw.
 
 **What they want to discuss** is the first section of the Coaching tab: the topics the fellow has added from their Goals page, in their words and in the order they wrote them, each with its date. They are the fellow's to keep or remove, and the dates are how you tell what is new since the last conversation. The same list is at the top of a draft session form.

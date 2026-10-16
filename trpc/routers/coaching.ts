@@ -430,8 +430,15 @@ export const coachingRouter = createTRPCRouter({
             createdAt: true,
             endedAt: true,
             author: { select: personNameSelect },
-            // Staff-only, like the notes beside it; the session rows show it as a coloured number.
+            /*
+              Staff-only, like the notes beside them. The session rows draw the temperature as a
+              coloured number, and the record's CSV of the coaching history reads all three. The
+              record is a server component, so the answers and the snapshot reach the browser only
+              inside the finished file, never as a payload of their own.
+            */
             temperature: true,
+            answers: true,
+            snapshot: true,
           },
         }),
         ctx.db.goal.findMany({
