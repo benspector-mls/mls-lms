@@ -6,6 +6,7 @@ import { languageForPath, type DiffLanguage } from "@/lib/diff/languages";
 import { promptExclusionReason } from "@/lib/grade/classify";
 import { getConfiguredInstallationId } from "@/lib/github/app-client";
 import { splitRepoFullName } from "@/lib/github/archives";
+import { fetchRepoFile } from "@/lib/github/files";
 import { getPullRequestDiff, type PatchAbsence } from "@/lib/github/prs";
 import { createTRPCRouter, instructorProcedure } from "../init";
 
@@ -170,6 +171,7 @@ export const pullRequestsRouter = createTRPCRouter({
       }
 
       return {
+        submissionId: submission.id,
         prNumber: submission.prNumber,
         prUrl: submission.prUrl,
         repoUrl: submission.repoUrl,
@@ -184,6 +186,65 @@ export const pullRequestsRouter = createTRPCRouter({
         omittedFiles,
         githubCapReached: diff.githubCapReached,
       };
+    }),
+
+  /**
+   * One file of a submission's pull request, whole, at the commit the diff describes.
+   *
+   * For the rendered preview of a Markdown file. The diff carries only the changed lines and a few
+   * around each change, so a short response answered inside the template's own file cannot be
+   * rendered from it; the preview needs the whole text, and shades the blocks the diff added.
+   *
+   * Read at `headSha`, which the webhook rewrites on every push, so the text and the diff's line
+   * numbers describe the same commit — the same assumption the diff panel makes when it prints
+   * that commit as the diff's own. Nothing is stored and nothing is rate limited, for the reasons
+   * `diffForSubmission` gives: one authenticated GET, asked for only when a preview is open.
+   */
+  fileAtHead: instructorProcedure
+    .input(z.object({ submissionId: z.string().uuid(), path: z.string().min(1) }))
+    .query(async ({ ctx, input }) => {
+      const submission = await teachableSubmission(ctx, input.submissionId, {
+        id: true,
+        repoFullName: true,
+        prNumber: true,
+        headSha: true,
+      });
+
+      // A precondition for the reason `diffForSubmission` gives: the preview is reached only from
+      // a file of a diff, and a diff exists only where these do.
+      if (!submission.repoFullName || submission.prNumber === null || !submission.headSha) {
+        throw new TRPCError({
+          code: "PRECONDITION_FAILED",
+          message:
+            "This submission has no pull request commit yet, so there is no file to read. The " +
+            "student has to accept the assignment and push a branch first.",
+        });
+      }
+
+      const { owner, repo } = splitRepoFullName(submission.repoFullName);
+      const text = await fetchRepoFile(getConfiguredInstallationId(), {
+        owner,
+        repo,
+        ref: submission.headSha,
+        path: input.path,
+      });
+
+      /*
+        `fetchRepoFile` answers null for a file that is missing, larger than it will fetch, or
+        unreachable, and does not say which. All three leave the instructor in the same place, with
+        the diff one click away and the file one link away on GitHub.
+      */
+      if (text === null) {
+        throw new TRPCError({
+          code: "NOT_FOUND",
+          message:
+            "GitHub did not return this file at the submitted commit, which happens with very " +
+            "large files. The diff still shows the changes, and the link beside the file opens " +
+            "it on GitHub.",
+        });
+      }
+
+      return { text };
     }),
 });
 

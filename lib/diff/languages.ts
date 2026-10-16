@@ -87,3 +87,41 @@ export function languageForPath(path: string): DiffLanguage | null {
 export const DIFF_LANGUAGES = Object.freeze([
   ...new Set(Object.values(BY_EXTENSION)),
 ]) as readonly DiffLanguage[];
+
+/**
+ * The grammar a fenced code block in Markdown needs, by the language name on its opening fence.
+ *
+ * The Markdown grammar colours a fenced block with the grammar its fence names, but only when that
+ * grammar is already loaded — it never fetches one. Without this table, a ```` ```python ```` block
+ * would be coloured or plain depending on whether the reader happened to open a Python file first,
+ * so the same README could look different on two visits. A name maps to the grammar the Markdown
+ * grammar actually uses for it, which is why `jsx` maps to JavaScript: its fence rule includes
+ * `source.js`, not the JSX grammar. A name missing from this table leaves its block plain.
+ *
+ * Here rather than in `components/code-highlighter.ts`, because rendered Markdown asks it too, to
+ * decide whether a fenced block is coloured at all. That module is imported only on demand, to keep
+ * the highlighter out of every page's bundle, and a static import of it would undo that.
+ */
+const FENCE_LANGUAGES: Record<string, DiffLanguage> = {
+  python: "python",
+  py: "python",
+  js: "javascript",
+  javascript: "javascript",
+  jsx: "javascript",
+  ts: "typescript",
+  typescript: "typescript",
+  tsx: "tsx",
+  json: "json",
+  css: "css",
+  html: "html",
+  sql: "sql",
+  sh: "shellscript",
+  bash: "shellscript",
+  zsh: "shellscript",
+  shell: "shellscript",
+};
+
+/** The grammar for the language name on an opening fence, such as `python`, or null for none. */
+export function languageForFence(name: string): DiffLanguage | null {
+  return FENCE_LANGUAGES[name.toLowerCase()] ?? null;
+}

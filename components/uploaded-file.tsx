@@ -1,11 +1,12 @@
 "use client";
 
-import { useMutation } from "@tanstack/react-query";
+import { useMutation, useQuery } from "@tanstack/react-query";
 import { ChevronRight, Download, FileUp, Loader2 } from "lucide-react";
 import * as React from "react";
 
 import { Button, buttonVariants } from "@/components/ui/button";
 import { insetSurface, panelSurface } from "@/components/ui/card";
+import { Markdown } from "@/components/markdown";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { UploadedCode } from "@/components/uploaded-code";
 import { useTRPC } from "@/trpc/client";
@@ -31,8 +32,9 @@ import { cn } from "@/lib/utils";
  *
  * **Code takes the other route, and that is why `previewKindOf` says which.** No browser has a
  * viewer for a Python script, so `UploadedCode` reads the text through a procedure of its own and
- * colours it — which means no signed URL is minted for it, and the effect below is skipped. The
- * download button is the same button either way.
+ * colours it — which means no signed URL is minted for it, and the effect below is skipped. A
+ * Markdown file takes the same route and is rendered rather than coloured. The download button is
+ * the same button either way.
  */
 /**
  * Whose bytes these are, which decides which procedure signs the link.
@@ -87,12 +89,14 @@ export function UploadedFileRow({
   const [previewUrl, setPreviewUrl] = React.useState<string | null>(null);
 
   /*
-    Code is read as text through `submissions.uploadText`, which has no counterpart for a goal
-    update's file and is not worth one: screenshots and documents are what gets attached to a
-    goal. So a `.py` on an update is offered as a download, like a file with no viewer at all.
+    Code and Markdown are read as text through `submissions.uploadText`, which has no counterpart
+    for a goal update's file and is not worth one: screenshots and documents are what gets attached
+    to a goal. So a `.py` or a `.md` on an update is offered as a download, like a file with no
+    viewer at all.
   */
   const kind = previewKindOf(filename);
-  const previewKind = source.artifactId === undefined && kind === "code" ? null : kind;
+  const previewKind =
+    source.artifactId === undefined && (kind === "code" || kind === "markdown") ? null : kind;
 
   const viaSubmission = useMutation(trpc.submissions.uploadUrl.mutationOptions());
   const viaAttachment = useMutation(trpc.coaching.updateAttachmentUrl.mutationOptions());
@@ -249,6 +253,8 @@ export function UploadedFileRow({
             <div className="mt-2">
               {previewKind === "code" && source.artifactId !== undefined ? (
                 <UploadedCode artifactId={source.artifactId} filename={filename} />
+              ) : previewKind === "markdown" && source.artifactId !== undefined ? (
+                <UploadedMarkdown artifactId={source.artifactId} />
               ) : previewUrl === null ? (
                 <div className="flex h-24 items-center justify-center rounded-md border border-border text-sm text-muted-foreground">
                   <Loader2 className="mr-2 size-4 animate-spin" />
@@ -301,6 +307,41 @@ export function UploadedFileRow({
           {error}
         </p>
       )}
+    </div>
+  );
+}
+
+/**
+ * An uploaded Markdown file, rendered for reading.
+ *
+ * Read through `submissions.uploadText`, the query `UploadedCode` uses, with the same loading and
+ * error states. Nothing is shaded: an upload has no diff, so all of it is the fellow's. This is
+ * shown to the fellow who handed it in as well as to the instructor, so both see it the same way.
+ */
+function UploadedMarkdown({ artifactId }: { artifactId: string }) {
+  const trpc = useTRPC();
+  const file = useQuery(trpc.submissions.uploadText.queryOptions({ artifactId }));
+
+  if (file.isPending) {
+    return (
+      <div className="flex h-24 items-center justify-center rounded-md border border-border text-sm text-muted-foreground">
+        <Loader2 className="mr-2 size-4 animate-spin" />
+        Opening…
+      </div>
+    );
+  }
+
+  if (file.error) {
+    return (
+      <p className="rounded-md border border-border px-3 py-2.5 text-sm text-muted-foreground">
+        {file.error.message}
+      </p>
+    );
+  }
+
+  return (
+    <div className="rounded-md border border-border px-4 py-3">
+      <Markdown content={file.data.text} reading />
     </div>
   );
 }

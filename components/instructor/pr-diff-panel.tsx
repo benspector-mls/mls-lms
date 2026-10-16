@@ -108,6 +108,7 @@ export function PrDiffPanel({ diff }: { diff: Diff }) {
         {diff.files.map((file) => (
           <DiffFileCard
             key={file.path}
+            submissionId={diff.submissionId}
             file={file}
             open={openPaths.has(file.path)}
             onOpenChange={(open) => setOpen(file.path, open)}

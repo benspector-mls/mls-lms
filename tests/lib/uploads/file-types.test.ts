@@ -183,13 +183,15 @@ describe("previewKindOf", () => {
   });
 
   /*
-    Markdown is not, and that is a decision rather than an omission: the same machinery would serve
-    it, and Markdown in particular wants rendering rather than colouring, so widening this is
-    something to do on purpose. Checked so that widening it by accident — which is what returning
-    "code" for everything `languageForPath` knows would be — fails here.
+    Markdown takes the same route as code and is rendered rather than coloured. Checked as its own
+    kind so that returning "code" for everything `languageForPath` knows — which would colour a
+    short response as source text — fails here.
   */
-  it("shows neither Markdown nor a file with no extension", () => {
-    expect(previewKindOf("README.md")).toBeNull();
+  it.each(["answers.md", "ANSWERS.MD"])("renders %s as Markdown", (filename) => {
+    expect(previewKindOf(filename)).toBe("markdown");
+  });
+
+  it("shows a file with no extension in no way at all", () => {
     expect(previewKindOf("resume")).toBeNull();
   });
 });

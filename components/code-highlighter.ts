@@ -1,7 +1,7 @@
 import type { ThemedToken } from "@shikijs/core";
 
 import type { DiffHunk } from "@/lib/diff/patch";
-import type { DiffLanguage } from "@/lib/diff/languages";
+import { languageForFence, type DiffLanguage } from "@/lib/diff/languages";
 
 /**
  * Syntax colours for code, in the browser — for a pull request's diff and for an uploaded file.
@@ -69,35 +69,6 @@ const GRAMMARS = {
   python: () => import("@shikijs/langs-precompiled/python"),
 } satisfies Record<DiffLanguage, () => Promise<unknown>>;
 
-/**
- * The grammar a fenced code block in Markdown needs, by the language name on its opening fence.
- *
- * The Markdown grammar colours a fenced block with the grammar its fence names, but only when that
- * grammar is already loaded — it never fetches one. Without this table, a ```` ```python ```` block
- * would be coloured or plain depending on whether the reader happened to open a Python file first,
- * so the same README could look different on two visits. A name maps to the grammar the Markdown
- * grammar actually uses for it, which is why `jsx` maps to JavaScript: its fence rule includes
- * `source.js`, not the JSX grammar. A name missing from this table leaves its block plain.
- */
-const FENCE_LANGUAGES: Record<string, DiffLanguage> = {
-  python: "python",
-  py: "python",
-  js: "javascript",
-  javascript: "javascript",
-  jsx: "javascript",
-  ts: "typescript",
-  typescript: "typescript",
-  tsx: "tsx",
-  json: "json",
-  css: "css",
-  html: "html",
-  sql: "sql",
-  sh: "shellscript",
-  bash: "shellscript",
-  zsh: "shellscript",
-  shell: "shellscript",
-};
-
 /** The language name on an opening fence, such as `python` in ```` ```python ````. */
 const FENCE_NAME = /^[ \t]*(?:`{3,}|~{3,})[ \t]*([\w-]+)/gm;
 
@@ -107,7 +78,7 @@ const loaded = new Set<DiffLanguage>();
 
 /**
  * The highlighter, with this language's grammar fetched — and, for Markdown, the grammar of every
- * fenced code block in `text` that `FENCE_LANGUAGES` names.
+ * fenced code block in `text` that `languageForFence` names.
  *
  * Both entry points go through here, so a grammar is downloaded once however it is first asked
  * for — a Python upload read beside a Python diff pays for one, and so does a README whose Python
@@ -120,7 +91,7 @@ async function withLanguage(language: DiffLanguage, text: string) {
   const languages = new Set([language]);
   if (language === "markdown") {
     for (const match of text.matchAll(FENCE_NAME)) {
-      const fenced = FENCE_LANGUAGES[match[1].toLowerCase()];
+      const fenced = languageForFence(match[1]);
       if (fenced) languages.add(fenced);
     }
   }

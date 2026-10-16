@@ -1,4 +1,9 @@
-import { DIFF_LANGUAGES, languageForPath, type DiffLanguage } from "@/lib/diff/languages";
+import {
+  DIFF_LANGUAGES,
+  languageForFence,
+  languageForPath,
+  type DiffLanguage,
+} from "@/lib/diff/languages";
 
 /**
  * Which grammar a changed file is read with.
@@ -96,5 +101,28 @@ describe("languageForPath", () => {
     expect(languageForPath("src/v1.2/index.ts")).toBe("typescript");
     // A directory with a dot and a file with none: nothing to read it as.
     expect(languageForPath("src/v1.2/Dockerfile")).toBeNull();
+  });
+});
+
+/**
+ * Which grammar a fenced code block in Markdown is coloured with, by the name on its fence.
+ *
+ * A name missing from the table leaves its block plain, which is the right answer for a fence
+ * holding terminal output and is checked here so that it stays the answer.
+ */
+describe("languageForFence", () => {
+  it.each([
+    ["python", "python"],
+    ["py", "python"],
+    ["Python", "python"],
+    ["js", "javascript"],
+    ["jsx", "javascript"],
+    ["bash", "shellscript"],
+  ] as const)("colours a %s fence as %s", (name, language: DiffLanguage) => {
+    expect(languageForFence(name)).toBe(language);
+  });
+
+  it.each(["text", "console", "output", ""])("leaves a %p fence plain", (name) => {
+    expect(languageForFence(name)).toBeNull();
   });
 });

@@ -186,8 +186,8 @@ export function extensionOf(filename: string): string | null {
  * What can be shown in place rather than only downloaded, and by which of the two routes.
  *
  * **There are two routes, and the answer says which one.** A `.pdf` and an image are handed to
- * the browser, which has a viewer for each; `"code"` is this application reading the text and
- * colouring it itself. Both are the same promise to the reader — the work is on the screen they
+ * the browser, which has a viewer for each; `"code"` and `"markdown"` are this application reading
+ * the text and colouring or rendering it itself. Both are the same promise to the reader — the work is on the screen they
  * are already looking at — and they are built differently enough that the caller has to know.
  *
  * Decided from the extension rather than the stored content type, for the same reason
@@ -199,16 +199,18 @@ export function extensionOf(filename: string): string | null {
  * downloaded, which is the honest answer rather than an empty frame. A notebook is absent for a
  * narrower reason now that code is not: it is JSON describing cells with their outputs, so
  * showing one means rendering that structure rather than colouring a text, which is its own
- * decision. `.txt` and `.md` are absent deliberately as well — the same machinery would serve
- * them, and Markdown in particular wants rendering rather than colouring, so widening this is a
- * decision to make on purpose rather than one to arrive at by adding an extension here.
+ * decision. `.md` is rendered rather than coloured, because a Markdown file is written to be read
+ * as formatted prose, and a short response handed in as one is exactly that. `.txt` is absent
+ * deliberately — the same machinery would serve it, so widening this is a decision to make on
+ * purpose rather than one to arrive at by adding an extension here.
  */
-export function previewKindOf(filename: string): "pdf" | "image" | "code" | null {
+export function previewKindOf(filename: string): "pdf" | "image" | "code" | "markdown" | null {
   const extension = extensionOf(filename);
   if (extension === null) return null;
   if (extension === ".pdf") return "pdf";
   if (Object.hasOwn(UPLOAD_FILE_TYPES.image.extensions, extension)) return "image";
   if (Object.hasOwn(UPLOAD_FILE_TYPES.python.extensions, extension)) return "code";
+  if (extension === ".md") return "markdown";
   return null;
 }
 

@@ -1,9 +1,12 @@
 "use client";
 
-import { ChevronDown, ExternalLink } from "lucide-react";
+import { useQuery } from "@tanstack/react-query";
+import { ChevronDown, ExternalLink, Loader2 } from "lucide-react";
 import * as React from "react";
 
+import { Markdown } from "@/components/markdown";
 import { Badge } from "@/components/ui/badge";
+import { Button } from "@/components/ui/button";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { useDiffHighlight } from "@/hooks/use-diff-highlight";
 import {
@@ -15,6 +18,7 @@ import {
 } from "@/lib/diff/patch";
 import { DIFF_KIND_META, TONE_CLASSES } from "@/lib/status";
 import { cn } from "@/lib/utils";
+import { useTRPC } from "@/trpc/client";
 import type { RouterOutputs } from "@/trpc/types";
 
 type DiffFile = RouterOutputs["pullRequests"]["diffForSubmission"]["files"][number];
@@ -44,20 +48,49 @@ type Row =
  * than one per card.
  */
 export function DiffFileCard({
+  submissionId,
   file,
   open,
   onOpenChange,
 }: {
+  submissionId: string;
   file: DiffFile;
   open: boolean;
   onOpenChange: (open: boolean) => void;
 }) {
+  /*
+    A Markdown file opens rendered, because a short response is answered inside the template's own
+    file and reading the answers is why it is opened. Every Markdown file follows the one rule, a
+    README in a coding project included, since telling the two apart would need something to tell
+    them apart by. A removed file has no final version to render.
+  */
+  const previewable = file.language === "markdown" && file.kind !== "removed";
+  const [view, setView] = React.useState<"preview" | "diff">("preview");
+  const showsPreview = previewable && view === "preview";
+
   const hunks = React.useMemo(
     () => (open && file.patch !== null ? parseUnifiedPatch(file.patch).hunks : null),
     [open, file.patch],
   );
 
-  const tokens = useDiffHighlight(hunks, file.language);
+  // Coloured only when the diff is what is showing; the preview has no use for the tokens.
+  const tokens = useDiffHighlight(showsPreview ? null : hunks, file.language);
+
+  /*
+    The lines of the new file this pull request added, which the preview shades. None for a file
+    the pull request created: every block of it is the fellow's, and shading all of them says
+    nothing that the sentence above the preview does not.
+  */
+  const changedLines = React.useMemo(() => {
+    if (!hunks || file.kind === "added") return undefined;
+    const added = new Set<number>();
+    for (const hunk of hunks) {
+      for (const line of hunk.lines) {
+        if (line.kind === "add" && line.newLine !== null) added.add(line.newLine);
+      }
+    }
+    return added;
+  }, [hunks, file.kind]);
 
   // Indexed the same way as `tokens`: the nth line drawn is the nth entry.
   const changed = React.useMemo(() => (hunks ? changedRanges(hunks) : null), [hunks]);
@@ -156,7 +189,29 @@ export function DiffFileCard({
 
         <CollapsibleContent>
           <div className="border-t border-border">
-            {file.patch === null ? (
+            {previewable && (
+              <div className="flex items-center gap-1.5 border-b border-border px-3 py-1.5">
+                {(["preview", "diff"] as const).map((option) => (
+                  <Button
+                    key={option}
+                    size="xs"
+                    variant={view === option ? "default" : "outline"}
+                    aria-pressed={view === option}
+                    onClick={() => setView(option)}
+                  >
+                    {option === "preview" ? "Preview" : "Diff"}
+                  </Button>
+                ))}
+              </div>
+            )}
+
+            {showsPreview ? (
+              <MarkdownPreview
+                submissionId={submissionId}
+                file={file}
+                changedLines={changedLines}
+              />
+            ) : file.patch === null ? (
               <NoPatch file={file} />
             ) : rendered === null || rendered.rows.length === 0 ? (
               /*
@@ -235,6 +290,62 @@ export function DiffFileCard({
         </CollapsibleContent>
       </Collapsible>
     </li>
+  );
+}
+
+/**
+ * A Markdown file as the fellow left it, rendered, with the blocks this pull request added shaded.
+ *
+ * Fetched only while it is showing, and through a query, so stepping back to a student or
+ * switching between Preview and Diff reads it from the cache. The loading and error states are the
+ * ones `UploadedCode` uses, for the same reasons: the error is a sentence about the file, and a
+ * retry would read the same file again.
+ */
+function MarkdownPreview({
+  submissionId,
+  file,
+  changedLines,
+}: {
+  submissionId: string;
+  file: DiffFile;
+  changedLines: ReadonlySet<number> | undefined;
+}) {
+  const trpc = useTRPC();
+  const contents = useQuery(
+    trpc.pullRequests.fileAtHead.queryOptions({ submissionId, path: file.path }),
+  );
+
+  if (contents.isPending) {
+    return (
+      <div className="flex h-24 items-center justify-center text-sm text-muted-foreground">
+        <Loader2 className="mr-2 size-4 animate-spin" />
+        Opening…
+      </div>
+    );
+  }
+
+  if (contents.error) {
+    return <p className="px-3 py-2.5 text-xs text-muted-foreground">{contents.error.message}</p>;
+  }
+
+  /*
+    Named for the shading rather than the bar, because a phone shows the shading alone. A patch
+    this application cut leaves the lines after the cut unknown, so the sentence says so rather
+    than letting an unshaded answer read as template text.
+  */
+  const legend =
+    file.kind === "added"
+      ? "This file is new in this pull request, so all of it is the fellow's writing."
+      : file.truncated
+        ? "Passages shaded green were added in this pull request. The diff is too large to show " +
+          "in full, so some later changes may not be shaded."
+        : "Passages shaded green were added in this pull request.";
+
+  return (
+    <div className="flex flex-col gap-3 px-4 py-3">
+      <p className="text-xs text-muted-foreground">{legend}</p>
+      <Markdown content={contents.data.text} reading changedLines={changedLines} />
+    </div>
   );
 }
 

@@ -1,5 +1,11 @@
-import ReactMarkdown from "react-markdown";
+"use client";
+
+import * as React from "react";
+import ReactMarkdown, { type Options } from "react-markdown";
 import remarkGfm from "remark-gfm";
+import { useFileHighlight } from "@/hooks/use-file-highlight";
+import { languageForFence, type DiffLanguage } from "@/lib/diff/languages";
+import { rehypeMarkChanged } from "@/lib/markdown/mark-changed";
 import { cn } from "@/lib/utils";
 
 // Real GFM markdown rendering. This is deliberate: feedback contains headings,
@@ -11,6 +17,8 @@ export function Markdown({
   content,
   className,
   sourceOffsets = false,
+  reading = false,
+  changedLines,
 }: {
   content: string;
   className?: string;
@@ -20,36 +28,76 @@ export function Markdown({
    * `span` around every run of text, and only a preview that opens into an editor needs it.
    */
   sourceOffsets?: boolean;
+  /**
+   * Draws a fellow's own writing to be read rather than glanced at: prose at full contrast and a
+   * size up. Feedback stays muted and small so that it sits quietly beside the rest of the review
+   * screen; a short response is the thing on the screen being read.
+   */
+  reading?: boolean;
+  /**
+   * Line numbers in `content` that a pull request added. Each block holding one is shaded, which
+   * is how the preview of a short response tells the fellow's answers from the template's
+   * questions. See `rehypeMarkChanged`.
+   */
+  changedLines?: ReadonlySet<number>;
 }) {
+  const prose = reading ? "text-foreground" : "text-muted-foreground";
+  const headingSize = reading
+    ? { h1: "text-xl", h2: "text-lg", h3: "text-base" }
+    : { h1: "text-base", h2: "text-sm", h3: "text-sm" };
+
+  const rehypePlugins: NonNullable<Options["rehypePlugins"]> = [];
+  if (sourceOffsets) rehypePlugins.push([rehypeSourceOffsets, content]);
+  if (changedLines) rehypePlugins.push([rehypeMarkChanged, changedLines]);
+
   return (
-    <div className={cn("marcy-md text-sm leading-relaxed text-foreground", className)}>
+    <div
+      /*
+        The size before `leading-relaxed`, because `cn` reads a font size such as `text-base` as
+        setting the line height too, and drops a `leading-` class that comes before it.
+      */
+      className={cn(
+        "marcy-md",
+        reading ? "text-base" : "text-sm",
+        "leading-relaxed text-foreground",
+        className,
+      )}
+    >
       <ReactMarkdown
         remarkPlugins={[remarkGfm]}
-        rehypePlugins={sourceOffsets ? [[rehypeSourceOffsets, content]] : []}
+        rehypePlugins={rehypePlugins}
         components={{
           h1: ({ children }) => (
-            <h1 className="mt-4 mb-2 text-base font-semibold tracking-tight first:mt-0">
+            <h1 className={cn("mt-4 mb-2 font-semibold tracking-tight first:mt-0", headingSize.h1)}>
               {children}
             </h1>
           ),
           h2: ({ children }) => (
-            <h2 className="mt-4 mb-2 text-sm font-semibold tracking-tight first:mt-0">
+            <h2 className={cn("mt-4 mb-2 font-semibold tracking-tight first:mt-0", headingSize.h2)}>
               {children}
             </h2>
           ),
           h3: ({ children }) => (
-            <h3 className="mt-3 mb-1 text-sm font-semibold first:mt-0">{children}</h3>
+            <h3 className={cn("mt-3 mb-1 font-semibold first:mt-0", headingSize.h3)}>{children}</h3>
           ),
-          p: ({ children }) => (
-            <p className="my-2 text-muted-foreground first:mt-0 last:mb-0">{children}</p>
-          ),
+          p: ({ children }) => <p className={cn("my-2 first:mt-0 last:mb-0", prose)}>{children}</p>,
           ul: ({ children }) => (
-            <ul className="my-2 flex list-disc flex-col gap-1 pl-5 text-muted-foreground marker:text-muted-foreground/60">
+            <ul
+              className={cn(
+                "my-2 flex list-disc flex-col gap-1 pl-5 marker:text-muted-foreground/60",
+                prose,
+              )}
+            >
               {children}
             </ul>
           ),
           ol: ({ children }) => (
-            <ol className="my-2 flex list-decimal flex-col gap-1 pl-5 text-muted-foreground marker:text-muted-foreground/60">
+            <ol
+              className={cn(
+                "my-2 flex list-decimal flex-col gap-1 pl-5 marker:text-muted-foreground/60",
+                prose,
+              )}
+            >
               {children}
             </ol>
           ),
@@ -73,9 +121,17 @@ export function Markdown({
               {children}
             </blockquote>
           ),
-          code: ({ className: cls, children }) => {
-            const isBlock = /language-/.test(cls ?? "");
-            if (isBlock) {
+          code: ({ className: cls, children, node }) => {
+            const fence = /language-([\w-]+)/.exec(cls ?? "");
+            if (fence) {
+              const language = languageForFence(fence[1]);
+              if (language && node) {
+                return (
+                  <HighlightedCode node={node} language={language} className={cls}>
+                    {children}
+                  </HighlightedCode>
+                );
+              }
               return <code className={cn("font-mono text-[0.85em]", cls)}>{children}</code>;
             }
             return (
@@ -101,7 +157,7 @@ export function Markdown({
             </th>
           ),
           td: ({ children }) => (
-            <td className="border-b border-border px-3 py-2 text-muted-foreground last:border-0">
+            <td className={cn("border-b border-border px-3 py-2 last:border-0", prose)}>
               {children}
             </td>
           ),
@@ -120,6 +176,99 @@ export function Markdown({
         {content}
       </ReactMarkdown>
     </div>
+  );
+}
+
+/** The parts of a fenced code block's node that `HighlightedCode` reads. */
+type CodeNode = {
+  type: string;
+  value?: string;
+  tagName?: string;
+  properties?: Record<string, unknown>;
+  children?: CodeNode[];
+};
+
+/** Every piece of text under a node, in order. */
+function textOf(node: CodeNode): string {
+  if (node.type === "text") return node.value ?? "";
+  return (node.children ?? []).map(textOf).join("");
+}
+
+/**
+ * The source range `rehypeSourceOffsets` recorded for the block's text, when it ran.
+ *
+ * With source offsets on, the block's one text node arrives wrapped in a `span` carrying the
+ * range. Colouring replaces that text with many token spans, so the range is read here and put
+ * back on one span around all of them, where `sourceOffsetAt` finds it.
+ */
+function sourceRangeOf(node: CodeNode): { start: number; end: number } | null {
+  const [only] = node.children ?? [];
+  const start = only?.properties?.dataSourceStart;
+  const end = only?.properties?.dataSourceEnd;
+  return typeof start === "number" && typeof end === "number" ? { start, end } : null;
+}
+
+/**
+ * A fenced code block whose fence names a language, in syntax colours.
+ *
+ * Coloured in the browser through `useFileHighlight`, the hook an uploaded code file uses, so a
+ * grammar already fetched for a diff or a file is not fetched again. Until the tokens arrive, and
+ * for good in a browser that cannot load the highlighter, the block is drawn exactly as it was
+ * before colouring existed: plain code is perfectly readable code.
+ *
+ * **The tokens are elements with text children and never markup**, for the reason `UploadedCode`
+ * gives: a fellow or an instructor wrote every character of this, and a string of HTML built
+ * around it would be a way to put script in a page.
+ *
+ * The lines are joined by newline characters rather than drawn as one element each, so that the
+ * text under the source-range span is exactly the code, which is what lets `sourceOffsetAt` count
+ * its way to the character that was clicked.
+ */
+function HighlightedCode({
+  node,
+  language,
+  className,
+  children,
+}: {
+  node: CodeNode;
+  language: DiffLanguage;
+  className?: string;
+  children: React.ReactNode;
+}) {
+  // The parser ends a fenced block's text with the newline before the closing fence.
+  const text = textOf(node).replace(/\n$/, "");
+  const tokens = useFileHighlight(text, language);
+
+  if (tokens === null) {
+    return <code className={cn("font-mono text-[0.85em]", className)}>{children}</code>;
+  }
+
+  const lines = text.split("\n");
+  const coloured = tokens.map((line, index) => (
+    <React.Fragment key={index}>
+      {index > 0 && "\n"}
+      {line
+        ? line.map((token, tokenIndex) => (
+            <span key={tokenIndex} style={token.htmlStyle as React.CSSProperties}>
+              {token.content}
+            </span>
+          ))
+        : lines[index]}
+    </React.Fragment>
+  ));
+
+  const range = sourceRangeOf(node);
+
+  return (
+    <code className={cn("shiki-code font-mono text-[0.85em]", className)}>
+      {range ? (
+        <span data-source-start={range.start} data-source-end={range.end}>
+          {coloured}
+        </span>
+      ) : (
+        coloured
+      )}
+    </code>
   );
 }
 
@@ -184,9 +333,12 @@ function rehypeSourceOffsets(source: string) {
  * with `sourceOffsets`. Null when the point is not over text, such as the space between two
  * paragraphs or a checkbox.
  *
- * The browser says which text node is under the point and how far into it; the span around that
- * node says where the node begins in the markdown. Adding the two gives the answer, which is exact
- * for text written plainly. In a block quote or a list item running over several lines, the
+ * The browser says which text node is under the point and how far into it; the nearest span above
+ * that node with a recorded start says where its text begins in the markdown. The characters
+ * between the start of that span and the point, added to the recorded start, give the answer. For
+ * ordinary text the node is the span's only child, so that count is the browser's own offset; in a
+ * coloured code block it also counts the token spans and newlines before the node. The answer is
+ * exact for text written plainly. In a block quote or a list item running over several lines, the
  * markers that begin each later line are absent from the rendered text, so a point on one of those
  * lines lands a few characters early. The answer never passes the end of the run, so it never lands
  * in a different block.
@@ -206,9 +358,13 @@ export function sourceOffsetAt(x: number, y: number): number | null {
   }
   if (node?.nodeType !== Node.TEXT_NODE) return null;
 
-  const span = node.parentElement;
+  const span = node.parentElement?.closest<HTMLElement>("[data-source-start]");
   const start = Number(span?.dataset.sourceStart);
   const end = Number(span?.dataset.sourceEnd);
   if (!span || Number.isNaN(start) || Number.isNaN(end)) return null;
-  return Math.min(start + offset, end);
+
+  const before = document.createRange();
+  before.setStart(span, 0);
+  before.setEnd(node, offset);
+  return Math.min(start + before.toString().length, end);
 }
