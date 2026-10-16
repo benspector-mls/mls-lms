@@ -12,6 +12,7 @@ import {
   Clock,
   Inbox,
   MessageCircleQuestion,
+  RotateCcw,
 } from "lucide-react";
 
 import { ResolveQuestionButton } from "@/components/comments/resolve-button";
@@ -40,8 +41,11 @@ import type { RouterOutputs } from "@/trpc/types";
  * What is waiting on the instructor in one course.
  *
  * One list of assignments with work waiting, ordered by due date, because the question this
- * screen answers is which work is most urgent. The list is split in two at the present moment:
- * assignments whose due date has passed, and assignments whose due date has not arrived yet. What
+ * screen answers is which work is most urgent. First submissions are split in two at the present
+ * moment: assignments whose due date has passed, and assignments whose due date has not arrived
+ * yet. Resubmissions come after both, in a section of their own, because a fellow handing in a
+ * first submission has had no feedback at all, while a fellow who resubmitted already has a grade
+ * to work from. What
  * has to be done to each submission (generating a report, reviewing a draft, grading by hand) is
  * decided in the grading queue the row opens, so the screen does not divide the pile by it. Every
  * submission a student has declared finished and nobody has approved is in the list, so an empty
@@ -139,11 +143,21 @@ export function TriageOverview({
   const remaining = pending.length;
 
   /*
+    Split by submission rather than by assignment, so an assignment whose first submissions are all
+    graded leaves the due-date sections and appears only under resubmissions. An assignment with
+    both kinds of work waiting appears in both places, each row counting only its own submissions.
+    `RESUBMITTED` is the status handing in over a released grade writes (see `handInStatus`), and
+    it stays until the new grade is approved.
+  */
+  const firstSubmissions = pending.filter((row) => row.status !== "RESUBMITTED");
+  const resubmissions = groupByAssignment(pending.filter((row) => row.status === "RESUBMITTED"));
+
+  /*
     Split at the present moment by the same rule the filter's "Past due" uses: due strictly before
     now. An assignment with no due date has no deadline to have passed, so it is not yet due, and
     `groupByAssignment` puts it at the end of that list.
   */
-  const groups = groupByAssignment(pending);
+  const groups = groupByAssignment(firstSubmissions);
   const pastDue = groups.filter(
     (group) => group.dueAt !== null && new Date(group.dueAt).getTime() < now.getTime(),
   );
@@ -276,6 +290,16 @@ export function TriageOverview({
               groups={notYetDue}
             />
           )}
+          {resubmissions.length > 0 && (
+            <TriageDueSection
+              label="Resubmissions"
+              description="Work handed in again after a grade was released, the earliest due first. These fellows already have feedback, so grade the first submissions above before these."
+              icon={RotateCcw}
+              tone="text-violet-600 dark:text-violet-400"
+              accent="bg-violet-500/10"
+              groups={resubmissions}
+            />
+          )}
         </div>
       )}
     </div>
@@ -354,7 +378,7 @@ function TriageSection({
  * A list of its own rather than part of the work list: answering a question is a different job from
  * grading, and a question can be asked before anything was handed in.
  *
- * Teal, because the due-date sections have taken amber and sky and emerald means a pass.
+ * Teal, because the work sections have taken amber, sky and violet and emerald means a pass.
  */
 function TriageQuestions({ rows, now }: { rows: Waiting[]; now: Date }) {
   return (
@@ -438,7 +462,7 @@ function QuestionRow({ row, now }: { row: Waiting; now: Date }) {
   );
 }
 
-/** One side of the due-date split: the assignments in it, in the order they were grouped. */
+/** One section of the work list: the assignments in it, in the order they were grouped. */
 function TriageDueSection({
   label,
   description,
@@ -494,12 +518,6 @@ function AssignmentRow({ group }: { group: AssignmentGroup<Row> }) {
     `lateness`, and `lateByStudent` for the same rule in the gradebook's column.
   */
   const anyLate = group.rows.some((row) => lateness({ ...row, dueAt: row.assignment.dueAt }) === "late");
-  /*
-    So a pile of work says which of it is a second round. Grading a revision is a different job
-    from grading a first submission — the previous report and score are what the new one is
-    written against — and the row is the last place an instructor sees before opening the queue.
-  */
-  const anyRevised = group.rows.some((row) => row.status === "RESUBMITTED");
 
   return (
     <Link
@@ -514,11 +532,6 @@ function AssignmentRow({ group }: { group: AssignmentGroup<Row> }) {
           </span>
           {/* So a pile of work to grade says which of it is a rehearsal. */}
           {anyTestStudent && <TestStudentBadge />}
-          {anyRevised && (
-            <span className="shrink-0 rounded-md border border-violet-500/40 px-2 py-0.5 text-xs text-violet-600 dark:text-violet-400">
-              Resubmitted
-            </span>
-          )}
           {anyLate && (
             <span className="shrink-0 rounded-md border border-border px-2 py-0.5 text-xs text-muted-foreground">
               Late
