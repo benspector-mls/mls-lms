@@ -18,7 +18,7 @@
 import { z } from "zod";
 
 import type { DevelopmentMarker } from "./generated/prisma/enums";
-import type { StatusMeta } from "./status";
+import type { StatusMeta, StatusTone } from "./status";
 
 export type { DevelopmentMarker };
 
@@ -129,6 +129,19 @@ export const GOAL_COMMENT_MAX_LENGTH = 5_000;
 /** The temperature check's bounds, stated once — the zod input, the form, and the migration's CHECK all say 1 to 10. */
 export const TEMPERATURE_MIN = 1;
 export const TEMPERATURE_MAX = 10;
+
+/**
+ * The colour a temperature is drawn in on the record's session list: red for 1 to 3, amber for 4
+ * to 6, green for 7 to 10. An instructor scanning a term of sessions sees a fellow sliding from
+ * green into red without reading each number, which is the question the list is opened to answer.
+ */
+export function temperatureTone(
+  temperature: number,
+): Extract<StatusTone, "danger" | "pending" | "success"> {
+  if (temperature <= 3) return "danger";
+  if (temperature <= 6) return "pending";
+  return "success";
+}
 
 /** The four markers, in ascending order — the order a picker offers them and a reader ranks them. */
 export const DEVELOPMENT_MARKERS = [

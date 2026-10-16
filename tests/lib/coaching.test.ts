@@ -9,6 +9,9 @@ import {
   REVISITING_GOALS_PROMPTS,
   sessionAnswersSchema,
   SNAPSHOT_VERSION,
+  TEMPERATURE_MAX,
+  TEMPERATURE_MIN,
+  temperatureTone,
   type CoachingSnapshot,
 } from "@/lib/coaching";
 
@@ -135,5 +138,26 @@ describe("every prompt together", () => {
     expect(ALL_PROMPTS[0]).toBe(PREPARATION_PROMPT);
     expect(ALL_PROMPTS[1 + CHECK_IN_PROMPTS.length]).toBe(ADDITIONAL_NOTES_PROMPT);
     expect(ALL_PROMPTS.at(-1)).toBe(REVISITING_GOALS_PROMPTS.at(-1));
+  });
+});
+
+describe("temperatureTone", () => {
+  it("draws 1 to 3 red, 4 to 6 amber, and 7 to 10 green", () => {
+    const tones = Array.from({ length: TEMPERATURE_MAX - TEMPERATURE_MIN + 1 }, (_, index) =>
+      temperatureTone(TEMPERATURE_MIN + index),
+    );
+
+    expect(tones).toEqual([
+      "danger",
+      "danger",
+      "danger",
+      "pending",
+      "pending",
+      "pending",
+      "success",
+      "success",
+      "success",
+      "success",
+    ]);
   });
 });

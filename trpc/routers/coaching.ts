@@ -430,6 +430,8 @@ export const coachingRouter = createTRPCRouter({
             createdAt: true,
             endedAt: true,
             author: { select: personNameSelect },
+            // Staff-only, like the notes beside it; the session rows show it as a coloured number.
+            temperature: true,
           },
         }),
         ctx.db.goal.findMany({

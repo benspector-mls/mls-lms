@@ -10,6 +10,7 @@ import { AttendanceCalendar } from "@/components/student/attendance-calendar";
 import { StartCoachingSession } from "@/components/instructor/start-coaching-session";
 import { Trends } from "@/components/instructor/trends";
 import { ViewAsButton } from "@/components/instructor/view-as-button";
+import { TEMPERATURE_MAX, temperatureTone } from "@/lib/coaching";
 import { coachingSessionHref, studentHref } from "@/lib/links";
 import { attendanceProvenance } from "@/lib/status";
 import { TestStudentBadge } from "@/components/test-student-badge";
@@ -18,7 +19,7 @@ import { Badge } from "@/components/ui/badge";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { displayNameOf, initials } from "@/lib/people";
 import { formatSchoolDay, type SchoolDay } from "@/lib/school-time";
-import { formatPercent } from "@/lib/status";
+import { formatPercent, TONE_CLASSES } from "@/lib/status";
 import { cn } from "@/lib/utils";
 import type { RouterOutputs } from "@/trpc/types";
 
@@ -435,6 +436,22 @@ export function ProgramStudent({
                       <span className="min-w-0 flex-1 truncate font-medium">
                         {formatSchoolDay(session.heldOn)}
                       </span>
+                      {/*
+                        The number alone, coloured by band, and nothing when it was never asked:
+                        an empty square would read as a score of nothing. The label is for a
+                        screen reader, which would otherwise announce a bare number.
+                      */}
+                      {session.temperature !== null && (
+                        <span
+                          aria-label={`Temperature ${session.temperature} of ${TEMPERATURE_MAX}`}
+                          className={cn(
+                            "inline-flex size-6 shrink-0 items-center justify-center rounded-md border text-xs font-medium tabular-nums",
+                            TONE_CLASSES[temperatureTone(session.temperature)],
+                          )}
+                        >
+                          {session.temperature}
+                        </span>
+                      )}
                       {session.endedAt === null && (
                         <Badge
                           variant="outline"
