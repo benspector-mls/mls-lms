@@ -2,12 +2,13 @@
 
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
-import { ArrowDown, ArrowUp, ChevronsUpDown, Gauge } from "lucide-react";
+import { ArrowDown, ArrowUp, ChevronsUpDown, CircleHelp, Gauge } from "lucide-react";
 import * as React from "react";
 
-import { HelpTip } from "@/components/help-tip";
 import { EmptyState } from "@/components/list-states";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
+import { Button } from "@/components/ui/button";
+import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import {
   stickyColumn,
   Table,
@@ -143,21 +144,7 @@ export function ProgramPerformance({
 
   return (
     <div className="flex flex-col gap-6">
-      <p className="flex items-start gap-1.5 text-xs text-muted-foreground">
-        <span>
-          Red marks a reason the fellow needs support. Yellow marks what keeps a fellow at Meeting
-          rather than Exceeding. Meeting is {percent(PERFORMANCE_RULE.onTimeAtLeast)} on time and{" "}
-          {percent(PERFORMANCE_RULE.meetingAttendanceAtLeast)} attendance; Exceeding needs{" "}
-          {percent(PERFORMANCE_RULE.exceedingAttendanceAtLeast)} attendance.
-        </span>
-        <HelpTip>
-          On time means handed in by the deadline or by an agreed extension, whether or not it has
-          been graded. Completed means graded complete, out of everything released so far. Nobody is
-          placed in a group until something has come due and {PERFORMANCE_RULE.needsSessionsAtLeast}{" "}
-          mornings have been counted. Understanding never turns a cell red. Press a column&apos;s
-          name to sort every group by it.
-        </HelpTip>
-      </p>
+      <BucketingHelp />
 
       {PERFORMANCE_BUCKETS.map((bucket) => {
         const rows = byBucket.get(bucket)!;
@@ -195,6 +182,135 @@ const BUCKET_DESCRIPTION: Record<PerformanceBucket, string> = {
     "Nothing has come due yet, or too few mornings have been counted to read their attendance.",
 };
 
+/**
+ * Every rule behind the screen, in one place: how a fellow lands in each group, and what turns
+ * each column's cell red or yellow.
+ *
+ * **One popover rather than a tooltip on every heading.** Spread across a subtitle and a "?" in each
+ * band, the rules could only be read a piece at a time, and nothing said how the pieces combined
+ * into a group. Gathered here, the groups come first and the cells that decide them follow, band by
+ * band, in the order the grid draws them.
+ */
+function BucketingHelp() {
+  return (
+    <Popover>
+      <PopoverTrigger
+        render={
+          <Button type="button" variant="outline" size="sm" className="self-start">
+            <CircleHelp data-icon="inline-start" />
+            How does bucketing work?
+          </Button>
+        }
+      />
+      <PopoverContent
+        align="start"
+        className="flex max-h-[70vh] w-[min(30rem,calc(100vw-2rem))] flex-col gap-4 overflow-y-auto text-xs"
+      >
+        <HelpSection title="The groups">
+          <p className="text-muted-foreground">
+            A fellow is placed by their attendance and by the courses chosen in the page header.
+          </p>
+          <HelpRule name={PERFORMANCE_BUCKET_LABEL["too-early"]}>
+            Nothing in the shown courses has come due yet, or fewer than{" "}
+            {PERFORMANCE_RULE.needsSessionsAtLeast} mornings have been counted. This is checked
+            first, because neither figure can be read until both exist.
+          </HelpRule>
+          <HelpRule name={PERFORMANCE_BUCKET_LABEL["needs-support"]}>
+            At least one cell in the row is red.
+          </HelpRule>
+          <HelpRule name={PERFORMANCE_BUCKET_LABEL.meeting}>
+            No cell is red, and overall attendance is under{" "}
+            {percent(PERFORMANCE_RULE.exceedingAttendanceAtLeast)}. With nothing red, the fellow has
+            handed in at least {percent(PERFORMANCE_RULE.onTimeAtLeast)} of their work on time and
+            attended at least {percent(PERFORMANCE_RULE.meetingAttendanceAtLeast)} of mornings.
+          </HelpRule>
+          <HelpRule name={PERFORMANCE_BUCKET_LABEL.exceeding}>
+            No cell is red, and overall attendance is{" "}
+            {percent(PERFORMANCE_RULE.exceedingAttendanceAtLeast)} or more.
+          </HelpRule>
+        </HelpSection>
+
+        <HelpSection title="Red and yellow cells">
+          <p className="text-muted-foreground">
+            A red cell is a reason the fellow needs support. A yellow cell appears only on Overall
+            Rate in Meeting the bar, and marks the one figure keeping the fellow out of Exceeding.
+            Hover a coloured cell to see which rule it tripped.
+          </p>
+        </HelpSection>
+
+        <HelpSection title="Attendance">
+          <HelpRule name="Overall Rate">
+            Mornings attended, present or late, out of every morning counted this term. Red under{" "}
+            {percent(PERFORMANCE_RULE.meetingAttendanceAtLeast)}; yellow under{" "}
+            {percent(PERFORMANCE_RULE.exceedingAttendanceAtLeast)} for a fellow meeting the bar.
+          </HelpRule>
+          <HelpRule name="Recent Absence">
+            Absences in the last {DRIFT_RULE.missedOf} mornings. Red at {DRIFT_RULE.missedAtLeast}{" "}
+            or more.
+          </HelpRule>
+          <HelpRule name="Recent Tardiness">
+            Late arrivals in the last {DRIFT_RULE.lateOf} mornings. Red at {DRIFT_RULE.lateAtLeast}{" "}
+            or more.
+          </HelpRule>
+        </HelpSection>
+
+        <HelpSection title="All courses">
+          <HelpRule name="On time submissions">
+            Past-due work handed in by its deadline or by an agreed extension, whether or not it has
+            been graded, summed across the shown courses. Red under{" "}
+            {percent(PERFORMANCE_RULE.onTimeAtLeast)}.
+          </HelpRule>
+          <HelpRule name="Completed">
+            Work graded complete, out of everything of that kind released so far. Never red.
+          </HelpRule>
+        </HelpSection>
+
+        <HelpSection title="Each course">
+          <HelpRule name="Deadlines Hit">
+            Handed in on time, of the last {ASSIGNMENT_DRIFT_RULE.dueOf} assignments due in the
+            course. Red when {ASSIGNMENT_DRIFT_RULE.slippedAtLeast} or more of them were missed or
+            late.
+          </HelpRule>
+          <HelpRule name="Completed">
+            Work graded complete, out of everything of that kind released in the course. The first
+            Completed column in a course turns red when {ASSIGNMENT_DRIFT_RULE.incompleteAtLeast} or
+            more of the fellow’s last {ASSIGNMENT_DRIFT_RULE.gradedOf} graded assignments in the
+            course were graded incomplete. That rule reads every kind of work in the course, so the
+            flag sits on one column rather than on each.
+          </HelpRule>
+          <HelpRule name="Understanding">
+            The average level on the latest attempt at each of the last {CHECK_TREND_RULE.checksOf}{" "}
+            checks for understanding: 1 is Blocked, 2 Understands facts, 3 Making connections. Never
+            red.
+          </HelpRule>
+        </HelpSection>
+
+        <p className="text-muted-foreground">Press a column’s name to sort every group by it.</p>
+      </PopoverContent>
+    </Popover>
+  );
+}
+
+function HelpSection({ title, children }: { title: string; children: React.ReactNode }) {
+  return (
+    <section className="flex flex-col gap-2 border-t border-border pt-3 first:border-t-0 first:pt-0">
+      <h3 className="text-[11px] font-semibold tracking-wider text-muted-foreground uppercase">
+        {title}
+      </h3>
+      {children}
+    </section>
+  );
+}
+
+function HelpRule({ name, children }: { name: string; children: React.ReactNode }) {
+  return (
+    <div className="flex flex-col gap-0.5">
+      <span className="font-medium">{name}</span>
+      <span className="text-muted-foreground">{children}</span>
+    </div>
+  );
+}
+
 // ===========================================================================
 // Columns
 // ===========================================================================
@@ -212,7 +328,6 @@ type Column = {
   /** The band heading this column sits under; consecutive columns with the same band share it. */
   band: Band;
   title: string;
-  help?: React.ReactNode;
   sortValue: (fellow: Fellow) => SortValue;
   render: (fellow: Fellow) => CellContent;
 };
@@ -244,32 +359,8 @@ function fraction(done: number, of: number): SortValue {
 }
 
 function columnsFor(courses: Course[], categories: CourseUnitCategory[]): Column[] {
-  const attendance = {
-    key: "attendance",
-    label: (
-      <>
-        Attendance
-        <HelpTip>
-          Recent absence and tardiness both read the last {DRIFT_RULE.lateOf} mornings. Absence is
-          flagged at {DRIFT_RULE.missedAtLeast} or more, tardiness at {DRIFT_RULE.lateAtLeast} or
-          more. The overall rate is the whole term.
-        </HelpTip>
-      </>
-    ),
-  };
-  const allCourses = {
-    key: "all",
-    label: (
-      <>
-        All courses
-        <HelpTip>
-          On time submissions is the share of past-due work handed in by its deadline. The completed
-          columns are the share graded complete, out of everything released so far. All of them
-          count only the courses shown.
-        </HelpTip>
-      </>
-    ),
-  };
+  const attendance = { key: "attendance", label: "Attendance" };
+  const allCourses = { key: "all", label: "All courses" };
 
   const columns: Column[] = [
     {
@@ -372,7 +463,7 @@ function columnsFor(courses: Course[], categories: CourseUnitCategory[]): Column
     })),
   ];
 
-  courses.forEach((course, index) => {
+  courses.forEach((course) => {
     const band: Band = {
       key: `course:${course.id}`,
       archived: course.archived,
@@ -394,14 +485,6 @@ function columnsFor(courses: Course[], categories: CourseUnitCategory[]): Column
         key: `course:${course.id}:deadlines`,
         band,
         title: "Deadlines Hit",
-        help:
-          index === 0 ? (
-            <>
-              Handed in on time, of the last {ASSIGNMENT_DRIFT_RULE.dueOf} assignments due in the
-              course. Flagged when {ASSIGNMENT_DRIFT_RULE.slippedAtLeast} or more of them were
-              missed or late.
-            </>
-          ) : undefined,
         sortValue: (f) => {
           const recent = reading(f).recent;
           return recent ? fraction(recent.due - recent.missed - recent.late, recent.due) : null;
@@ -428,14 +511,6 @@ function columnsFor(courses: Course[], categories: CourseUnitCategory[]): Column
           the fellow's last few graded assignments in the course, whatever kind of unit they sit in,
           so it has no column of its own; this is the column nearest to what it measures.
         */
-        help:
-          index === 0 && position === 0 ? (
-            <>
-              Graded complete, of everything of this kind released in the course. Flagged when{" "}
-              {ASSIGNMENT_DRIFT_RULE.incompleteAtLeast} or more of the fellow&apos;s last{" "}
-              {ASSIGNMENT_DRIFT_RULE.gradedOf} graded assignments in the course fell short.
-            </>
-          ) : undefined,
         sortValue: (f) => {
           const completion = reading(f).completion[category];
           return completion ? fraction(completion.complete, completion.possible) : null;
@@ -458,14 +533,6 @@ function columnsFor(courses: Course[], categories: CourseUnitCategory[]): Column
         key: `course:${course.id}:understanding`,
         band,
         title: "Understanding",
-        help:
-          index === 0 ? (
-            <>
-              The average level on the latest attempt at each of the last{" "}
-              {CHECK_TREND_RULE.checksOf} checks for understanding: 1 is Blocked, 2 Understands
-              facts, 3 Making connections. Never flagged.
-            </>
-          ) : undefined,
         sortValue: (f) => reading(f).checks?.averageLevel ?? null,
         render: (f) => {
           const checks = reading(f).checks;
@@ -645,15 +712,7 @@ function PerformanceGrid({
                   edgeOf(column),
                 )}
               >
-                <span className="flex items-end gap-1">
-                  <SortButton
-                    label={column.title}
-                    sortKey={column.key}
-                    sort={sort}
-                    onSort={onSort}
-                  />
-                  {column.help && <HelpTip>{column.help}</HelpTip>}
-                </span>
+                <SortButton label={column.title} sortKey={column.key} sort={sort} onSort={onSort} />
               </TableHead>
             ))}
           </TableRow>
