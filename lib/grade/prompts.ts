@@ -193,6 +193,7 @@ Put the writing score in \`rubricItems\` as one entry with
 \`criterion: "writing_quality"\` and the label \`Writing Quality Score (Entire
 Assignment)\`, placed last. Give each question its own entry with
 \`criterion: "technical"\` and a label of the form \`Question 3: Flexbox vs. CSS Grid\`.
+Set \`group\` to null on every entry.
 
 **Every short response report has exactly one writing entry, whatever the number of
 questions.** A one-question submission has two entries: the question's technical score
@@ -213,8 +214,10 @@ instructor to ask for a clean resubmission.
 ## Scoring this section
 
 **Each question is worth 3 points, scored as a single number.** Give each question one
-entry in \`rubricItems\` with \`criterion: "algorithm"\`, \`scorePossible: 3\`, and a
-label of the form \`Question 2: is_even\`. Ten questions means a 30-point assignment.
+entry in \`rubricItems\` with \`criterion: "algorithm"\`, \`scorePossible: 3\`, a
+label of the form \`Question 2: is_even\`, and \`group\` set to null — even where the
+README lists questions under headings such as "Modify Questions". Ten questions means a
+30-point assignment.
 
 Code style is **part of that one score**, not a separate line item. The rubric's bands
 fold it in: a 3 requires clean code as well as passing tests, and linting errors or poor

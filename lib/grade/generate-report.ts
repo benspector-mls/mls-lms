@@ -611,7 +611,18 @@ export async function generateReportForSubmission(submissionId: string): Promise
         beside the parts rather than derived on every read, so the student's page, the digest and
         approval read the same two columns they read for a hand grade.
       */
-      const totals = rowTotals(response.output.rubricItems);
+      /*
+        Only a frontend checklist is drawn under section headings. The model is told to leave
+        `group` null on every other section type, but it still sometimes copies the README's
+        headings ("Modify Questions") into it, so two submissions of one assignment came back laid
+        out differently. Clearing it here makes the layout depend on the section type alone.
+      */
+      const rubricItems =
+        sectionType === "coding_frontend"
+          ? response.output.rubricItems
+          : response.output.rubricItems.map((item) => ({ ...item, group: null }));
+
+      const totals = rowTotals(rubricItems);
 
       /*
         The process note is written onto the end of the stored summary, so the student reads it at
@@ -631,11 +642,11 @@ export async function generateReportForSubmission(submissionId: string): Promise
           reportMarkdown: composeReport({
             sectionType,
             summaryMarkdown,
-            rows: response.output.rubricItems,
+            rows: rubricItems,
           }),
           scoreEarned: totals.earned,
           scorePossible: totals.possible,
-          rubricItems: response.output.rubricItems,
+          rubricItems,
           flags: [
             ...response.output.flags,
             // Recorded on the row so the review interface can show, at a glance,
