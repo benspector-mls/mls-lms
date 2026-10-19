@@ -183,7 +183,9 @@ describe("summary messages", () => {
     });
     expect(line).toContain("Arrays &amp; Loops");
     expect(line).toContain("(Mod 1)");
-    expect(line).toContain("due");
+    // The day as well as the time: a week of deadlines that all fall at 11:59 PM is otherwise
+    // indistinguishable. 23:59 UTC in May is 7:59 PM in Brooklyn.
+    expect(line).toContain("due Tuesday, May 19 at 7:59 PM");
   });
 
   it("work with no deadline says nothing about when", () => {

@@ -1,4 +1,4 @@
-import { formatSchoolTime } from "@/lib/school-time";
+import { formatDueDate } from "@/lib/status";
 
 /**
  * The words a Slack DM says.
@@ -186,6 +186,6 @@ export function summaryWorkLine(args: {
   dueAt: Date | null;
   href: string | null;
 }): string {
-  const when = args.dueAt ? ` — due ${formatSchoolTime(args.dueAt)}` : "";
+  const when = args.dueAt ? ` — due ${formatDueDate(args.dueAt)}` : "";
   return `• ${linked(args.title, args.href)} (${escapeMrkdwn(args.courseName)})${when}`;
 }

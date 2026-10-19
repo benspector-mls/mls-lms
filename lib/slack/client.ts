@@ -71,6 +71,10 @@ export async function lookupUserIdByEmail(email: string): Promise<LookupResult> 
  * token holds `im:write`, so there is no separate `conversations.open` call. If Slack ever
  * refuses the bare id (`channel_not_found`), the fallback belongs inside this function — no
  * caller knows about channels.
+ *
+ * `unfurl_links: false` because every link in these messages points at the app, so Slack's
+ * preview card says "Marcy LMS" under each one — three identical cards under a three-line digest,
+ * taking more room than the list they follow.
  */
 export async function sendDm(
   slackUserId: string,
@@ -83,7 +87,7 @@ export async function sendDm(
         Authorization: `Bearer ${requiredToken()}`,
         "Content-Type": "application/json; charset=utf-8",
       },
-      body: JSON.stringify({ channel: slackUserId, text }),
+      body: JSON.stringify({ channel: slackUserId, text, unfurl_links: false }),
     });
     const body = (await response.json()) as SlackEnvelope;
 
