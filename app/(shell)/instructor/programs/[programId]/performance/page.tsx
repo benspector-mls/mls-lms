@@ -1,10 +1,12 @@
 import { Suspense } from "react";
 
+import { CoachingOverview } from "@/components/instructor/coaching-overview";
 import { CohortPicker } from "@/components/instructor/cohort-picker";
 import { CourseFilter } from "@/components/instructor/course-filter";
 import { ProgramPerformance } from "@/components/instructor/performance";
 import { PageFallback } from "@/components/list-states";
 import { PageHeader } from "@/components/page-header";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { cohortSelectionLabel, parseCohortSelection } from "@/lib/programs/cohorts";
 import { resolveCohort } from "@/lib/programs/resolve-cohort";
 import { getQueryClient, trpc } from "@/trpc/server";
@@ -23,6 +25,13 @@ import { getQueryClient, trpc } from "@/trpc/server";
  *
  * The rule is `performanceBucket` in lib/programs/performance.ts, and the figures come from
  * `programs.performance`.
+ *
+ * **A second tab, Coaching**, reads the same fellows from the other side: the temperature and
+ * check-in answers from each one's most recent completed session, and the goals they are working on
+ * in each competency group. The cohort picker stays in the header and narrows both tabs. The course
+ * filter sits inside the Performance tab, because coaching is about the program rather than any
+ * course. Both payloads are fetched here regardless of which tab is open, as on the Attendance
+ * screen, so that switching tabs never puts a spinner between a click and a table.
  *
  * `cacheComponents` is enabled, so `params` is passed down rather than awaited here.
  */
@@ -52,9 +61,14 @@ async function Performance({
   const cohorts = await resolveCohort(programId, query.cohort);
   const queryClient = getQueryClient();
 
-  const data = await queryClient.fetchQuery(
-    trpc.programs.performance.queryOptions({ programId, cohort: cohorts.cohort }),
-  );
+  const [data, coaching] = await Promise.all([
+    queryClient.fetchQuery(
+      trpc.programs.performance.queryOptions({ programId, cohort: cohorts.cohort }),
+    ),
+    queryClient.fetchQuery(
+      trpc.coaching.overview.queryOptions({ programId, cohort: cohorts.cohort }),
+    ),
+  ]);
 
   const selection = parseCohortSelection(cohorts.cohort);
   const cohortName = new Map(cohorts.cohorts.map((cohort) => [cohort.id, cohort.name]));
@@ -72,15 +86,30 @@ async function Performance({
           selection.kind === "all"
             ? "this program"
             : cohortSelectionLabel(selection, cohorts.cohorts)
-        } · attendance, and work across every course`}
-        actions={
-          <>
-            <CourseFilter courses={data.courses} programArchived={data.programArchived} />
-            <CohortPicker choice={cohorts} />
-          </>
-        }
+        }`}
+        actions={<CohortPicker choice={cohorts} />}
       />
-      <ProgramPerformance programId={programId} data={data} cohortName={cohortName} />
+
+      <Tabs defaultValue="performance">
+        <TabsList>
+          <TabsTrigger value="performance">Performance</TabsTrigger>
+          <TabsTrigger value="coaching">Coaching</TabsTrigger>
+        </TabsList>
+
+        <TabsContent value="performance" className="mt-4 flex flex-col gap-4">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <p className="text-xs text-muted-foreground">
+              Attendance, and work across every course.
+            </p>
+            <CourseFilter courses={data.courses} programArchived={data.programArchived} />
+          </div>
+          <ProgramPerformance programId={programId} data={data} cohortName={cohortName} />
+        </TabsContent>
+
+        <TabsContent value="coaching" className="mt-4">
+          <CoachingOverview programId={programId} data={coaching} cohortName={cohortName} />
+        </TabsContent>
+      </Tabs>
     </div>
   );
 }

@@ -13,6 +13,7 @@ import {
   ENTRY_KINDS,
   entriesOfKind,
   filterCompetencies,
+  groupIdOfGoal,
   type CompetencyGroup,
 } from "@/lib/competencies";
 
@@ -122,5 +123,40 @@ describe("filterCompetencies", () => {
 
     expect(GROUPS[0]!.competencies[0]!.entries).toHaveLength(3);
     expect(GROUPS).toHaveLength(2);
+  });
+});
+
+describe("groupIdOfGoal", () => {
+  it("places a goal by the entry it was built on", () => {
+    expect(groupIdOfGoal({ entryId: "isolates", competencyName: "Debugging" }, GROUPS)).toBe(
+      "technical",
+    );
+  });
+
+  it("a goal written without a competency is in no group", () => {
+    expect(groupIdOfGoal({ entryId: null, competencyName: null }, GROUPS)).toBeNull();
+  });
+
+  /*
+    The goals set while the list lived in code hold an id that names no row, as does a goal whose
+    entry an admin deleted. Their copied competency name still says where they belong.
+  */
+  it("falls back to the copied competency name when the entry is gone", () => {
+    expect(
+      groupIdOfGoal({ entryId: "growth-mindset-asks", competencyName: "Communication" }, GROUPS),
+    ).toBe("durable");
+  });
+
+  it("a goal neither its entry nor its name can place is in no group", () => {
+    expect(
+      groupIdOfGoal({ entryId: "retired", competencyName: "Public Speaking" }, GROUPS),
+    ).toBeNull();
+  });
+
+  it("the entry wins over the name when the two disagree", () => {
+    // The competency was renamed after the goal copied its name; the entry is still in the list.
+    expect(groupIdOfGoal({ entryId: "writes", competencyName: "Debugging" }, GROUPS)).toBe(
+      "durable",
+    );
   });
 });

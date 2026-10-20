@@ -106,6 +106,43 @@ export function entriesOfKind(
 }
 
 /**
+ * The group a goal sits under, or null for a goal the fellow wrote without a competency.
+ *
+ * **By the goal's entry id first, then by its copied competency name.** A goal stores no group, so
+ * the group is whichever one holds the entry today. Some goals hold an id that names no row: goals
+ * set while the list lived in code, and goals whose entry an admin has since deleted. Those are
+ * placed by the competency name they copied when it still matches a competency in the list. A goal
+ * neither finds is returned as null and sits with the goals written without a competency, where
+ * its copied name still shows which competency it was about.
+ *
+ * Takes only the columns it reads, so the Coaching tab can hand it a list without the wording and
+ * the fellow's goals page can hand it the picker's whole list.
+ */
+export function groupIdOfGoal(
+  goal: { entryId: string | null; competencyName: string | null },
+  groups: readonly {
+    id: string;
+    competencies: readonly { name: string; entries: readonly { id: string }[] }[];
+  }[],
+): string | null {
+  if (goal.entryId === null) return null;
+
+  for (const group of groups) {
+    for (const competency of group.competencies) {
+      if (competency.entries.some((entry) => entry.id === goal.entryId)) return group.id;
+    }
+  }
+
+  for (const group of groups) {
+    if (group.competencies.some((competency) => competency.name === goal.competencyName)) {
+      return group.id;
+    }
+  }
+
+  return null;
+}
+
+/**
  * The list a search query leaves standing, pruned to its matching entries.
  *
  * Case-insensitive substring over entry text, competency name, and group name. A query matching a

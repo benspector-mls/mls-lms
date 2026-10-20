@@ -13,7 +13,7 @@ import { GoalMarkerBadge } from "@/components/status-badge";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { parseSnapshot } from "@/lib/coaching";
-import type { CompetencyGroup } from "@/lib/competencies";
+import { groupIdOfGoal, type CompetencyGroup } from "@/lib/competencies";
 import { formatSchoolDay } from "@/lib/school-time";
 import { formatDate } from "@/lib/status";
 import type { RouterOutputs } from "@/trpc/types";
@@ -97,13 +97,18 @@ export function GoalsRecord({
           </p>
         </div>
 
-        {data.goals.length > 0 && (
-          <ul className="flex flex-col divide-y divide-border overflow-hidden rounded-lg border border-border">
-            {data.goals.map((goal) => (
-              <GoalRow key={goal.id} goal={goal} programId={data.program.id} groups={groups} />
-            ))}
-          </ul>
-        )}
+        {goalSections(data.goals, groups).map((section) => (
+          <div key={section.key} className="flex flex-col gap-1.5">
+            <h3 className="text-xs font-medium text-muted-foreground">
+              {section.title} · {section.goals.length}
+            </h3>
+            <ul className="flex flex-col divide-y divide-border overflow-hidden rounded-lg border border-border">
+              {section.goals.map((goal) => (
+                <GoalRow key={goal.id} goal={goal} programId={data.program.id} groups={groups} />
+              ))}
+            </ul>
+          </div>
+        ))}
 
         <AddGoal programId={data.program.id} groups={groups} />
       </section>
@@ -144,6 +149,29 @@ export function GoalsRecord({
       )}
     </div>
   );
+}
+
+/**
+ * The fellow's goals under one heading per competency group, in the list's order, with the goals
+ * written without a competency last. A group the fellow holds no goal in has no heading. Within a
+ * group the goals keep the order they arrive in, newest first.
+ *
+ * `groupIdOfGoal` decides the group, which is the rule the instructors' Coaching tab uses, so a
+ * goal sits under the same group on both screens.
+ */
+function goalSections(goals: Data["goals"], groups: readonly CompetencyGroup[]) {
+  const sections = [
+    ...groups.map((group) => ({ key: group.id, title: group.name, goals: [] as Data["goals"] })),
+    { key: "other", title: "Other goals", goals: [] as Data["goals"] },
+  ];
+
+  for (const goal of goals) {
+    const groupId = groupIdOfGoal(goal, groups);
+    const section = sections.find((candidate) => candidate.key === groupId) ?? sections.at(-1)!;
+    section.goals.push(goal);
+  }
+
+  return sections.filter((section) => section.goals.length > 0);
 }
 
 /**
@@ -240,11 +268,7 @@ function GoalRow({
             <GoalPart label="Skills, Habits, & Mindsets" text={goal.objectives} />
           )}
           {goal.actionPlan !== "" && <GoalPart label="Action plan" text={goal.actionPlan} />}
-          {!hasPlan && (
-            <p className="text-sm text-muted-foreground">
-              No plan written yet.
-            </p>
-          )}
+          {!hasPlan && <p className="text-sm text-muted-foreground">No plan written yet.</p>}
           <GoalUpdates goal={goal} programId={programId} editable />
 
           <GoalComments goal={goal} programId={programId} side="fellow" />

@@ -1666,3 +1666,144 @@ describe("instructor notes", () => {
     }
   });
 });
+
+describe("the Coaching tab: every fellow's latest session and current goals", () => {
+  const tx = withRollback();
+
+  let world: World;
+  let outsider: World;
+  let olderGoalId: string;
+  let newerGoalId: string;
+  let freeGoalId: string;
+
+  const asInstructor = () => createCaller(tx(), world.instructorId);
+  const asOutsider = () => createCaller(tx(), outsider.instructorId);
+  const asFellow = () => createCaller(tx(), world.student.studentId);
+
+  beforeAll(async () => {
+    world = await makeWorld(tx(), { students: 2 });
+    outsider = await makeWorld(tx());
+    INDICATOR = await seedCompetency(tx());
+
+    // A completed session, then a draft opened afterwards with a different temperature.
+    const completed = await asInstructor().coaching.startSession({
+      programId: world.programId,
+      studentId: world.student.studentId,
+    });
+    await asInstructor().coaching.saveSession({
+      programId: world.programId,
+      sessionId: completed.id,
+      temperature: 4,
+      answers: [
+        { promptId: PREPARATION_PROMPT.id, answer: "Ask about the project deadline." },
+        { promptId: "challenging", answer: "Recursion." },
+      ],
+    });
+    await asInstructor().coaching.completeSession({
+      programId: world.programId,
+      sessionId: completed.id,
+    });
+
+    const draft = await asInstructor().coaching.startSession({
+      programId: world.programId,
+      studentId: world.student.studentId,
+    });
+    await asInstructor().coaching.saveSession({
+      programId: world.programId,
+      sessionId: draft.id,
+      temperature: 9,
+      answers: [],
+    });
+
+    const goal = (title: string, entryId: string | null) =>
+      asFellow().coaching.setGoal({
+        programId: world.programId,
+        title,
+        entryId,
+        successCriteria: "",
+        objectives: "",
+        actionPlan: "",
+        marker: null,
+      });
+    olderGoalId = (await goal("Ask sooner.", INDICATOR)).id;
+    newerGoalId = (await goal("Ask in the channel.", INDICATOR)).id;
+    freeGoalId = (await goal("Sleep before ten.", null)).id;
+
+    /*
+      Times written by hand, because every row in this suite is written inside one transaction and
+      the database's clock does not move within one.
+    */
+    await tx().goal.update({
+      where: { id: olderGoalId },
+      data: { createdAt: new Date("2026-09-01T12:00:00Z") },
+    });
+    await tx().goal.update({
+      where: { id: newerGoalId },
+      data: { createdAt: new Date("2026-09-10T12:00:00Z") },
+    });
+    const note = await asFellow().coaching.addUpdate({
+      programId: world.programId,
+      goalId: olderGoalId,
+      body: "Asked twice this week.",
+    });
+    await tx().goalUpdate.update({
+      where: { id: note.id },
+      data: { createdAt: new Date("2026-09-20T12:00:00Z") },
+    });
+  });
+
+  const overview = () =>
+    asInstructor().coaching.overview({ programId: world.programId, cohort: "all" });
+
+  it("reads the temperature from the latest completed session, never a draft", async () => {
+    const data = await overview();
+    const fellow = data.fellows.find((row) => row.student.id === world.student.studentId)!;
+
+    expect(fellow.session).toMatchObject({ temperature: 4, daysSince: 0 });
+  });
+
+  it("returns the check-in answers and nothing else the session holds", async () => {
+    const data = await overview();
+    const fellow = data.fellows.find((row) => row.student.id === world.student.studentId)!;
+
+    expect(fellow.session!.checkIns.map((answer) => answer.promptId)).toEqual(["challenging"]);
+  });
+
+  it("a fellow with no completed session is listed, with no session", async () => {
+    const data = await overview();
+    const other = data.fellows.find((row) => row.student.id === world.students[1]!.studentId)!;
+
+    expect(other.session).toBeNull();
+    expect(other.goals).toEqual([]);
+  });
+
+  it("a goal is last active when its newest progress note was posted", async () => {
+    const data = await overview();
+    const fellow = data.fellows.find((row) => row.student.id === world.student.studentId)!;
+    const older = fellow.goals.find((goal) => goal.id === olderGoalId)!;
+    const newer = fellow.goals.find((goal) => goal.id === newerGoalId)!;
+
+    expect(new Date(older.activeAt).getTime()).toBe(Date.parse("2026-09-20T12:00:00Z"));
+    expect(new Date(newer.activeAt).getTime()).toBe(Date.parse("2026-09-10T12:00:00Z"));
+    expect(fellow.goals.some((goal) => goal.id === freeGoalId && goal.entryId === null)).toBe(true);
+  });
+
+  it("returns the competency groups this program's fellows are offered", async () => {
+    const data = await overview();
+
+    expect(data.groups.map((group) => group.name)).toContain("Durable Skills");
+  });
+
+  it("refuses an instructor of another program, and a fellow", async () => {
+    expect(
+      await refusal(() =>
+        asOutsider().coaching.overview({ programId: world.programId, cohort: "all" }),
+      ),
+    ).toBe("FORBIDDEN");
+    expect(
+      await refusal(() =>
+        asFellow().coaching.overview({ programId: world.programId, cohort: "all" }),
+      ),
+    ).toBe("FORBIDDEN");
+  });
+});

@@ -4,6 +4,7 @@ import { z } from "zod";
 import { auditActor, recordEvent, type AuditReference } from "@/lib/audit/record";
 import {
   ALL_PROMPTS,
+  CHECK_IN_PROMPTS,
   DEVELOPMENT_MARKERS,
   GOAL_COMMENT_MAX_LENGTH,
   SNAPSHOT_VERSION,
@@ -18,8 +19,13 @@ import {
   courseFiguresFor,
   snapshotOf,
 } from "@/lib/coaching/snapshot";
-import { assertActiveInProgram, assertProgramMember } from "@/lib/courses/membership";
+import {
+  assertActiveInProgram,
+  assertProgramMember,
+  enrollmentsIn,
+} from "@/lib/courses/membership";
 import type { Prisma } from "@/lib/generated/prisma/client";
+import { cohortSelectionInput, parseCohortSelection } from "@/lib/programs/cohorts";
 import {
   dateColumnFor,
   schoolDayFromColumn,
@@ -462,6 +468,138 @@ export const coachingRouter = createTRPCRouter({
         })),
         goals: goals.map((goal) => presentGoal(goal, ctx.profile.id)),
         topics,
+      };
+    }),
+
+  /**
+   * The Coaching tab of the Performance screen: for every fellow in the chosen cohort, their most
+   * recent completed session and the goals they hold now, with the competency groups the goals are
+   * sorted into.
+   *
+   * **Completed sessions only.** A draft may be a conversation still under way, or one opened early
+   * to prepare, so its temperature is not yet something the fellow said.
+   *
+   * **The fellows are the ones `programs.performance` reads** — active, not test students, narrowed
+   * by the same cohort selection — so the two tabs of one screen list the same people.
+   *
+   * Staff-only like `forStudent`: the temperature and the answers are read here and by no procedure
+   * a fellow can call. Only the five check-in answers are returned, because they are the answers the
+   * tab shows; the preparation, the additional notes and the goal answers stay on the session.
+   */
+  overview: programProcedure
+    .input(z.object({ cohort: cohortSelectionInput }))
+    .query(async ({ ctx, input }) => {
+      const programId = input.programId;
+
+      const [program, enrollments] = await Promise.all([
+        ctx.db.program.findUniqueOrThrow({
+          where: { id: programId },
+          select: { discipline: true },
+        }),
+        ctx.db.enrollment.findMany({
+          where: {
+            ...enrollmentsIn(programId, parseCohortSelection(input.cohort)),
+            status: "ACTIVE",
+            student: { testStudentNumber: null },
+          },
+          select: { id: true, cohortId: true, student: { select: personSelect } },
+        }),
+      ]);
+
+      const enrollmentIds = enrollments.map((enrollment) => enrollment.id);
+
+      const [groups, sessions, goals] = await Promise.all([
+        /*
+          The groups `competencies.forProgram` offers this program's fellows, with only the columns
+          `groupIdOfGoal` reads: a goal's column is decided by its entry id or its competency name.
+        */
+        ctx.db.competencyGroup.findMany({
+          orderBy: { position: "asc" },
+          select: {
+            id: true,
+            name: true,
+            competencies: {
+              where: { disciplines: { has: program.discipline } },
+              select: { name: true, entries: { select: { id: true } } },
+            },
+          },
+        }),
+        /*
+          Every completed session, newest first, and the first one per fellow kept below. A term of
+          sessions for one roster is a few hundred rows, which is cheaper to read than to express
+          "the newest per enrollment" in a query.
+        */
+        ctx.db.coachingSession.findMany({
+          where: { programId, enrollmentId: { in: enrollmentIds }, endedAt: { not: null } },
+          orderBy: [{ heldOn: "desc" }, { endedAt: "desc" }],
+          select: { enrollmentId: true, heldOn: true, temperature: true, answers: true },
+        }),
+        ctx.db.goal.findMany({
+          where: { programId, enrollmentId: { in: enrollmentIds } },
+          select: {
+            id: true,
+            enrollmentId: true,
+            title: true,
+            entryId: true,
+            entryKind: true,
+            entryText: true,
+            competencyName: true,
+            successCriteria: true,
+            objectives: true,
+            actionPlan: true,
+            marker: true,
+            createdAt: true,
+            updates: { orderBy: { createdAt: "desc" }, take: 1, select: { createdAt: true } },
+          },
+        }),
+      ]);
+
+      const latestSession = new Map<string, (typeof sessions)[number]>();
+      for (const session of sessions) {
+        if (!latestSession.has(session.enrollmentId))
+          latestSession.set(session.enrollmentId, session);
+      }
+
+      const today = dateColumnFor(schoolDayOf(new Date())).getTime();
+      const checkInIds = new Set<string>(CHECK_IN_PROMPTS.map((prompt) => prompt.id));
+
+      return {
+        groups: groups.filter((group) => group.competencies.length > 0),
+        fellows: enrollments.map((enrollment) => {
+          const session = latestSession.get(enrollment.id);
+          // An answers column that does not parse is shown as no answers rather than failing the tab.
+          const answers = session ? sessionAnswersSchema.safeParse(session.answers) : null;
+
+          return {
+            enrollmentId: enrollment.id,
+            cohortId: enrollment.cohortId,
+            student: enrollment.student,
+            session: session
+              ? {
+                  heldOn: schoolDayFromColumn(session.heldOn),
+                  // Both are UTC midnights of a civil date, so the difference is whole days.
+                  daysSince: Math.round((today - session.heldOn.getTime()) / 86_400_000),
+                  temperature: session.temperature,
+                  checkIns: answers?.success
+                    ? answers.data.filter((answer) => checkInIds.has(answer.promptId))
+                    : [],
+                }
+              : null,
+            /*
+              Each goal carries the last time the fellow worked on it: when it was set, or when they
+              last posted a progress note under it. A note is always posted after its goal is set,
+              so the newest note's time is the later of the two whenever there is one.
+              `updatedAt` is not used, because the fellow opening the comments under a goal writes
+              its read receipt to the goal's own row.
+            */
+            goals: goals
+              .filter((goal) => goal.enrollmentId === enrollment.id)
+              .map(({ updates, ...goal }) => ({
+                ...goal,
+                activeAt: updates[0]?.createdAt ?? goal.createdAt,
+              })),
+          };
+        }),
       };
     }),
 
