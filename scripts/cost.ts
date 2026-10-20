@@ -9,7 +9,9 @@
  * its effort. Reviewing an attempt again replaces that record, so only the latest review of each
  * attempt is priced. A summary of a check's answers does the same on
  * `check_summaries.model_metadata`, with `check_summary` as its section, and summarizing the same
- * cohort again replaces it likewise.
+ * cohort again replaces it likewise. A preparation summary of a fellow's record records the same on
+ * `coaching_summaries.model_metadata`, with `coaching_summary` as its section; every generation is
+ * its own row, so each one is priced.
  *
  * The pipeline records four token counts per draft in `model_metadata.usage` and no
  * dollar figure, because a price is a fact about Anthropic's rate card rather than about
@@ -77,7 +79,7 @@ async function main() {
 
   const filter = process.argv[2];
 
-  const [gradingDrafts, checkAttempts, checkSummaries] = await Promise.all([
+  const [gradingDrafts, checkAttempts, checkSummaries, coachingSummaries] = await Promise.all([
     db.gradingDraft.findMany({
       orderBy: { createdAt: "asc" },
       select: { createdAt: true, modelMetadata: true },
@@ -91,11 +93,16 @@ async function main() {
       orderBy: { writtenAt: "asc" },
       select: { writtenAt: true, modelMetadata: true },
     }),
+    db.coachingSummary.findMany({
+      orderBy: { createdAt: "asc" },
+      select: { createdAt: true, modelMetadata: true },
+    }),
   ]);
   const drafts = [
     ...gradingDrafts,
     ...checkAttempts.map((a) => ({ createdAt: a.submittedAt, modelMetadata: a.modelMetadata })),
     ...checkSummaries.map((c) => ({ createdAt: c.writtenAt, modelMetadata: c.modelMetadata })),
+    ...coachingSummaries,
   ].sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime());
 
   const priced: Priced[] = [];

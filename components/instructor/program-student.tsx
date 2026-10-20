@@ -2,14 +2,18 @@ import Link from "next/link";
 import { Archive, ArrowRight, CircleCheck, EyeOff, GitBranch, UserMinus } from "lucide-react";
 
 import { CoachingTopics } from "@/components/coaching-topics";
+import { HelpTip } from "@/components/help-tip";
+import type { OutlineSection } from "@/components/outlined-page";
 import { CoachingDownload } from "@/components/instructor/coaching-download";
 import { FellowGoals } from "@/components/instructor/fellow-goals";
 import { InstructorNotes } from "@/components/instructor/instructor-notes";
+import { PreparationSummary } from "@/components/instructor/preparation-summary";
 import { ProgramStudentPicker } from "@/components/instructor/program-student-picker";
+import { RecordTabs } from "@/components/instructor/record-tabs";
 import { RenameStudent } from "@/components/instructor/rename-student";
 import { AttendanceCalendar } from "@/components/student/attendance-calendar";
 import { StartCoachingSession } from "@/components/instructor/start-coaching-session";
-import { Trends } from "@/components/instructor/trends";
+import { AttendanceTrend, CourseTrend, WorkRuleHelp } from "@/components/instructor/trends";
 import { ViewAsButton } from "@/components/instructor/view-as-button";
 import { TEMPERATURE_MAX, temperatureTone } from "@/lib/coaching";
 import { coachingCsv } from "@/lib/coaching/csv";
@@ -18,7 +22,6 @@ import { attendanceProvenance } from "@/lib/status";
 import { TestStudentBadge } from "@/components/test-student-badge";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
-import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { displayNameOf, initials } from "@/lib/people";
 import { formatSchoolDay, type SchoolDay } from "@/lib/school-time";
 import { formatPercent, TONE_CLASSES } from "@/lib/status";
@@ -37,8 +40,9 @@ import type { RouterOutputs } from "@/trpc/types";
  * Splitting the two is what lets grading stay per course while the roster lives above every course.
  * It is what the roster's rows point at, and every course row here is a way into the other screen.
  *
- * **Two tabs under one identity card.** Performance is the trends, then attendance, the courses,
- * and the GCF; Coaching is the goals, the sessions, and the notes. The two answer different
+ * **Two tabs under one header**, which names the fellow once and carries their details. Performance is one section per area — attendance,
+ * coursework, the GCF — each opening with its last few weeks; Coaching is the preparation summary,
+ * then the topics, the goals, the sessions, and the notes. The two answer different
  * questions — how is this fellow doing, and what have we agreed with them — and a single column of
  * seven sections made the second half something a reader scrolled past on the way to nothing. The card sits above
  * both because "who is this" is asked from either tab.
@@ -47,23 +51,49 @@ import type { RouterOutputs } from "@/trpc/types";
  * schedule and carries no program, so somebody repeating a year has one history rather than two
  * halves of it — the same reason `/gcf` is addressed outside every scope.
  *
- * A server component. The tab strip and the two writing surfaces — the notes dialog and the button
- * that starts a session — are client islands inside it; every figure is still computed on the
- * server, because `Tabs` renders server-rendered children through.
+ * **Each area once, with its recent weeks at the top.** A reading that spans every area — the
+ * Trends card — sends a reader across attendance, work and understanding and then across the same
+ * areas again below it. So the record draws each recent reading inside its own area: attendance's
+ * last few mornings above the term's figures, and each course's last few weeks beneath that course's
+ * row. The coaching form keeps the whole Trends card, because there it is the one place the
+ * conversation starts from.
+ *
+ * A server component. The tabs with their outline, and the writing surfaces — the notes dialog, the
+ * summary and the button that starts a session — are client islands inside it; every figure is
+ * still computed on the server, because `RecordTabs` renders server-rendered children through.
  */
+
+/** Each tab's sections, for the "On this page" outline. Every id is on a `<section>` below. */
+const SECTIONS: Record<"performance" | "coaching", OutlineSection[]> = {
+  performance: [
+    { id: "attendance", label: "Attendance" },
+    { id: "coursework", label: "Coursework" },
+    { id: "gcf", label: "GCF" },
+  ],
+  coaching: [
+    { id: "summary", label: "Summary" },
+    { id: "topics", label: "Discussion topics" },
+    { id: "goals", label: "Goals" },
+    { id: "sessions", label: "Sessions" },
+    { id: "notes", label: "Notes" },
+  ],
+};
 
 type Data = RouterOutputs["programs"]["student"];
 type Coaching = RouterOutputs["coaching"]["forStudent"];
+type Summaries = RouterOutputs["coachingSummaries"]["forStudent"];
 type Fellows = RouterOutputs["enrollments"]["listForProgram"];
 
 export function ProgramStudent({
   data,
   coaching,
+  summaries,
   fellows,
   today,
 }: {
   data: Data;
   coaching: Coaching;
+  summaries: Summaries;
   fellows: Fellows;
   /** Read once by the page and handed down, so the server and the browser agree which square is today. */
   today: SchoolDay;
@@ -85,125 +115,125 @@ export function ProgramStudent({
     note: day.note,
   }));
 
-  return (
-    <div className="flex flex-col gap-6">
-      <section className="flex flex-wrap items-start gap-3 rounded-lg border border-border p-4">
-        <Avatar className="size-12">
-          <AvatarFallback className="bg-primary/10 font-medium text-primary">
-            {initials(data.student.displayName ?? data.student.email)}
-          </AvatarFallback>
-        </Avatar>
-        <div className="flex min-w-0 flex-1 flex-col gap-1">
-          <div className="flex flex-wrap items-center gap-2">
-            <h2 className="text-base font-semibold">{name}</h2>
-            {/*
+  /*
+    The page's title and the fellow's details as one block: the name once, as the page heading,
+    with everything else about them on the line beneath. No card around it, because it is the
+    page's header rather than a section of it, and the tabs below are what the page is for.
+  */
+  const identity = (
+    <header className="flex flex-wrap items-start gap-3">
+      <Avatar className="size-10">
+        <AvatarFallback className="bg-primary/10 text-sm font-medium text-primary">
+          {initials(data.student.displayName ?? data.student.email)}
+        </AvatarFallback>
+      </Avatar>
+      <div className="flex min-w-0 flex-1 flex-col gap-1">
+        <div className="flex flex-wrap items-center gap-2">
+          <h1 className="text-xl font-semibold tracking-tight">{name}</h1>
+          {/*
               Beside the name rather than among the actions on the right, because it is about the
               name and not about the record: the picker over there moves to another fellow, and a
               rename sitting next to it would read as something done to the program.
             */}
-            <RenameStudent
-              programId={data.program.id}
-              studentId={data.student.id}
-              displayName={data.student.displayName}
-            />
-            {data.student.testStudentNumber !== null && <TestStudentBadge />}
-            {/*
+          <RenameStudent
+            programId={data.program.id}
+            studentId={data.student.id}
+            displayName={data.student.displayName}
+          />
+          {data.student.testStudentNumber !== null && <TestStudentBadge />}
+          {/*
               Said here rather than only implied by a lower rate. Removal is a status rather than a
               deleted row, so this page still renders in full — and a reader acting on it needs to
               know they are reading somebody who has left.
             */}
-            {removed && (
-              <Badge variant="outline" className="gap-1 font-normal text-muted-foreground">
-                <UserMinus className="size-3" />
-                No longer enrolled
-              </Badge>
-            )}
-          </div>
-          <p className="text-sm text-muted-foreground">{data.student.email ?? "—"}</p>
-          <p className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-muted-foreground">
-            {data.student.githubUsername ? (
-              <span className="inline-flex items-center gap-1.5">
-                <GitBranch className="size-3.5" />
-                {data.student.githubUsername}
-              </span>
-            ) : (
-              /*
+          {removed && (
+            <Badge variant="outline" className="gap-1 font-normal text-muted-foreground">
+              <UserMinus className="size-3" />
+              No longer enrolled
+            </Badge>
+          )}
+        </div>
+        <p className="flex flex-wrap items-center gap-x-3 gap-y-1 text-sm text-muted-foreground">
+          <span>
+            {data.program.name} · {data.program.term}
+          </span>
+          <span>{data.student.email ?? "No email"}</span>
+          {data.student.githubUsername ? (
+            <span className="inline-flex items-center gap-1.5">
+              <GitBranch className="size-3.5" />
+              {data.student.githubUsername}
+            </span>
+          ) : (
+            /*
                 Worth naming rather than leaving blank. Every repository this fellow accepts is named
                 after their GitHub login, so without one nothing can be handed to them — and this is
                 the screen somebody opens when a fellow says they cannot accept an assignment.
               */
-              <span className="text-amber-600 dark:text-amber-500">
-                No GitHub account linked yet
-              </span>
-            )}
-            <span>joined {formatSchoolDay(data.enrolledFrom)}</span>
-            {/*
+            <span className="text-amber-600 dark:text-amber-500">No GitHub account linked yet</span>
+          )}
+          <span>joined {formatSchoolDay(data.enrolledFrom)}</span>
+          {/*
               Which cohort, in words either way. A blank would read as missing data where "no cohort"
               is a fact — and one nobody has acted on is exactly what somebody comes here to find.
             */}
-            <span>{data.cohort ? data.cohort.name : "In no cohort"}</span>
-          </p>
-        </div>
+          <span>{data.cohort ? data.cohort.name : "In no cohort"}</span>
+        </p>
+      </div>
 
-        {/*
+      {/*
           The way to the next name. A record is opened from the roster, the gradebook, or a link
           somebody sent, and reading a term's fellows one after another otherwise means going back
           to the roster between every one.
         */}
-        <div className="flex w-full items-center gap-2 sm:w-auto">
-          {/*
+      <div className="flex w-full items-center gap-2 sm:w-auto">
+        {/*
             The same entry into a fellow's view the roster row offers, so somebody reading a record
             does not have to go back to the roster to see what the fellow sees. Hidden for a removed
             fellow, as it is on the roster.
           */}
-          {!removed && <ViewAsButton studentId={data.student.id} programId={data.program.id} />}
-          <ProgramStudentPicker
-            programId={data.program.id}
-            studentId={data.student.id}
-            studentName={name}
-            fellows={fellows}
-            className="min-w-0 flex-1 sm:w-56 sm:flex-none"
-          />
-        </div>
-      </section>
+        {!removed && <ViewAsButton studentId={data.student.id} programId={data.program.id} />}
+        <ProgramStudentPicker
+          programId={data.program.id}
+          studentId={data.student.id}
+          studentName={name}
+          fellows={fellows}
+          className="min-w-0 flex-1 sm:w-56 sm:flex-none"
+        />
+      </div>
+    </header>
+  );
 
-      {/*
-        Two tabs over one fetch, the roster's shape. What a reader came for splits cleanly in
-        two — how the fellow is doing, and what has been agreed with them — and the identity
-        card stays above both because it answers "who is this" for either question.
+  /*
+    Two tabs over one fetch, the roster's shape. What a reader came for splits cleanly in two —
+    how the fellow is doing, and what has been agreed with them — and the header stays above both
+    because it answers "who is this" for either question.
 
-        Both tabs' data is already in hand: the page fetches it in one round trip, so the tab is
-        which half is drawn rather than which half is loaded, and there is no spinner between a
-        click and a list.
-      */}
-      <Tabs defaultValue="performance">
-        <TabsList>
-          <TabsTrigger value="performance">Performance</TabsTrigger>
-          <TabsTrigger value="coaching">Coaching</TabsTrigger>
-        </TabsList>
-
-        <TabsContent value="performance" className="mt-4 flex flex-col gap-6">
-          {/*
-            The last few weeks, first, where every section below is the term. The attendance block
-            is the raw figure and the course rows are the totals; both hide the fellow who was fine
-            in September and has slipped this fortnight, and this is the section that shows them,
-            which is why it is read before either.
-
-            It holds every recent-window reading the record has: the last few mornings by the
-            attendance screen's drift rule; when they arrive, which is the detail per-course
-            attendance used to carry and answers "are they turning up on time" where the rate
-            answers only whether they turn up; and the work, per course, by the rule the
-            gradebook's own list applies.
-          */}
-          <Trends
-            recentAttendance={data.recentAttendance}
-            arrivals={data.arrivals}
-            courses={data.courses}
-          />
-
-          <section className="flex flex-col gap-2">
-            <h2 className="text-sm font-medium">Attendance</h2>
+    Both tabs' data is already in hand: the page fetches it in one round trip, so the tab is which
+    half is drawn rather than which half is loaded, and there is no spinner between a click and a
+    list.
+  */
+  return (
+    <RecordTabs
+      header={identity}
+      sections={SECTIONS}
+      performance={
+        <>
+          <section id="attendance" className="flex scroll-mt-(--outline-offset) flex-col gap-2">
+            <h2 className="text-lg font-semibold">Attendance</h2>
             <div className="flex flex-col gap-3 rounded-lg border border-border bg-muted/30 p-4">
+              {/*
+                The last few mornings first, where the figures beneath are the term. A term's rate
+                hides the fellow who was fine in September and has slipped this fortnight, and this
+                is the reading that shows them.
+              */}
+              <AttendanceTrend
+                title="Last few weeks"
+                recentAttendance={data.recentAttendance}
+                arrivals={data.arrivals}
+              />
+              <h3 className="border-t border-border pt-3 text-xs font-medium tracking-wide text-muted-foreground uppercase">
+                Since they joined
+              </h3>
               <p className="text-sm">
                 {data.summary.rate === null ? (
                   <>Nothing has been counted yet.</>
@@ -221,8 +251,7 @@ export function ProgramStudent({
               <p className="text-xs text-muted-foreground">
                 Present {data.summary.present} · Late {data.summary.late} · Excused{" "}
                 {data.summary.excused} · Absent {data.summary.absent + data.summary.unrecorded}
-                {data.summary.excused > 0 &&
-                  ". An excused morning still counts as missed."}
+                {data.summary.excused > 0 && ". An excused morning still counts as missed."}
               </p>
             </div>
 
@@ -243,8 +272,18 @@ export function ProgramStudent({
             )}
           </section>
 
-          <section className="flex flex-col gap-2">
-            <h2 className="text-sm font-medium">Courses · {data.courses.length}</h2>
+          <section id="coursework" className="flex scroll-mt-(--outline-offset) flex-col gap-2">
+            <div className="flex flex-col gap-0.5">
+              <h2 className="flex items-center gap-1.5 text-lg font-semibold">
+                Coursework · {data.courses.length}
+                <HelpTip>
+                  <WorkRuleHelp />
+                </HelpTip>
+              </h2>
+              <p className="text-xs text-muted-foreground">
+                Each course&apos;s term figures, with its last few weeks beneath.
+              </p>
+            </div>
 
             {data.courses.length === 0 ? (
               <p className="rounded-lg bg-muted/40 px-3 py-6 text-center text-sm text-muted-foreground">
@@ -256,69 +295,77 @@ export function ProgramStudent({
                   <li key={course.id}>
                     <Link
                       href={studentHref(course.id, data.student.id)}
-                      className="flex flex-wrap items-center gap-x-3 gap-y-1 px-3 py-2.5 text-sm hover:bg-muted/50"
+                      className="flex flex-col gap-1 px-3 py-2.5 text-sm hover:bg-muted/50"
                     >
-                      <span
-                        className={cn(
-                          "min-w-0 flex-1 truncate font-medium",
-                          course.archivedAt !== null && "text-muted-foreground",
-                        )}
-                      >
-                        {course.name}
-                      </span>
+                      <div className="flex flex-wrap items-center gap-x-3 gap-y-1">
+                        <span
+                          className={cn(
+                            "min-w-0 flex-1 truncate font-medium",
+                            course.archivedAt !== null && "text-muted-foreground",
+                          )}
+                        >
+                          {course.name}
+                        </span>
 
-                      {/*
+                        {/*
                       The course-wide three from the gradebook's Overview, so the record answers "how
                       is this course going" without opening it. Absent entirely while the course has
                       no released work — none of nothing is not a figure. Late carries weight but no
                       colour and missing is red, the gradebook's own reading.
                     */}
-                      {course.completedAssignments.possible > 0 && (
-                        <span className="shrink-0 text-xs text-muted-foreground tabular-nums">
-                          {course.completedAssignments.complete}/
-                          {course.completedAssignments.possible} assignments
-                          {" · "}
-                          <span
-                            className={cn(course.missing > 0 && "font-medium text-destructive")}
-                          >
-                            {course.missing} missing
+                        {course.completedAssignments.possible > 0 && (
+                          <span className="shrink-0 text-xs text-muted-foreground tabular-nums">
+                            {course.completedAssignments.complete}/
+                            {course.completedAssignments.possible} assignments
+                            {" · "}
+                            <span
+                              className={cn(course.missing > 0 && "font-medium text-destructive")}
+                            >
+                              {course.missing} missing
+                            </span>
+                            {" · "}
+                            <span className={cn(course.late > 0 && "font-medium text-foreground")}>
+                              {course.late} late
+                            </span>
                           </span>
-                          {" · "}
-                          <span className={cn(course.late > 0 && "font-medium text-foreground")}>
-                            {course.late} late
-                          </span>
-                        </span>
-                      )}
+                        )}
 
-                      {/*
+                        {/*
                       Publication is said on the row because it changes what this fellow could possibly
                       have done. A verdict of "not finished" against a course they cannot see yet is
                       not a fact about them.
                     */}
-                      {course.archivedAt !== null ? (
-                        <span className="inline-flex shrink-0 items-center gap-1 text-xs text-muted-foreground">
-                          <Archive className="size-3" />
-                          Archived
-                        </span>
-                      ) : course.publishedAt === null ? (
-                        <span className="inline-flex shrink-0 items-center gap-1 text-xs text-amber-600 dark:text-amber-500">
-                          <EyeOff className="size-3" />
-                          Not published
-                        </span>
-                      ) : null}
+                        {course.archivedAt !== null ? (
+                          <span className="inline-flex shrink-0 items-center gap-1 text-xs text-muted-foreground">
+                            <Archive className="size-3" />
+                            Archived
+                          </span>
+                        ) : course.publishedAt === null ? (
+                          <span className="inline-flex shrink-0 items-center gap-1 text-xs text-amber-600 dark:text-amber-500">
+                            <EyeOff className="size-3" />
+                            Not published
+                          </span>
+                        ) : null}
 
-                      {course.verdict === "complete" ? (
-                        <span className="inline-flex shrink-0 items-center gap-1 text-xs font-medium text-emerald-700 dark:text-emerald-300">
-                          <CircleCheck className="size-3" />
-                          Complete
-                        </span>
-                      ) : (
-                        <span className="shrink-0 text-xs text-muted-foreground">
-                          {course.verdict === "incomplete" ? "Fell short" : "Not finished"}
-                        </span>
-                      )}
+                        {course.verdict === "complete" ? (
+                          <span className="inline-flex shrink-0 items-center gap-1 text-xs font-medium text-emerald-700 dark:text-emerald-300">
+                            <CircleCheck className="size-3" />
+                            Complete
+                          </span>
+                        ) : (
+                          <span className="shrink-0 text-xs text-muted-foreground">
+                            {course.verdict === "incomplete" ? "Fell short" : "Not finished"}
+                          </span>
+                        )}
 
-                      <ArrowRight className="size-3.5 shrink-0 text-muted-foreground" />
+                        <ArrowRight className="size-3.5 shrink-0 text-muted-foreground" />
+                      </div>
+
+                      {/*
+                        The course's last few weeks under its totals, so everything about one
+                        course is read in one place and each course name is scanned once.
+                      */}
+                      <CourseTrend course={course} />
                     </Link>
                   </li>
                 ))}
@@ -326,9 +373,11 @@ export function ProgramStudent({
             )}
           </section>
 
-          <section className="flex flex-col gap-2">
+          <section id="gcf" className="flex scroll-mt-(--outline-offset) flex-col gap-2">
             <div className="flex flex-col gap-0.5">
-              <h2 className="text-sm font-medium">General Coding Framework · {data.gcf.length}</h2>
+              <h2 className="text-lg font-semibold">
+                General Coding Framework · {data.gcf.length}
+              </h2>
               <p className="text-xs text-muted-foreground">
                 Every sitting, including those from other programs.
               </p>
@@ -371,18 +420,32 @@ export function ProgramStudent({
               </ul>
             )}
           </section>
-        </TabsContent>
+        </>
+      }
+      coaching={
+        <>
+          {/*
+            First, because it is what a coach reads to prepare: Claude's reading of the whole
+            record, figures and writing together, with the questions to ask. It is written for the
+            conversation, so it sits on the tab where the conversation is started.
+          */}
+          <PreparationSummary
+            id="summary"
+            programId={data.program.id}
+            studentId={data.student.id}
+            name={name}
+            summaries={summaries}
+          />
 
-        {/*
+          {/*
           Topics, goals and coaching sessions are shared with the fellow; notes are not, and each
-          section's caption says which. The topics come first because they are what to read before
+          section's caption says which. The topics come next because they are what to read before
           the next conversation.
         */}
-        <TabsContent value="coaching" className="mt-4 flex flex-col gap-6">
-          <section className="flex flex-col gap-2">
+          <section id="topics" className="flex scroll-mt-(--outline-offset) flex-col gap-2">
             <div className="flex flex-col gap-0.5">
-              <h2 className="text-sm font-medium">
-                Before the next session · {coaching.topics.length}
+              <h2 className="text-lg font-semibold">
+                Fellow discussion topics · {coaching.topics.length}
               </h2>
               <p className="text-xs text-muted-foreground">
                 Added by {name} from their Goals page. Only they can change this list.
@@ -396,9 +459,9 @@ export function ProgramStudent({
             />
           </section>
 
-          <section className="flex flex-col gap-2">
+          <section id="goals" className="flex scroll-mt-(--outline-offset) flex-col gap-2">
             <div className="flex flex-col gap-0.5">
-              <h2 className="text-sm font-medium">Goals · {coaching.goals.length}</h2>
+              <h2 className="text-lg font-semibold">Goals · {coaching.goals.length}</h2>
               <p className="text-xs text-muted-foreground">
                 Only {name} can edit a goal. Open one to write to them under it.
               </p>
@@ -416,10 +479,10 @@ export function ProgramStudent({
             />
           </section>
 
-          <section className="flex flex-col gap-2">
+          <section id="sessions" className="flex scroll-mt-(--outline-offset) flex-col gap-2">
             <div className="flex flex-wrap items-start justify-between gap-3">
               <div className="flex min-w-0 flex-col gap-0.5">
-                <h2 className="text-sm font-medium">
+                <h2 className="text-lg font-semibold">
                   Coaching sessions · {coaching.sessions.length}
                 </h2>
                 <p className="text-xs text-muted-foreground">
@@ -494,9 +557,9 @@ export function ProgramStudent({
             <StartCoachingSession programId={data.program.id} studentId={data.student.id} />
           </section>
 
-          <section className="flex flex-col gap-2">
+          <section id="notes" className="flex scroll-mt-(--outline-offset) flex-col gap-2">
             <div className="flex flex-col gap-0.5">
-              <h2 className="text-sm font-medium">Notes · {coaching.notes.length}</h2>
+              <h2 className="text-lg font-semibold">Notes · {coaching.notes.length}</h2>
               <p className="text-xs text-muted-foreground">
                 Never shown to fellows, though a fellow may ask to read their record.
               </p>
@@ -507,8 +570,8 @@ export function ProgramStudent({
               notes={coaching.notes}
             />
           </section>
-        </TabsContent>
-      </Tabs>
-    </div>
+        </>
+      }
+    />
   );
 }

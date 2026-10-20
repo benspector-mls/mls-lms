@@ -19,9 +19,11 @@ import { cn } from "@/lib/utils";
 /**
  * The last few weeks of one fellow, rather than the term: attendance, work, and understanding.
  *
- * **Drawn in two places from one component**: the Performance tab of the fellow's program record,
- * and the top of a coaching session, where it is what the conversation starts from. Both read the
- * same server computations, `attendanceStandingFor` and `courseFiguresFor` in
+ * **Drawn whole at the top of a coaching session**, where it is what the conversation starts from
+ * and having every recent reading in one card is the point. The Performance tab of the fellow's
+ * record draws the same pieces instead in the section each belongs to — `AttendanceTrend` at the
+ * top of Attendance, `CourseTrend` under each course row — so a reader scans each area once. Both
+ * read the same server computations, `attendanceStandingFor` and `courseFiguresFor` in
  * lib/coaching/snapshot.ts, so the two cannot show different readings of the same fellow.
  *
  * **Every figure counts what went right**: sessions attended, assignments on time, work complete.
@@ -57,19 +59,6 @@ export function Trends({
     .map((course) => ({ course, reasons: driftReasons(course.recent) }));
   const coursesWithChecks = courses.filter((course) => course.checks.checks > 0);
 
-  /*
-    Both attendance clauses, each on its own, rather than `attendanceDriftReason`'s single answer:
-    that function picks one reason for the drift list to sort by, but here each clause colours its
-    own figure, and a red figure with no flag naming it would be unexplained. Neither applies to a
-    fellow too new to judge, which is the drift list's own minimum.
-  */
-  const enoughSessions = recentAttendance.missedOf >= DRIFT_RULE.needsAtLeast;
-  const absent = enoughSessions && recentAttendance.missed >= DRIFT_RULE.missedAtLeast;
-  const late = enoughSessions && recentAttendance.late >= DRIFT_RULE.lateAtLeast;
-  const attendanceFlags = [
-    ...(absent ? [ATTENDANCE_DRIFT_REASON_LABEL.missing] : []),
-    ...(late ? [ATTENDANCE_DRIFT_REASON_LABEL.late] : []),
-  ];
   /* Once per reason, however many courses trip it: the red figures below say which courses. */
   const workFlags = (["deadlines", "falling-short"] as const)
     .filter((reason) => work.some((entry) => entry.reasons.includes(reason)))
@@ -86,42 +75,9 @@ export function Trends({
       </h2>
       {note && <p className="text-xs text-muted-foreground">{note}</p>}
       <div className="flex flex-col gap-4 rounded-lg border border-border bg-muted/30 p-4">
-        <div className="flex flex-col gap-2">
-          <SubHeading
-            title="Attendance"
-            help={
-              <>
-                Flagged after missing {DRIFT_RULE.missedAtLeast} or more of the last{" "}
-                {DRIFT_RULE.missedOf} sessions, or arriving late {DRIFT_RULE.lateAtLeast} or more
-                times in the last {DRIFT_RULE.lateOf}. Arrival averages count only sessions they
-                checked in.
-              </>
-            }
-            flags={attendanceFlags}
-          />
-          <AttendanceLine recent={recentAttendance} absent={absent} late={late} />
-          <ArrivalAveragesPanel
-            averages={arrivals}
-            emptyNote="They have not checked in enough times yet for an average."
-          />
-        </div>
+        <AttendanceTrend recentAttendance={recentAttendance} arrivals={arrivals} />
         <div className="flex flex-col gap-2 border-t border-border pt-3">
-          <SubHeading
-            title="Work"
-            help={
-              <>
-                A course is flagged after {ASSIGNMENT_DRIFT_RULE.slippedAtLeast} or more of the last{" "}
-                {ASSIGNMENT_DRIFT_RULE.dueOf} assignments due were missed or handed in late, or{" "}
-                {ASSIGNMENT_DRIFT_RULE.incompleteAtLeast} or more of their last{" "}
-                {ASSIGNMENT_DRIFT_RULE.gradedOf} graded fell short. The same rule as the
-                gradebook&apos;s own list. The on-time figure appears once{" "}
-                {ASSIGNMENT_DRIFT_RULE.slippedAtLeast} assignments are past due, and the complete
-                figure once {ASSIGNMENT_DRIFT_RULE.incompleteAtLeast} are graded, because those are
-                the fewest the rule can flag.
-              </>
-            }
-            flags={workFlags}
-          />
+          <SubHeading title="Work" help={<WorkRuleHelp />} flags={workFlags} />
           {work.length === 0 ? (
             <p className="text-sm">No course has released work yet.</p>
           ) : (
@@ -160,6 +116,107 @@ export function Trends({
         </div>
       </div>
     </section>
+  );
+}
+
+/**
+ * The attendance half of Trends on its own: the last few mornings, with the flags their rule
+ * raised, and the arrival averages. The fellow's record draws it at the top of its Attendance
+ * section, titled for where it sits there.
+ */
+export function AttendanceTrend({
+  recentAttendance,
+  arrivals,
+  title = "Attendance",
+}: {
+  recentAttendance: RecentAttendance;
+  arrivals: ArrivalAverages;
+  title?: string;
+}) {
+  /*
+    Both attendance clauses, each on its own, rather than `attendanceDriftReason`'s single answer:
+    that function picks one reason for the drift list to sort by, but here each clause colours its
+    own figure, and a red figure with no flag naming it would be unexplained. Neither applies to a
+    fellow too new to judge, which is the drift list's own minimum.
+  */
+  const enoughSessions = recentAttendance.missedOf >= DRIFT_RULE.needsAtLeast;
+  const absent = enoughSessions && recentAttendance.missed >= DRIFT_RULE.missedAtLeast;
+  const late = enoughSessions && recentAttendance.late >= DRIFT_RULE.lateAtLeast;
+  const attendanceFlags = [
+    ...(absent ? [ATTENDANCE_DRIFT_REASON_LABEL.missing] : []),
+    ...(late ? [ATTENDANCE_DRIFT_REASON_LABEL.late] : []),
+  ];
+
+  return (
+    <div className="flex flex-col gap-2">
+      <SubHeading
+        title={title}
+        help={
+          <>
+            Flagged after missing {DRIFT_RULE.missedAtLeast} or more of the last{" "}
+            {DRIFT_RULE.missedOf} sessions, or arriving late {DRIFT_RULE.lateAtLeast} or more times
+            in the last {DRIFT_RULE.lateOf}. Arrival averages count only sessions they checked in.
+          </>
+        }
+        flags={attendanceFlags}
+      />
+      <AttendanceLine recent={recentAttendance} absent={absent} late={late} />
+      <ArrivalAveragesPanel
+        averages={arrivals}
+        emptyNote="They have not checked in enough times yet for an average."
+      />
+    </div>
+  );
+}
+
+/** The rule behind the work figures, for a help tip wherever they are drawn. */
+export function WorkRuleHelp() {
+  return (
+    <>
+      A course is flagged after {ASSIGNMENT_DRIFT_RULE.slippedAtLeast} or more of the last{" "}
+      {ASSIGNMENT_DRIFT_RULE.dueOf} assignments due were missed or handed in late, or{" "}
+      {ASSIGNMENT_DRIFT_RULE.incompleteAtLeast} or more of their last{" "}
+      {ASSIGNMENT_DRIFT_RULE.gradedOf} graded fell short. The same rule as the gradebook&apos;s own
+      list. The on-time figure appears once {ASSIGNMENT_DRIFT_RULE.slippedAtLeast} assignments are
+      past due, and the complete figure once {ASSIGNMENT_DRIFT_RULE.incompleteAtLeast} are graded,
+      because those are the fewest the rule can flag.
+    </>
+  );
+}
+
+/**
+ * One course's last few weeks, for drawing beneath that course's row: the work line with any flag
+ * its rule raised, and the checks for understanding. Nothing when the course has neither released
+ * work nor a check, because a line about nothing would read as a finding.
+ *
+ * The same lines Trends draws under its Work and Understanding headings, so the record and the
+ * coaching form cannot word one course differently.
+ */
+export function CourseTrend({
+  course,
+}: {
+  course: { completedAssignments: { possible: number }; recent: RecentWork; checks: RecentChecks };
+}) {
+  const hasWork = course.completedAssignments.possible > 0;
+  const checks = recentChecksSentence(course.checks);
+  if (!hasWork && checks === null) return null;
+
+  const reasons = driftReasons(course.recent);
+
+  return (
+    <div className="flex flex-col gap-0.5 text-sm">
+      {hasWork && (
+        <p className="flex flex-wrap items-baseline gap-x-3 gap-y-0.5">
+          <WorkLine recent={course.recent} reasons={reasons} />
+          {reasons.map((reason) => (
+            <span key={reason} className="text-xs font-medium text-destructive">
+              {DRIFT_REASON_LABEL[reason]}
+            </span>
+          ))}
+        </p>
+      )}
+      {checks !== null && <p className="text-muted-foreground">{capitalise(checks)}.</p>}
+    </div>
   );
 }
 

@@ -65,6 +65,15 @@ export const TEST_RUN_LIMIT: RateLimit = { max: 60, windowMinutes: 60 };
 export const CHECK_SUMMARY_LIMIT: RateLimit = { max: 20, windowMinutes: 60 };
 
 /**
+ * Writing a preparation summary of one fellow's record: one model call over their figures,
+ * writing, sessions, notes and feedback.
+ *
+ * A coaching afternoon is a handful of fellows, each summarized once or twice, so twenty an hour is
+ * only reachable by a loop.
+ */
+export const COACHING_SUMMARY_LIMIT: RateLimit = { max: 20, windowMinutes: 60 };
+
+/**
  * Refuses when this actor has already done this too many times lately.
  *
  * Takes the real actor id rather than a context, so a caller has to have gone through `auditActor`

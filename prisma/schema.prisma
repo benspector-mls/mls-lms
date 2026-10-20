@@ -211,6 +211,7 @@ model Profile {
   gcfIdentities          GcfIdentity[]           @relation("GcfIdentities")
   instructorNotesWritten InstructorNote[]        @relation("InstructorNotesWritten")
   coachingSessionsLed    CoachingSession[]       @relation("CoachingSessionsLed")
+  coachingSummariesWritten CoachingSummary[]     @relation("CoachingSummariesWritten")
   goalCommentsWritten    GoalComment[]           @relation("GoalCommentsWritten")
   handedIn               Submission[]            @relation("HandedInBy")
   commentsWritten        SubmissionComment[]     @relation("CommentsWritten")
@@ -737,10 +738,11 @@ model Enrollment {
   cohort           Cohort?            @relation(fields: [cohortId, programId], references: [id, programId], onDelete: Restrict)
   teamMemberships  TeamMembership[]
   attendance       AttendanceRecord[]
-  instructorNotes  InstructorNote[]
-  coachingSessions CoachingSession[]
-  goals            Goal[]
-  topics           CoachingTopic[]
+  instructorNotes   InstructorNote[]
+  coachingSessions  CoachingSession[]
+  coachingSummaries CoachingSummary[]
+  goals             Goal[]
+  topics            CoachingTopic[]
 
   @@unique([programId, studentId])
   /// Redundant on its own — `id` is already the primary key — and bought for two readers:
@@ -2244,6 +2246,12 @@ enum AuditAction {
   /// because they never belonged to it), which is worth being able to find without reading every
   /// edit.
   COACHING_SESSION_DELETED
+  /// The preparation summary. GENERATED is the fourth operation that costs money, recorded before
+  /// the call so the rate limit can count it, and it is also the creation. EDITED covers a change
+  /// to the body and the removal of a theme, with which one in the detail. None carries any text.
+  COACHING_SUMMARY_GENERATED
+  COACHING_SUMMARY_EDITED
+  COACHING_SUMMARY_DELETED
   /// Nothing writes either of these. They are left from the design where an instructor owned a
   /// fellow's goals; a fellow keeping their own is not an act this log records. Postgres has no
   /// DROP VALUE for an enum, so they stay until it is next rebuilt for some other reason.
@@ -2870,7 +2878,8 @@ enum DevelopmentMarker {
 
 /// Free-text staff observations about one fellow in one program. Staff-only forever: no procedure
 /// outside the instructor-guarded ones ever selects the body, and the body never reaches a CSV,
-/// an audit event, or any future Salesforce sync.
+/// an audit event, or any future Salesforce sync. The preparation summary sends it to Anthropic
+/// when a coach chooses notes as an input, and nothing else does; see `CoachingSummary`.
 model InstructorNote {
   id           String @id @default(uuid()) @db.Uuid
   programId    String @map("program_id") @db.Uuid
@@ -2946,7 +2955,9 @@ model CoachingSession {
 
   /// `[{promptId, prompt, answer}]` — see `sessionAnswersSchema` in `lib/coaching.ts`. The
   /// prompt text is copied in server-side at save, so a session renders the prompts as they were
-  /// asked however the template moves afterwards. Staff-only.
+  /// asked however the template moves afterwards. Staff-only. The preparation summary sends a
+  /// completed session's answers to Anthropic when a coach chooses sessions as an input, and
+  /// nothing else does; see `CoachingSummary`.
   answers Json @default("[]")
 
   /// When the instructor completed it. Null while a draft; written once, never cleared. The
@@ -2971,6 +2982,59 @@ model CoachingSession {
 
   @@index([enrollmentId, heldOn(sort: Desc), createdAt(sort: Desc)])
   @@map("coaching_sessions")
+  @@schema("public")
+}
+
+/// A reading of one fellow's record written by Claude for the coach preparing to talk with them:
+/// what has changed, and what to ask about. Staff-only, like the notes it reads, and never shown
+/// to the fellow — the standing rule in ROADMAP.md for any synthesis about a person.
+///
+/// **One row per generation, and the newest is the current one.** Summaries are rolling: each
+/// generation reads the newest row before it, then only what is new since that row was written,
+/// so the previous summary stands in for everything up to its date. Keeping every row is what
+/// leaves the previous one there to read, and deleting the newest makes the one before it current
+/// again. See `lib/coaching/summary.ts` for the prompt and `lib/coaching/summary-inputs.ts` for
+/// what is read.
+model CoachingSummary {
+  id           String @id @default(uuid()) @db.Uuid
+  programId    String @map("program_id") @db.Uuid
+  enrollmentId String @map("enrollment_id") @db.Uuid
+
+  /// The summary itself: a list of themes, most important first, each `{ status, title, callout,
+  /// question, evidence, reasoning, edited }` — see `summaryThemeSchema` in lib/coaching.ts. The
+  /// coach may edit or remove any theme, and the next generation reads them as the coach left
+  /// them, so a wrong one does not return in every later summary.
+  themes Json @default("[]")
+
+  /// Where the next generation reads from: `{ feedbackAt, sessionsAt, notesAt, roundsRead,
+  /// roundsSkipped, sessionsSkipped }` — see `CoveredThrough` in lib/coaching/summary-inputs.ts.
+  coveredThrough Json @map("covered_through")
+
+  /// Which parts of the record were read: `figures`, `writing`, `sessions`, `notes`, `feedback`.
+  inputs String[]
+
+  /// The coach's own steer for this generation, such as "Compare against the goals set last time".
+  focus String?
+
+  /// Who pressed Generate. SetNull, for the reason `InstructorNote.authorId` is.
+  authorId String? @map("author_id") @db.Uuid
+
+  /// When the coach last edited or removed a theme. Which themes were edited is on each theme.
+  editedAt DateTime? @map("edited_at") @db.Timestamptz(6)
+
+  /// Model id, prompt version, and the four token counts, in the shape the other `model_metadata`
+  /// columns use, so `npm run cost` prices it.
+  modelMetadata Json @map("model_metadata")
+
+  /// When the summary was generated.
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  enrollment Enrollment @relation(fields: [enrollmentId, programId], references: [id, programId], onDelete: Cascade)
+  author     Profile?   @relation("CoachingSummariesWritten", fields: [authorId], references: [id], onDelete: SetNull)
+
+  @@index([enrollmentId, createdAt(sort: Desc)])
+  @@map("coaching_summaries")
   @@schema("public")
 }
 

@@ -230,3 +230,75 @@ export function parseSnapshot(json: unknown): CoachingSnapshot | null {
   const parsed = snapshotSchema.safeParse(json);
   return parsed.success ? parsed.data : null;
 }
+
+/**
+ * The parts of a fellow's record a preparation summary can read, chosen per generation with a
+ * checkbox each. Stored on the row as `inputs`, so a reader of an old summary knows what it saw.
+ * See `lib/coaching/summary-inputs.ts` for what each one reads.
+ */
+export const SUMMARY_INPUTS = ["figures", "writing", "sessions", "notes", "feedback"] as const;
+export type SummaryInput = (typeof SUMMARY_INPUTS)[number];
+
+/** How long the coach's focus sentence may be. The migration's CHECK holds the same. */
+export const SUMMARY_FOCUS_MAX_LENGTH = 500;
+
+/**
+ * Where a theme stands against the previous summary's themes. `resolved` keeps a theme the new
+ * material shows has got better for one more summary, so a coach sees what improved as well as
+ * what did not; the summary after drops it unless it returns.
+ */
+export const THEME_STATUSES = ["new", "continuing", "changed", "resolved"] as const;
+export type ThemeStatus = (typeof THEME_STATUSES)[number];
+
+/**
+ * One theme as the model writes it: where it stands, a title, the one detail behind it, the one
+ * question to ask about it, and — shown when the coach opens it — the dated records it rests on
+ * and how they add up to it. A summary is a list of these and nothing else.
+ */
+export const summaryThemeSchema = z.object({
+  status: z.enum(THEME_STATUSES),
+  title: z.string(),
+  callout: z.string(),
+  question: z.string(),
+  evidence: z.array(z.string()),
+  reasoning: z.string(),
+});
+
+/**
+ * One theme as it is stored: the model's, plus whether a coach has edited it. The next generation
+ * is told which themes a coach corrected, and treats those as right.
+ */
+const storedThemeSchema = summaryThemeSchema.extend({ edited: z.boolean().default(false) });
+
+export type SummaryTheme = z.infer<typeof storedThemeSchema>;
+
+/**
+ * The longest each part of a theme may be when a coach edits it. The model is asked for far
+ * shorter; these only stop an edit from becoming a document.
+ */
+export const THEME_FIELD_MAX_LENGTH = {
+  title: 200,
+  callout: 500,
+  question: 500,
+  evidenceItem: 1_000,
+  evidenceItems: 20,
+  reasoning: 2_000,
+} as const;
+
+/** A theme as a coach submits it from the edit form. */
+export const themeEditSchema = z.object({
+  status: z.enum(THEME_STATUSES),
+  title: z.string().trim().min(1, "A theme needs a title.").max(THEME_FIELD_MAX_LENGTH.title),
+  callout: z.string().trim().max(THEME_FIELD_MAX_LENGTH.callout),
+  question: z.string().trim().max(THEME_FIELD_MAX_LENGTH.question),
+  evidence: z
+    .array(z.string().trim().min(1).max(THEME_FIELD_MAX_LENGTH.evidenceItem))
+    .max(THEME_FIELD_MAX_LENGTH.evidenceItems),
+  reasoning: z.string().trim().max(THEME_FIELD_MAX_LENGTH.reasoning),
+});
+
+/** The one reader of the `themes` column. An empty list for anything it cannot read. */
+export function parseSummaryThemes(json: unknown): SummaryTheme[] {
+  const parsed = z.array(storedThemeSchema).safeParse(json);
+  return parsed.success ? parsed.data : [];
+}

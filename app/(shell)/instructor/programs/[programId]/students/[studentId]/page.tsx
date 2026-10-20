@@ -2,8 +2,6 @@ import { Suspense } from "react";
 
 import { ProgramStudent } from "@/components/instructor/program-student";
 import { PageFallback } from "@/components/list-states";
-import { PageHeader } from "@/components/page-header";
-import { displayNameOf } from "@/lib/people";
 import { schoolDayOf } from "@/lib/school-time";
 import { getQueryClient, trpc } from "@/trpc/server";
 
@@ -39,34 +37,36 @@ export default function ProgramStudentPage({
 async function Student({ params }: { params: Promise<{ programId: string; studentId: string }> }) {
   const { programId, studentId } = await params;
   const queryClient = getQueryClient();
-  const [data, coaching, fellows] = await Promise.all([
+  const [data, coaching, summaries, fellows] = await Promise.all([
     queryClient.fetchQuery(trpc.programs.student.queryOptions({ programId, studentId })),
     queryClient.fetchQuery(trpc.coaching.forStudent.queryOptions({ programId, studentId })),
+    queryClient.fetchQuery(
+      trpc.coachingSummaries.forStudent.queryOptions({ programId, studentId }),
+    ),
     /*
       The roster, for the record's own switcher. Fetched here rather than by the picker so the
-      names are in the first paint — one more query on a screen that already makes two, against a
+      names are in the first paint — one more query on a screen that already makes three, against a
       list of about twenty-five.
     */
     queryClient.fetchQuery(trpc.enrollments.listForProgram.queryOptions({ programId })),
   ]);
 
+  /*
+    The record lays out its own page, header included — the outline beside it changes with the
+    open tab, so the record is what knows which sections it has, and its header names the fellow
+    once rather than above a card that names them again.
+
+    The clock is read once, here, and handed down, so the server and the browser agree about which
+    square on the attendance calendar is today. Reading it inside the component would put a
+    different answer in each render, which React reports as a hydration mismatch.
+  */
   return (
-    <div className="mx-auto flex w-full max-w-4xl flex-col gap-6 p-4 md:p-6">
-      <PageHeader
-        title={displayNameOf(data.student, "Fellow")}
-        description={`${data.program.name} · ${data.program.term}`}
-      />
-      {/*
-        The clock is read once, here, and handed down, so the server and the browser agree about
-        which square on the attendance calendar is today. Reading it inside the component would put
-        a different answer in each render, which React reports as a hydration mismatch.
-      */}
-      <ProgramStudent
-        data={data}
-        coaching={coaching}
-        fellows={fellows}
-        today={schoolDayOf(new Date())}
-      />
-    </div>
+    <ProgramStudent
+      data={data}
+      coaching={coaching}
+      summaries={summaries}
+      fellows={fellows}
+      today={schoolDayOf(new Date())}
+    />
   );
 }
