@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import * as React from "react";
 import { CalendarClock, Inbox, UserMinus, Users } from "lucide-react";
+import { toast } from "sonner";
 
 import { AssignmentPicker } from "@/components/instructor/assignment-picker";
 import { BatchGenerate } from "@/components/instructor/batch-generate";
@@ -205,6 +206,44 @@ export function GradingQueue({
   // Deliberately outside `needs_review`: a question is not work to grade, and `bucket` is null on
   // a row nobody has submitted. It counts under All, which is where the record is looked for.
 
+  /*
+    A burst of confetti when the instructor releases the last submission in To do.
+
+    Only after an approval made in this sitting, and only in the assignment and cohort it was made
+    in. The count also reads zero when the page opens on finished work or when a cohort with nothing
+    outstanding is picked, and celebrating either would congratulate the instructor for work they
+    did not just do. `approvedIn` holds where the last approval was made, and picking another
+    cohort or assignment clears it.
+
+    Not while any report is still being written. A row whose report is generating is left out of
+    To do, so a batch running beside the instructor's approvals can make the count read zero while
+    work is still about to arrive in the list.
+
+    The toast says the same thing in words, because canvas-confetti draws nothing for somebody
+    whose system asks for reduced motion. The library is imported only at that moment, so nobody
+    downloads it until there is something to celebrate.
+  */
+  const scope = `${data.assignment.id}:${cohorts.cohort}`;
+  const approvedIn = React.useRef<string | null>(null);
+  const stillGenerating = submissions.some((row) => row.bucket === "generating");
+  React.useEffect(() => {
+    if (approvedIn.current !== scope) {
+      approvedIn.current = null;
+      return;
+    }
+    if (counts.needs_review > 0 || stillGenerating) return;
+    approvedIn.current = null;
+    toast.success("Nothing is left in To do. Well done!");
+    void import("canvas-confetti").then(({ default: confetti }) =>
+      confetti({
+        particleCount: 150,
+        spread: 90,
+        origin: { y: 0.7 },
+        disableForReducedMotion: true,
+      }),
+    );
+  }, [scope, counts.needs_review, stillGenerating]);
+
   // Filtering a cohort's worth of rows is not work worth memoizing, and `submissions` is
   // a fresh array on every render anyway, so a memo here would recompute regardless.
   const filtered = submissions.filter((row) => {
@@ -334,6 +373,8 @@ export function GradingQueue({
     nothing left to grade the selection stays put and the pane shows the released report.
   */
   function advanceAfterApproval() {
+    // Read by the celebration above once the refresh shows To do empty.
+    approvedIn.current = scope;
     const at = filtered.findIndex((row) => row.id === selected?.id);
     if (at === -1) return;
     const next =
