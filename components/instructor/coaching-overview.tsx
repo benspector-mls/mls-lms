@@ -110,10 +110,20 @@ export function CoachingOverview({
     const byName = fellowName(a).localeCompare(fellowName(b));
     if (sort === null) return byName;
 
-    const order =
-      sort.key === TEMPERATURE
-        ? compare(a.session?.temperature ?? null, b.session?.temperature ?? null, sort.direction)
-        : compare(competencyIn(a, sort.key), competencyIn(b, sort.key), sort.direction);
+    let order: number;
+    if (sort.key === NAME) {
+      order = compare(fellowName(a), fellowName(b), sort.direction);
+    } else if (sort.key === TEMPERATURE) {
+      order = compare(
+        a.session?.temperature ?? null,
+        b.session?.temperature ?? null,
+        sort.direction,
+      );
+    } else if (sort.key === DAYS) {
+      order = compare(a.session?.daysSince ?? null, b.session?.daysSince ?? null, sort.direction);
+    } else {
+      order = compare(competencyIn(a, sort.key), competencyIn(b, sort.key), sort.direction);
+    }
     return order || byName;
   });
 
@@ -126,7 +136,11 @@ export function CoachingOverview({
         fellow last set or posted progress on in that group. Click a goal or a check-in answer to
         read it in full.
       </p>
-      <div className="w-fit max-w-full rounded-lg border border-border">
+      {/*
+        `overflow-hidden` clips the table to this rounded border. Without it, the fellow column's
+        background paints square over the corners.
+      */}
+      <div className="w-fit max-w-full overflow-hidden rounded-lg border border-border">
         <Table className="table-fixed" style={{ width: `${width}rem` }}>
           <colgroup>
             <col style={{ width: `${FELLOW_REM}rem` }} />
@@ -141,7 +155,12 @@ export function CoachingOverview({
           </colgroup>
           <TableHeader>
             <TableRow>
-              <TableHead className={cn(stickyColumn, "text-xs font-normal")}>Fellow</TableHead>
+              <TableHead
+                aria-sort={ariaSort(sort, NAME)}
+                className={cn(stickyColumn, "text-xs font-normal")}
+              >
+                <SortButton label="Fellow" sortKey={NAME} sort={sort} onSort={setSort} />
+              </TableHead>
               <TableHead
                 aria-sort={ariaSort(sort, TEMPERATURE)}
                 className="border-l border-border text-xs font-normal"
@@ -153,8 +172,16 @@ export function CoachingOverview({
                   onSort={setSort}
                 />
               </TableHead>
-              <TableHead className="text-xs font-normal whitespace-normal">
-                Days since session
+              <TableHead
+                aria-sort={ariaSort(sort, DAYS)}
+                className="text-xs font-normal whitespace-normal"
+              >
+                <SortButton
+                  label="Days since session"
+                  sortKey={DAYS}
+                  sort={sort}
+                  onSort={setSort}
+                />
               </TableHead>
               {goalColumns.map((column, i) => (
                 <TableHead
@@ -281,15 +308,20 @@ const FIGURE_REM = 6.5;
 const GOAL_REM = 14;
 const ANSWER_REM = 12;
 
-/** The sort key of the temperature column. A goal column's key is its group's id or `OTHER`. */
+/**
+ * The sort keys of the fellow, temperature, and days-since-session columns. A goal column's key is
+ * its group's id or `OTHER`.
+ */
+const NAME = "name";
 const TEMPERATURE = "temperature";
+const DAYS = "days";
 
 /** A column key and which way. */
 type Sort = { key: string; direction: "asc" | "desc" };
 
 /**
  * Empty cells last in either direction, since a reader sorting a column is reading its figures.
- * Temperatures compare as numbers and competency names alphabetically.
+ * Temperatures and days compare as numbers, and names and competency names alphabetically.
  */
 function compare(
   a: number | string | null,
