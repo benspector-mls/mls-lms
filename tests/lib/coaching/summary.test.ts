@@ -7,6 +7,7 @@ import {
   themesOf,
   type CoachingSummaryInput,
 } from "@/lib/coaching/summary";
+import { redact } from "@/lib/coaching/redact";
 
 /**
  * The prompt a fellow's Themes are built from. Four properties are held here: the system half
@@ -126,6 +127,14 @@ describe("the system prompt", () => {
     const prompt = buildUserPrompt(input);
     expect(SYSTEM_PROMPT).not.toContain("Foundations");
     expect(prompt).not.toContain(SYSTEM_PROMPT);
+  });
+});
+
+describe("the user prompt's own wording", () => {
+  it("uses no listed sensitive term, so redaction changes only what people wrote", () => {
+    const prompt = buildUserPrompt(input);
+    const nobody = { displayName: null, email: null, githubUsername: null };
+    expect(redact(prompt, { fellow: nobody, others: [] }).text).toBe(prompt);
   });
 });
 

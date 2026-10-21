@@ -665,3 +665,52 @@ describe("correcting and deleting a summary", () => {
     expect(lastSent().previous!.themes).toEqual(STORED);
   });
 });
+
+describe("the names a generation hides", () => {
+  const tx = withRollback();
+  let world: World;
+  let elsewhere: World;
+
+  beforeAll(async () => {
+    world = await makeWorld(tx(), { students: 3 });
+    elsewhere = await makeWorld(tx());
+    const [, classmate, testStudent] = world.students;
+    await tx().profile.update({
+      where: { id: classmate!.studentId },
+      data: { displayName: "Classmate Name" },
+    });
+    await tx().profile.update({
+      where: { id: testStudent!.studentId },
+      data: { displayName: "Test Student 900123", testStudentNumber: 900_123 },
+    });
+    await tx().profile.update({
+      where: { id: world.instructorId },
+      data: { displayName: "Coach Name" },
+    });
+    await tx().profile.update({
+      where: { id: elsewhere.student.studentId },
+      data: { displayName: "Outsider Name" },
+    });
+  });
+
+  it("passes the fellow, their classmates and their program's staff, and no test student or outsider", async () => {
+    await createCaller(tx(), world.instructorId).coachingSummaries.generate({
+      programId: world.programId,
+      studentId: world.student.studentId,
+      inputs: ["figures"],
+    });
+
+    const names = generate.mock.calls.at(-1)![1];
+    const fellow = await tx().profile.findUniqueOrThrow({
+      where: { id: world.student.studentId },
+      select: { email: true },
+    });
+    expect(names.fellow.email).toBe(fellow.email);
+
+    const others = names.others.map((person) => person.displayName);
+    expect(others).toEqual(expect.arrayContaining(["Classmate Name", "Coach Name"]));
+    expect(others).not.toContain("Test Student 900123");
+    expect(others).not.toContain("Outsider Name");
+    expect(names.others.map((person) => person.email)).not.toContain(fellow.email);
+  });
+});

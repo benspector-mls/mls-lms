@@ -235,9 +235,34 @@ export const coachingSummariesRouter = createTRPCRouter({
         detail: { inputs, roundsRead, roundsSkipped, sessionsSkipped },
       });
 
+      /*
+        Everyone the record's prose might name, so their names are hidden from Claude along with
+        the fellow's. Test students are left out: their names are the words "Test" and "Student",
+        which would hide those words in every summary.
+      */
+      const [classmates, staff] = await Promise.all([
+        ctx.db.enrollment.findMany({
+          where: { programId: input.programId, studentId: { not: input.studentId } },
+          select: { student: { select: personSelect } },
+        }),
+        ctx.db.programInstructor.findMany({
+          where: { programId: input.programId },
+          select: { user: { select: personNameSelect } },
+        }),
+      ]);
+      const names = {
+        fellow: enrollment.student,
+        others: [
+          ...classmates
+            .map(({ student }) => student)
+            .filter((student) => student.testStudentNumber === null),
+          ...staff.map(({ user }) => user),
+        ],
+      };
+
       let result;
       try {
-        result = await generateCoachingSummary(assembled.input);
+        result = await generateCoachingSummary(assembled.input, names);
       } catch (err) {
         if (err instanceof CoachingSummaryError) {
           throw new TRPCError({ code: "INTERNAL_SERVER_ERROR", message: err.message });
