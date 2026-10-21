@@ -3001,3 +3001,314 @@ describe("correcting a day's clock", () => {
     });
   });
 });
+
+/**
+ * Excusing one fellow for a stretch of days, from their record, and clearing it again.
+ *
+ * The stretch accepts any dates and writes only class days the fellow could have attended. What
+ * these check is which days that turns out to be — the ones with no session, the ones before the
+ * fellow joined, and the one they checked themselves into are each passed over for a different
+ * reason — and that clearing reaches only days that have not finished.
+ */
+describe("excusing a fellow for a stretch of days", () => {
+  const tx = withRollback(180_000);
+  const today = schoolDayOf(new Date());
+
+  function daysFromToday(count: number): string {
+    const at = new Date(`${today}T00:00:00Z`);
+    at.setUTCDate(at.getUTCDate() + count);
+    return at.toISOString().slice(0, 10);
+  }
+
+  /** Today through six days ahead, every day, so each date in that span is a class day. */
+  async function scheduledWorld() {
+    const world = await makeWorld(tx(), { students: 2 });
+    await createCaller(tx(), world.instructorId).programs.setAttendanceSchedule({
+      programId: world.programId,
+      startsOn: today,
+      endsOn: daysFromToday(6),
+      weekdays: [0, 1, 2, 3, 4, 5, 6],
+      startsAt: "09:30",
+    });
+    return world;
+  }
+
+  /** Moves a fellow's joining day back, so days behind today count for them. */
+  async function joinedDaysAgo(enrollmentId: string, count: number) {
+    await tx().enrollment.update({
+      where: { id: enrollmentId },
+      data: { createdAt: new Date(Date.now() - count * 24 * 60 * 60 * 1000) },
+    });
+  }
+
+  describe("excusing days ahead", () => {
+    let world: World;
+    let result: { excused: string[]; kept: string[] };
+
+    beforeAll(async () => {
+      world = await scheduledWorld();
+      result = await createCaller(tx(), world.instructorId).attendance.excuseDays({
+        programId: world.programId,
+        enrollmentId: world.students[0]!.id,
+        from: daysFromToday(2),
+        to: daysFromToday(4),
+        note: "Surgery",
+      });
+    });
+
+    it("excuses every class day between the two", () => {
+      expect(result.excused).toEqual([daysFromToday(2), daysFromToday(3), daysFromToday(4)]);
+      expect(result.kept).toEqual([]);
+    });
+
+    it("as the instructor, with the note on each day", async () => {
+      const records = await tx().attendanceRecord.findMany({
+        where: { enrollmentId: world.students[0]!.id },
+        select: { status: true, source: true, note: true, recordedById: true },
+      });
+
+      expect(records).toHaveLength(3);
+      for (const record of records) {
+        expect(record).toEqual({
+          status: "EXCUSED",
+          source: "INSTRUCTOR",
+          note: "Surgery",
+          recordedById: world.instructorId,
+        });
+      }
+    });
+
+    it("and writes nothing for the other fellow", async () => {
+      expect(
+        await tx().attendanceRecord.count({ where: { enrollmentId: world.students[1]!.id } }),
+      ).toBe(0);
+    });
+
+    it("writing one audit event that names the days", async () => {
+      const events = await tx().auditEvent.findMany({
+        where: { action: "ATTENDANCE_STATUS_SET", programId: world.programId },
+      });
+
+      expect(events).toHaveLength(1);
+      expect((events[0]!.detail as { days: string[] }).days).toEqual(result.excused);
+    });
+  });
+
+  describe("which days it passes over", () => {
+    let world: World;
+    let result: { excused: string[]; kept: string[] };
+
+    beforeAll(async () => {
+      world = await scheduledWorld();
+      await joinedDaysAgo(world.students[0]!.id, 10);
+
+      // A past class day, written up after the fact.
+      await createCaller(tx(), world.instructorId).attendance.start({
+        programId: world.programId,
+        day: daysFromToday(-2),
+      });
+
+      // An earlier instructor decision, which the excusal replaces.
+      const later = await tx().attendanceSession.findFirstOrThrow({
+        where: { programId: world.programId, date: dateColumnFor(daysFromToday(5)) },
+      });
+      await createCaller(tx(), world.instructorId).attendance.setStatus({
+        sessionId: later.id,
+        enrollmentId: world.students[0]!.id,
+        status: "ABSENT",
+      });
+
+      // A day the fellow checked into, which the excusal must not overwrite.
+      const attended = await tx().attendanceSession.findFirstOrThrow({
+        where: { programId: world.programId, date: dateColumnFor(daysFromToday(3)) },
+      });
+      await tx().attendanceRecord.create({
+        data: {
+          sessionId: attended.id,
+          programId: world.programId,
+          enrollmentId: world.students[0]!.id,
+          status: "PRESENT",
+          source: "SELF_CHECK_IN",
+          checkedInAt: new Date(),
+        },
+      });
+
+      result = await createCaller(tx(), world.instructorId).attendance.excuseDays({
+        programId: world.programId,
+        enrollmentId: world.students[0]!.id,
+        from: daysFromToday(-5),
+        to: daysFromToday(8),
+      });
+    });
+
+    it("excuses past and future class days and skips dates with no session", () => {
+      expect(result.excused).toEqual([
+        daysFromToday(-2),
+        daysFromToday(0),
+        daysFromToday(1),
+        daysFromToday(2),
+        daysFromToday(4),
+        daysFromToday(5),
+        daysFromToday(6),
+      ]);
+    });
+
+    it("keeps the day the fellow checked into, and says which", async () => {
+      expect(result.kept).toEqual([daysFromToday(3)]);
+
+      const record = await tx().attendanceRecord.findFirstOrThrow({
+        where: {
+          enrollmentId: world.students[0]!.id,
+          session: { date: dateColumnFor(daysFromToday(3)) },
+        },
+        select: { status: true, source: true },
+      });
+      expect(record).toEqual({ status: "PRESENT", source: "SELF_CHECK_IN" });
+    });
+
+    it("replaces a status an instructor set earlier", async () => {
+      const record = await tx().attendanceRecord.findFirstOrThrow({
+        where: {
+          enrollmentId: world.students[0]!.id,
+          session: { date: dateColumnFor(daysFromToday(5)) },
+        },
+        select: { status: true },
+      });
+      expect(record.status).toBe("EXCUSED");
+    });
+
+    // The figures do not count a day before the fellow joined, so a record there would change nothing.
+    it("and skips days before the fellow joined", async () => {
+      const joinedToday = await createCaller(tx(), world.instructorId).attendance.excuseDays({
+        programId: world.programId,
+        enrollmentId: world.students[1]!.id,
+        from: daysFromToday(-5),
+        to: daysFromToday(1),
+      });
+      expect(joinedToday.excused).toEqual([daysFromToday(0), daysFromToday(1)]);
+    });
+  });
+
+  describe("what excusing will not do", () => {
+    let world: World;
+
+    beforeAll(async () => {
+      world = await scheduledWorld();
+    });
+
+    it("accept a stretch that runs backwards", async () => {
+      const code = await refusal(() =>
+        createCaller(tx(), world.instructorId).attendance.excuseDays({
+          programId: world.programId,
+          enrollmentId: world.students[0]!.id,
+          from: daysFromToday(4),
+          to: daysFromToday(2),
+        }),
+      );
+      expect(code).toBe("BAD_REQUEST");
+    });
+
+    it("or let a fellow call it", async () => {
+      const code = await refusal(() =>
+        createCaller(tx(), world.students[0]!.studentId).attendance.excuseDays({
+          programId: world.programId,
+          enrollmentId: world.students[0]!.id,
+          from: daysFromToday(2),
+          to: daysFromToday(4),
+        }),
+      );
+      expect(code).toBe("FORBIDDEN");
+    });
+
+    it("or excuse a fellow who is no longer enrolled", async () => {
+      await tx().enrollment.update({
+        where: { id: world.students[1]!.id },
+        data: { status: "REMOVED" },
+      });
+
+      const code = await refusal(() =>
+        createCaller(tx(), world.instructorId).attendance.excuseDays({
+          programId: world.programId,
+          enrollmentId: world.students[1]!.id,
+          from: daysFromToday(2),
+          to: daysFromToday(4),
+        }),
+      );
+      expect(code).toBe("PRECONDITION_FAILED");
+      expect(
+        await tx().attendanceRecord.count({ where: { enrollmentId: world.students[1]!.id } }),
+      ).toBe(0);
+    });
+  });
+
+  describe("clearing excused days", () => {
+    let world: World;
+    let cleared: { cleared: string[] };
+
+    beforeAll(async () => {
+      world = await scheduledWorld();
+      await joinedDaysAgo(world.students[0]!.id, 10);
+      const caller = createCaller(tx(), world.instructorId);
+
+      await caller.attendance.start({ programId: world.programId, day: daysFromToday(-2) });
+      await caller.attendance.excuseDays({
+        programId: world.programId,
+        enrollmentId: world.students[0]!.id,
+        from: daysFromToday(-2),
+        to: daysFromToday(4),
+        note: "Family emergency",
+      });
+
+      cleared = await caller.attendance.clearExcusedDays({
+        programId: world.programId,
+        enrollmentId: world.students[0]!.id,
+        from: daysFromToday(-5),
+        to: daysFromToday(3),
+      });
+    });
+
+    it("removes the excusals from today to the last day", () => {
+      expect(cleared.cleared).toEqual([
+        daysFromToday(0),
+        daysFromToday(1),
+        daysFromToday(2),
+        daysFromToday(3),
+      ]);
+    });
+
+    // A finished day left with no mark would read as "nothing was recorded for you".
+    it("and leaves a day that has already happened alone", async () => {
+      const record = await tx().attendanceRecord.findFirstOrThrow({
+        where: {
+          enrollmentId: world.students[0]!.id,
+          session: { date: dateColumnFor(daysFromToday(-2)) },
+        },
+        select: { status: true },
+      });
+      expect(record.status).toBe("EXCUSED");
+    });
+
+    it("and a day after the stretch", async () => {
+      const record = await tx().attendanceRecord.findFirstOrThrow({
+        where: {
+          enrollmentId: world.students[0]!.id,
+          session: { date: dateColumnFor(daysFromToday(4)) },
+        },
+        select: { status: true },
+      });
+      expect(record.status).toBe("EXCUSED");
+    });
+
+    it("and will not let a fellow call it", async () => {
+      const code = await refusal(() =>
+        createCaller(tx(), world.students[0]!.studentId).attendance.clearExcusedDays({
+          programId: world.programId,
+          enrollmentId: world.students[0]!.id,
+          from: daysFromToday(0),
+          to: daysFromToday(4),
+        }),
+      );
+      expect(code).toBe("FORBIDDEN");
+    });
+  });
+});

@@ -5,6 +5,7 @@ import { CoachingTopics } from "@/components/coaching-topics";
 import { HelpTip } from "@/components/help-tip";
 import type { OutlineSection } from "@/components/outlined-page";
 import { CoachingDownload } from "@/components/instructor/coaching-download";
+import { ExcuseDays } from "@/components/instructor/excuse-days";
 import { FellowGoals } from "@/components/instructor/fellow-goals";
 import { InstructorNotes } from "@/components/instructor/instructor-notes";
 import { PreparationSummary } from "@/components/instructor/preparation-summary";
@@ -219,7 +220,20 @@ export function ProgramStudent({
       performance={
         <>
           <section id="attendance" className="flex scroll-mt-(--outline-offset) flex-col gap-2">
-            <h2 className="text-lg font-semibold">Attendance</h2>
+            <div className="flex flex-wrap items-start justify-between gap-3">
+              <h2 className="text-lg font-semibold">Attendance</h2>
+              {/*
+                Hidden where nothing could be written: a removed fellow is not expected at any
+                morning, and a finished program's attendance is closed.
+              */}
+              {!removed && data.program.archivedAt === null && (
+                <ExcuseDays
+                  programId={data.program.id}
+                  enrollmentId={data.enrollmentId}
+                  name={name}
+                />
+              )}
+            </div>
             <div className="flex flex-col gap-3 rounded-lg border border-border bg-muted/30 p-4">
               {/*
                 The last few mornings first, where the figures beneath are the term. A term's rate

@@ -875,6 +875,260 @@ export const attendanceRouter = createTRPCRouter({
     }),
 
   /**
+   * Mark one fellow excused on every class day in a stretch, from their record.
+   *
+   * **The stretch is `setStatus` over many days**, for the absence an instructor hears about once:
+   * a fellow who will be in hospital next week, or who was ill for three days and has brought a
+   * note. Opening each day's board to make the same mark with the same note is the work this
+   * removes.
+   *
+   * **Any dates are accepted, and only class days are written.** A date with no session — a
+   * weekend, a removed holiday, a day ahead in a program with no schedule — has nothing to hold a
+   * record and is passed over. So is a prepared session whose check-in never opened, for the reason
+   * `requireStarted` refuses one, and so is any day before the fellow joined, because the figures
+   * do not count those and a record there would be an excusal that changes nothing.
+   *
+   * **A day the fellow checked themselves into is kept and named**, the guard `removeDays` applies.
+   * They were in the room that day, and an excusal written over the arrival would lower their rate
+   * for a morning they attended. One such day can still be changed on that day's board. Any other
+   * record is replaced, including an earlier excusal and its note.
+   *
+   * Written in three batched queries rather than one upsert per day, because a stretch can be a
+   * term long and a transaction holding hundreds of round trips can outlast its timeout. One audit
+   * event names the stretch and its days, the shape `removeDays` uses.
+   */
+  excuseDays: programProcedure
+    .input(
+      z.object({
+        enrollmentId: z.string().uuid(),
+        from: schoolDaySchema,
+        to: schoolDaySchema,
+        note: z.string().trim().max(500).optional(),
+      }),
+    )
+    .mutation(async ({ ctx, input }) => {
+      if (input.to < input.from) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: "The last day of the stretch comes before the first.",
+        });
+      }
+
+      const [program, enrollment] = await Promise.all([
+        ctx.db.program.findUniqueOrThrow({
+          where: { id: input.programId },
+          select: { id: true, name: true, archivedAt: true },
+        }),
+        ctx.db.enrollment.findFirst({
+          where: { id: input.enrollmentId, programId: input.programId },
+          select: {
+            id: true,
+            status: true,
+            createdAt: true,
+            student: { select: { id: true, ...personNameSelect } },
+          },
+        }),
+      ]);
+
+      if (program.archivedAt !== null) {
+        throw new TRPCError({
+          code: "PRECONDITION_FAILED",
+          message: `${program.name} has finished, so its attendance cannot be changed.`,
+        });
+      }
+
+      if (!enrollment) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: "That fellow is not on this program's roster.",
+        });
+      }
+
+      if (enrollment.status !== "ACTIVE") {
+        throw new TRPCError({
+          code: "PRECONDITION_FAILED",
+          message: "This fellow is no longer enrolled, so their attendance cannot be excused.",
+        });
+      }
+
+      const enrolledFrom = schoolDayOf(enrollment.createdAt);
+      const from = input.from > enrolledFrom ? input.from : enrolledFrom;
+      const note = input.note ? input.note : null;
+
+      return inTransaction(ctx.db, async (tx) => {
+        const sessions = await tx.attendanceSession.findMany({
+          where: {
+            programId: program.id,
+            date: { gte: dateColumnFor(from), lte: dateColumnFor(input.to) },
+            startedAt: { not: null },
+          },
+          orderBy: { date: "asc" },
+          select: {
+            id: true,
+            date: true,
+            records: {
+              where: { enrollmentId: enrollment.id },
+              select: { checkedInAt: true },
+            },
+          },
+        });
+
+        const unmarked = sessions.filter((session) => session.records.length === 0);
+        const replaced = sessions.filter(
+          (session) => session.records.length > 0 && session.records[0]!.checkedInAt === null,
+        );
+        const attended = sessions.filter(
+          (session) => session.records.length > 0 && session.records[0]!.checkedInAt !== null,
+        );
+
+        if (unmarked.length > 0) {
+          await tx.attendanceRecord.createMany({
+            data: unmarked.map((session) => ({
+              sessionId: session.id,
+              programId: program.id,
+              enrollmentId: enrollment.id,
+              status: "EXCUSED" as const,
+              source: "INSTRUCTOR" as const,
+              recordedById: ctx.profile.id,
+              note,
+            })),
+          });
+        }
+
+        if (replaced.length > 0) {
+          await tx.attendanceRecord.updateMany({
+            where: {
+              enrollmentId: enrollment.id,
+              sessionId: { in: replaced.map((session) => session.id) },
+            },
+            data: { status: "EXCUSED", source: "INSTRUCTOR", recordedById: ctx.profile.id, note },
+          });
+        }
+
+        const excused = [...unmarked, ...replaced]
+          .map((session) => schoolDayFromColumn(session.date))
+          .sort();
+        const kept = attended.map((session) => schoolDayFromColumn(session.date));
+
+        if (excused.length > 0) {
+          await recordEvent(tx, {
+            action: "ATTENDANCE_STATUS_SET",
+            actor: auditActor(ctx),
+            subject: {
+              id: enrollment.student.id,
+              label: displayNameOf(enrollment.student, "a student"),
+            },
+            program: { id: program.id, label: program.name },
+            detail: {
+              from: input.from,
+              to: input.to,
+              status: "EXCUSED",
+              days: excused,
+              keptBecauseAttended: kept,
+              note,
+            },
+          });
+        }
+
+        return { excused, kept };
+      });
+    }),
+
+  /**
+   * Remove one fellow's excusals from a stretch of days that have not finished.
+   *
+   * **The undo for `excuseDays`**, because without it an excusal written over the wrong week could
+   * only be changed to another status, and on a day that has not happened every other status is a
+   * claim about a morning nobody has seen yet.
+   *
+   * **Today onward only, and only days whose session has not ended.** Removing the record from a
+   * day still to come returns it to what it was before: a class day the fellow is expected at. On a
+   * day that has finished, the same deletion would leave a morning with no mark, which the fellow's
+   * calendar reports as "nothing was recorded for you" — so a past excusal is changed on that day's
+   * board, where the instructor chooses what replaces it. A range reaching back is clipped, as in
+   * `removeDays`.
+   */
+  clearExcusedDays: programProcedure
+    .input(
+      z.object({
+        enrollmentId: z.string().uuid(),
+        from: schoolDaySchema,
+        to: schoolDaySchema,
+      }),
+    )
+    .mutation(async ({ ctx, input }) => {
+      if (input.to < input.from) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: "The last day of the stretch comes before the first.",
+        });
+      }
+
+      const [program, enrollment] = await Promise.all([
+        ctx.db.program.findUniqueOrThrow({
+          where: { id: input.programId },
+          select: { id: true, name: true, archivedAt: true },
+        }),
+        ctx.db.enrollment.findFirst({
+          where: { id: input.enrollmentId, programId: input.programId },
+          select: { id: true, student: { select: { id: true, ...personNameSelect } } },
+        }),
+      ]);
+
+      if (program.archivedAt !== null) {
+        throw new TRPCError({
+          code: "PRECONDITION_FAILED",
+          message: `${program.name} has finished, so its attendance cannot be changed.`,
+        });
+      }
+
+      if (!enrollment) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: "That fellow is not on this program's roster.",
+        });
+      }
+
+      const today = schoolDayOf(new Date());
+      const from = input.from > today ? input.from : today;
+
+      return inTransaction(ctx.db, async (tx) => {
+        const excusals = await tx.attendanceRecord.findMany({
+          where: {
+            enrollmentId: enrollment.id,
+            status: "EXCUSED",
+            session: {
+              date: { gte: dateColumnFor(from), lte: dateColumnFor(input.to) },
+              endedAt: null,
+            },
+          },
+          select: { id: true, session: { select: { date: true } } },
+        });
+
+        if (excusals.length === 0) return { cleared: [] };
+
+        await tx.attendanceRecord.deleteMany({
+          where: { id: { in: excusals.map((record) => record.id) } },
+        });
+
+        const cleared = excusals.map((record) => schoolDayFromColumn(record.session.date)).sort();
+
+        await recordEvent(tx, {
+          action: "ATTENDANCE_STATUS_SET",
+          actor: auditActor(ctx),
+          subject: {
+            id: enrollment.student.id,
+            label: displayNameOf(enrollment.student, "a student"),
+          },
+          program: { id: program.id, label: program.name },
+          detail: { from, to: input.to, status: null, cleared },
+        });
+
+        return { cleared };
+      });
+    }),
+
+  /**
    * Correct a session's start time, its lateness threshold, or its note.
    *
    * **Self check-ins are recomputed; instructor decisions are not.** An instructor who pressed
