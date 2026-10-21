@@ -27,6 +27,10 @@ import { cn } from "@/lib/utils";
  * and `courseFiguresFor` in lib/coaching/snapshot.ts, so no two can show different readings of
  * the same fellow.
  *
+ * **Headed "Last few weeks" rather than "Trends"**, because it is the first section of the Trends
+ * tab, and a section named after its tab reads as the whole tab. The heading names the window,
+ * which is the one thing that separates this card from the Performance tab's term figures.
+ *
  * **Its heading's rank and size are set by the caller**, because the card sits at two depths: a
  * top-level section of the Trends tab, beside Themes, and one part of the coaching form's "Before
  * the session", under that part's own heading.
@@ -84,10 +88,9 @@ export function Trends({
           level === 2 ? "text-lg font-semibold" : "text-sm font-medium",
         )}
       >
-        Trends
+        Last few weeks
         <HelpTip>
-          The last few weeks, not the whole term, so a recent slip is not hidden by a good term
-          average.
+          Not the whole term, so a recent slip is not hidden by a good term average.
         </HelpTip>
       </HeadingTag>
       {note && <p className="text-xs text-muted-foreground">{note}</p>}

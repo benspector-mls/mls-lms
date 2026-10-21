@@ -221,7 +221,7 @@ export function attendanceDriftReason(recent: RecentAttendance): AttendanceDrift
 }
 
 /**
- * The rule behind an attendance flag on the Performance tab and the fellow's Trends.
+ * The rule behind an attendance flag on the Performance tab and the fellow's Last few weeks card.
  *
  * **Recent rather than cumulative**, which is the whole point. A fellow at 88 percent over a term
  * who has missed the last four mornings is the one to call today, and a cumulative rate hides them

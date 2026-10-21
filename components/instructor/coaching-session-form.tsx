@@ -54,7 +54,7 @@ type PendingSave = {
 };
 
 /**
- * One coaching conversation, in three parts read in order. Before the session: the recent trends,
+ * One coaching conversation, in three parts read in order. Before the session: the last few weeks,
  * the data snapshot that completing will record, what the fellow wants to raise, and the coach's
  * own notes. The fellow check-in: the temperature check and the staff-only questions. Goal
  * setting: the fellow's own goals to talk through.

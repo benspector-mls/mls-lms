@@ -296,7 +296,8 @@ export function completionLabel(completion: Completion | undefined, possible: nu
 // ===========================================================================
 
 /**
- * The rule behind a work flag on the Performance tab and the fellow's Trends, printed beside both.
+ * The rule behind a work flag on the Performance tab and the fellow's Last few weeks card, printed
+ * beside both.
  *
  * **Recent rather than cumulative, which is the whole point**, and the same point the attendance
  * drift rule in `lib/attendance/summary.ts` makes: a fellow who finished every module in September
@@ -451,7 +452,7 @@ export function driftReasons(recent: RecentWork): DriftReason[] {
 /**
  * The two windows in words, for the inputs of a fellow's Themes: "2 missed, 1 late of
  * the last 10 due · 1 of the last 5 graded fell short". It counts what went wrong. The fellow's
- * Trends card reads the same two windows and counts what went right instead; see `WorkLine` in
+ * Last few weeks card reads the same two windows and counts what went right instead; see `WorkLine` in
  * components/instructor/trends.tsx.
  *
  * The counts are printed even when they are zero, because "none of the last 10 due missed or late"

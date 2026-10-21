@@ -4,8 +4,8 @@ import { latestAttempt } from "./attempts";
 import { effectiveLevel, levelCategory } from "./levels";
 
 /**
- * A fellow's recent checks for understanding in one course, for the Trends section of their record
- * and the top of a coaching session.
+ * A fellow's recent checks for understanding in one course, for the Last few weeks card of their
+ * record and the top of a coaching session.
  *
  * **Two readings, and deliberately no flag.** Attendance and work turn red when a rule trips; a
  * check never does. A fellow was told a check is an honest reading rather than a verdict, and

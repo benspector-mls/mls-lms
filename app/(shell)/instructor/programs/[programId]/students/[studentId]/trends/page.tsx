@@ -66,7 +66,7 @@ async function StudentTrends({
         recentAttendance={data.recentAttendance}
         arrivals={data.arrivals}
         courses={data.courses}
-        note="The last few weeks rather than the whole term. Every coaching session opens with this same card."
+        note="Every coaching session opens with this same card."
       />
       <PreparationSummary
         id="themes"
