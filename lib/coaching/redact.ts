@@ -65,6 +65,8 @@ export const SENSITIVE_TERMS = [
   "incarcerated",
   "probation",
   "parole",
+  "misdemeanor",
+  "felony",
   // Housing
   "homeless",
   "homelessness",
@@ -72,6 +74,8 @@ export const SENSITIVE_TERMS = [
   "eviction",
   "evicted",
   // Health and mental health
+  "aids",
+  "hiv",
   "mental health",
   "therapy",
   "therapist",
