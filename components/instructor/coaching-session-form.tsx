@@ -203,7 +203,7 @@ export function CoachingSessionForm({ programId, data }: { programId: string; da
       settled({
         onSuccess: () => {
           toast.success("Session discarded.");
-          router.push(programStudentHref(programId, data.student.id));
+          router.push(programStudentHref(programId, data.student.id, "coaching"));
         },
       }),
     ),
@@ -278,6 +278,7 @@ export function CoachingSessionForm({ programId, data }: { programId: string; da
           because the snapshot is what the fellow will see and this is not.
         */}
         <Trends
+          level={3}
           recentAttendance={data.trends.recentAttendance}
           arrivals={data.trends.arrivals}
           courses={data.trends.courses}

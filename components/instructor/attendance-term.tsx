@@ -8,7 +8,7 @@ import type { FellowSummary, SummarySession } from "@/lib/attendance/summary";
 /**
  * The whole term: every fellow against every session, and when each of them usually arrives.
  *
- * **The grid is the record, and the Performance screen is where an instructor reads who needs
+ * **The grid is the record, and the Performance tab is where an instructor reads who needs
  * support.** Twenty-five fellows against sixty sessions is fifteen hundred letters, and nobody reads
  * fifteen hundred letters looking for three people. Performance applies the attendance drift rule
  * beside the fellow's work, so a fellow who is slipping is named on one screen for everything rather

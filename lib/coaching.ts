@@ -232,7 +232,7 @@ export function parseSnapshot(json: unknown): CoachingSnapshot | null {
 }
 
 /**
- * The parts of a fellow's record a preparation summary can read, chosen per generation with a
+ * The parts of a fellow's record one generation of Themes can read, chosen per generation with a
  * checkbox each. Stored on the row as `inputs`, so a reader of an old summary knows what it saw.
  * See `lib/coaching/summary-inputs.ts` for what each one reads.
  */

@@ -70,7 +70,7 @@ async function Session({
             eyebrow="Coaching session"
           />
           <Link
-            href={programStudentHref(programId, studentId)}
+            href={programStudentHref(programId, studentId, "coaching")}
             className="w-fit text-xs text-muted-foreground hover:text-foreground hover:underline"
           >
             ← Back to their record

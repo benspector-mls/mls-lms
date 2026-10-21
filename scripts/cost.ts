@@ -9,7 +9,7 @@
  * its effort. Reviewing an attempt again replaces that record, so only the latest review of each
  * attempt is priced. A summary of a check's answers does the same on
  * `check_summaries.model_metadata`, with `check_summary` as its section, and summarizing the same
- * cohort again replaces it likewise. A preparation summary of a fellow's record records the same on
+ * cohort again replaces it likewise. Generating a fellow's Themes records the same on
  * `coaching_summaries.model_metadata`, with `coaching_summary` as its section; every generation is
  * its own row, so each one is priced.
  *

@@ -22,7 +22,7 @@ describe("the eight views that are remembered", () => {
     },
   );
 
-  it.each(["attendance", "performance", "roster", "settings"])("a program's %s", (segment) => {
+  it.each(["attendance", "fellows", "settings"])("a program's %s", (segment) => {
     expect(viewPlaceOf(`/instructor/programs/${PROGRAM}/${segment}`)).toEqual({
       scope: "programs",
       id: PROGRAM,
@@ -66,6 +66,14 @@ describe("a deeper screen is remembered as the view it sits under", () => {
   it("one day of attendance becomes the program's attendance", () => {
     expect(viewPlaceOf(`/instructor/programs/${PROGRAM}/attendance/day/2026-08-14`)?.href).toBe(
       `/instructor/programs/${PROGRAM}/attendance`,
+    );
+  });
+
+  it("a tab of the Fellows screen becomes the Fellows screen", () => {
+    // The tab is an address, but reopening the application lands on the roster, which is the tab
+    // a program's name leads to from everywhere else.
+    expect(viewPlaceOf(`/instructor/programs/${PROGRAM}/fellows/coaching`)?.href).toBe(
+      `/instructor/programs/${PROGRAM}/fellows`,
     );
   });
 
@@ -148,7 +156,7 @@ describe("what the browser writes is what the server reads back", () => {
     `/instructor/courses/${COURSE}/curriculum/${ASSIGNMENT}/edit`,
     `/instructor/courses/${COURSE}/settings`,
     `/instructor/programs/${PROGRAM}/attendance/day/2026-08-14`,
-    `/instructor/programs/${PROGRAM}/roster`,
+    `/instructor/programs/${PROGRAM}/fellows/performance`,
   ])("%s survives the round trip", (pathname) => {
     const written = viewPlaceOf(pathname);
     expect(written).not.toBeNull();

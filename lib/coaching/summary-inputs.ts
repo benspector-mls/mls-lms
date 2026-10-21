@@ -26,7 +26,7 @@ import type {
 } from "./summary";
 
 /**
- * What one preparation summary reads from a fellow's record, and where the next one starts.
+ * What one generation of Themes reads from a fellow's record, and where the next one starts.
  *
  * **Two kinds of input.** Standing (`figures`) and the fellow's own writing (`writing`) are read
  * whole every time, because they are short and what matters about them is how they are now.

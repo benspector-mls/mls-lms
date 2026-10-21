@@ -29,19 +29,35 @@ const nextConfig: NextConfig = {
     */
     const gone = ["assignments", "coursework", "modules", "resources"];
 
-    return gone.flatMap((segment) => [
+    return [
+      ...gone.flatMap((segment) => [
+        {
+          source: `/instructor/courses/:courseId/${segment}`,
+          destination: "/instructor/courses/:courseId/curriculum",
+          permanent: false,
+        },
+        {
+          // The deeper addresses: one assignment's grading queue, its edit form, and `new`.
+          source: `/instructor/courses/:courseId/${segment}/:rest*`,
+          destination: "/instructor/courses/:courseId/curriculum/:rest*",
+          permanent: false,
+        },
+      ]),
+      /*
+        The two addresses the Fellows screen replaced. The roster is its first tab and the bare
+        address; Performance is a tab beneath it. Temporary for the same reason as above.
+      */
       {
-        source: `/instructor/courses/:courseId/${segment}`,
-        destination: "/instructor/courses/:courseId/curriculum",
+        source: "/instructor/programs/:programId/roster",
+        destination: "/instructor/programs/:programId/fellows",
         permanent: false,
       },
       {
-        // The deeper addresses: one assignment's grading queue, its edit form, and `new`.
-        source: `/instructor/courses/:courseId/${segment}/:rest*`,
-        destination: "/instructor/courses/:courseId/curriculum/:rest*",
+        source: "/instructor/programs/:programId/performance",
+        destination: "/instructor/programs/:programId/fellows/performance",
         permanent: false,
       },
-    ]);
+    ];
   },
 };
 

@@ -343,6 +343,22 @@ export function AssignmentForm({
   const trpc = useTRPC();
   const router = useRouter();
 
+  /*
+    How many assignments this form has saved since it was mounted, and part of `Editor`'s key.
+
+    Next.js keeps the last few pages a person visited mounted inside a hidden boundary, so that
+    going back to one restores it as it was left. Saving an assignment leaves for the Curriculum
+    screen, and "Add assignment" there comes back to this same page — which is therefore not
+    mounted afresh but revealed, with every field still holding the assignment just saved. The
+    second assignment would open as a copy of the first, and the unit it was opened into would be
+    ignored, because an initial value is read once on mount.
+
+    Counting saves into the key remounts `Editor` after each one, so every initial value is read
+    again. The unit is in the key as well, so a form opened from a different unit's button starts
+    in that unit rather than in whichever one it was last left on.
+  */
+  const [saved, setSaved] = React.useState(0);
+
   const context = useQuery(trpc.assignments.authoringContext.queryOptions({ courseId }));
 
   if (context.isPending) return <FormSkeleton />;
@@ -360,11 +376,13 @@ export function AssignmentForm({
 
   return (
     <Editor
+      key={`${saved}:${initialCourseUnitId ?? ""}`}
       courseId={courseId}
       context={context.data}
       existing={existing}
       initialCourseUnitId={initialCourseUnitId}
       onSaved={(assignmentId) => {
+        setSaved((count) => count + 1);
         /*
           To the Curriculum screen, which is where an instructor sees the result in context —
           the new row, its draft badge, and its place inside the unit it belongs to.

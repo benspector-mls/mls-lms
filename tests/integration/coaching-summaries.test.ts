@@ -1,5 +1,5 @@
 /**
- * The preparation summary: who may generate, read, correct and delete one, what each generation
+ * Themes, the AI summary on a fellow's record: who may generate, read, correct and delete one, what each generation
  * reads, and where it stops so the next one starts after it.
  *
  * Run with `npm run test:integration`, or `npm run test:integration:supabase` against the
@@ -164,7 +164,7 @@ async function releasedRound(tx: Tx, world: World, options: { approvedAt: Date; 
   });
 }
 
-describe("who may use a preparation summary", () => {
+describe("who may use a fellow's themes", () => {
   const tx = withRollback();
   let world: World;
   let outsider: World;

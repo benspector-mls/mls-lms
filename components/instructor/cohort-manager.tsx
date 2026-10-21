@@ -34,7 +34,7 @@ import type { RouterOutputs } from "@/trpc/types";
  * **A cohort is a partition**, held as `Enrollment.cohortId`: a fellow is in at most one, so the
  * screen can show each cohort as a card with its members inside and know that no name appears
  * twice. The first card is No Cohort, which is the reason the partition is drawn this way — the
- * fellow nobody has placed is the one an instructor opens this tab to find, and a card that is
+ * fellow nobody has placed is the one an instructor opens this card to find, and a card that is
  * always present names them at the top instead of leaving them to be noticed by their absence from
  * four other lists.
  *
@@ -45,10 +45,10 @@ import type { RouterOutputs } from "@/trpc/types";
  * and the list move together on the click; a refusal puts the map back to what the server last
  * said.
  *
- * **It is a tab on the roster rather than a screen of its own**, because it is a thing done *to* the
- * roster: the placement is one control the size of the roster, so it cannot sit under the tables,
- * and "who has nobody grading them" is asked while reading them. A tab separates the two without
- * making either somewhere you have to go.
+ * **It is a section of the program's settings rather than a screen of its own**, because placing
+ * fellows is done once at the start of a term and revised a few times after, like everything else
+ * set up there. The roster carries a cohort column so that "who has nobody grading them" is still
+ * answered while reading it, without this control sitting under the tables.
  */
 
 type Cohorts = RouterOutputs["cohorts"]["listForProgram"];
@@ -298,7 +298,7 @@ export function CohortManager({
  *
  * The No cohort card carries no rename and no remove because there is nothing to rename or remove:
  * it is not a row, it is the fellows whose `cohortId` is null. It is always drawn, including empty,
- * because an instructor reading this tab is asking whether anybody is unplaced and an absent card
+ * because an instructor reading this card is asking whether anybody is unplaced and an absent card
  * would answer that question by saying nothing.
  */
 function CohortCard({

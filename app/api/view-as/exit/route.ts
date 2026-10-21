@@ -8,7 +8,7 @@ import {
   VIEW_AS_COOKIE,
   VIEW_AS_PROGRAM_COOKIE,
 } from "@/lib/auth/view-as";
-import { rosterHref } from "@/lib/links";
+import { fellowsHref } from "@/lib/links";
 
 /**
  * Leaving a student's view, and landing back on the roster it was entered from.
@@ -59,7 +59,7 @@ export async function POST(request: NextRequest) {
     typeof next === "string" && isInstructorPath(next)
       ? next
       : programId && isUuid(programId)
-        ? rosterHref(programId)
+        ? fellowsHref(programId)
         : "/instructor";
 
   redirect(`${origin}${back}`);

@@ -472,7 +472,7 @@ export const coachingRouter = createTRPCRouter({
     }),
 
   /**
-   * The Coaching tab of the Performance screen: for every fellow in the chosen cohort, their most
+   * The Coaching tab of the Fellows screen: for every fellow in the chosen cohort, their most
    * recent completed session and the goals they hold now, with the competency groups the goals are
    * sorted into.
    *

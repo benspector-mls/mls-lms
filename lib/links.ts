@@ -21,11 +21,11 @@
 // ---------------------------------------------------------------------------------------------
 // The program's three views
 //
-// Three rather than five, because two of them turned out to be sections of the others. Placing
-// fellows in cohorts is a thing done *to* the roster, and it now shares that screen's tabs; who
-// instructs the program is a fact about the program, and it sits on its settings. Both
-// had their own address while the question was whether they were separate screens, and running them
-// answered it — a sidebar item apiece was five doors onto three rooms.
+// Attendance, Fellows and Settings. Attendance is the morning's operation. Fellows is every screen
+// about the people on the roster: the roster itself, how they are doing, and what has been agreed
+// with them in coaching, as tabs that each have an address. Settings is what is set up once a year,
+// which is where placing fellows in cohorts and enrolling them sit, beside the courses and the
+// instructors.
 // ---------------------------------------------------------------------------------------------
 
 /** Every program the caller belongs to. The way out of all of them. */
@@ -88,22 +88,28 @@ export function myGoalsHref(programId: string): string {
 }
 
 /**
- * How every fellow on the program's roster is doing: attendance, work across every course, and
- * where each stands against the bar. Its own screen rather than a tab of the roster, because the
- * roster is where the program's membership is managed and this is read for a different reason.
+ * The tabs of the Fellows screen, in the order they are offered. Each is an address: the roster is
+ * the bare `fellows` address, and the rest sit one segment beneath it.
  */
-export function performanceHref(programId: string): string {
-  return `/instructor/programs/${programId}/performance`;
-}
+export const FELLOWS_TABS = ["roster", "performance", "coaching", "trends"] as const;
+export type FellowsTab = (typeof FELLOWS_TABS)[number];
 
 /**
- * The roster: everybody who has ever joined this program, and the link that lets them.
+ * The Fellows screen: everybody on the program's roster, and the readings of them.
  *
- * **The program's, and this is the duplication it removed.** One roster where there used to be one
- * per course, entered once instead of once per course of a term.
+ * **One screen with four tabs, because the two jobs an instructor comes here for both begin from
+ * the same list.** Finding one fellow by name to open their record starts from the roster; the
+ * cohort meeting reads the Performance and Coaching tabs of the same people. The roster is the
+ * tab the bare address lands on, because it is also where a program's name leads from everywhere
+ * else, and the other three are one segment deeper so a link, a bookmark and the back button can
+ * each name a tab.
+ *
+ * **The roster is the program's, and this is the duplication it removed.** One roster where there
+ * used to be one per course, entered once instead of once per course of a term.
  */
-export function rosterHref(programId: string): string {
-  return `/instructor/programs/${programId}/roster`;
+export function fellowsHref(programId: string, tab: FellowsTab = "roster"): string {
+  const base = `/instructor/programs/${programId}/fellows`;
+  return tab === "roster" ? base : `${base}/${tab}`;
 }
 
 /** The program's own settings: what it is, its courses, who instructs it, and how it ends. */
@@ -112,15 +118,31 @@ export function programSettingsHref(programId: string): string {
 }
 
 /**
+ * The tabs of a fellow's record, in the order they are offered. They are the Fellows screen's tabs
+ * less the roster, because the record is one row of it. Performance is the bare record address.
+ */
+export const RECORD_TABS = ["performance", "coaching", "trends"] as const;
+export type RecordTab = (typeof RECORD_TABS)[number];
+
+/**
  * One fellow, across the whole program.
  *
  * **About the person rather than about their work**, which is what makes it a different screen from
  * `studentHref` below: who they are, their attendance and arrival averages, which cohort they are
  * in, their GCF history, and a row per course linking into the record of what they did in it. It is
  * what the roster's rows point at.
+ *
+ * **The tab is part of the address.** A name in the Coaching table opens the record's Coaching tab,
+ * and finishing a session returns there; every other link lands on Performance, which is the bare
+ * address. A coaching session sits beneath the Coaching tab's segment, see `coachingSessionHref`.
  */
-export function programStudentHref(programId: string, studentId: string): string {
-  return `/instructor/programs/${programId}/students/${studentId}`;
+export function programStudentHref(
+  programId: string,
+  studentId: string,
+  tab: RecordTab = "performance",
+): string {
+  const base = `/instructor/programs/${programId}/students/${studentId}`;
+  return tab === "performance" ? base : `${base}/${tab}`;
 }
 
 /**
@@ -329,6 +351,9 @@ export function sameViewInCourse(pathname: string, courseId: string): string {
  *
  * A fellow's record does not travel either: a person is on one roster or another, and a page naming
  * somebody who is not on this one would refuse rather than render.
+ *
+ * **A Fellows tab travels as that tab.** Somebody comparing two years' Performance wants the other
+ * year's Performance, and every program has all four tabs.
  */
 export function sameViewInProgram(pathname: string, programId: string): string {
   const segments = pathname.split("/").filter(Boolean);
@@ -337,8 +362,10 @@ export function sameViewInProgram(pathname: string, programId: string): string {
   const rest = segments[0] === "instructor" && segments[1] === "programs" ? segments.slice(3) : [];
 
   if (rest[0] === "attendance" && rest.length === 1) return attendanceHref(programId);
-  if (rest[0] === "performance") return performanceHref(programId);
-  if (rest[0] === "roster") return rosterHref(programId);
+  if (rest[0] === "fellows") {
+    const tab = FELLOWS_TABS.find((candidate) => candidate === rest[1]);
+    return fellowsHref(programId, tab ?? "roster");
+  }
   if (rest[0] === "settings") return programSettingsHref(programId);
 
   return programSettingsHref(programId);

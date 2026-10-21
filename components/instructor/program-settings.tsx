@@ -8,8 +8,11 @@ import { Archive, Eye, EyeOff, FlaskConical, Loader2, RotateCcw, Trash2 } from "
 import { toast } from "sonner";
 
 import { useServerMutation } from "@/hooks/use-server-mutation";
+import { CohortManager } from "@/components/instructor/cohort-manager";
+import { ExpectedStudents } from "@/components/instructor/expected-students";
 import { countLabel, Detail } from "@/components/instructor/impact-detail";
 import { NewCourseDialog } from "@/components/instructor/new-course-dialog";
+import { JoinLinkCard } from "@/components/instructor/roster";
 import { SortableList, SortableRow } from "@/components/sortable-list";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -51,8 +54,29 @@ import { ProgramInstructors } from "@/components/instructor/program-instructors"
  */
 
 type Data = RouterOutputs["programs"]["settings"];
+type Cohorts = RouterOutputs["cohorts"]["listForProgram"];
+type Memberships = RouterOutputs["cohorts"]["membershipsForProgram"];
+type Expected = RouterOutputs["enrollments"]["roster"];
 
-export function ProgramSettings({ data, courses }: { data: Data; courses: CopyableCourses }) {
+export function ProgramSettings({
+  data,
+  courses,
+  cohorts,
+  memberships,
+  expected,
+  activeFellows,
+}: {
+  data: Data;
+  courses: CopyableCourses;
+  /** The program's cohorts with their counts, unnarrowed, for the Cohorts card. */
+  cohorts: Cohorts;
+  /** Every active fellow and where they are placed, for the Cohorts card. */
+  memberships: Memberships;
+  /** The expected list, for the Enrollment card. */
+  expected: Expected;
+  /** How many real fellows are enrolled, which the join link's confirmation names. */
+  activeFellows: number;
+}) {
   const archived = data.program.archivedAt !== null;
 
   return (
@@ -74,11 +98,15 @@ export function ProgramSettings({ data, courses }: { data: Data; courses: Copyab
       {/*
         Ordered by how often somebody comes for each. What the program is and what it teaches are
         read in the first week of a term; who instructs it is read when somebody joins or leaves;
-        and ending the year is read at the end of the year. Attendance is set up on its own screen.
+        enrolling fellows and placing them in cohorts are a September afternoon and a few revisions
+        after; and ending the year is read at the end of the year. Attendance is set up on its own
+        screen.
       */}
       <IdentityCard data={data} />
       <CoursesCard data={data} courses={courses} />
       <ProgramInstructors data={data} />
+      <EnrollmentCard data={data} expected={expected} activeFellows={activeFellows} />
+      <CohortsCard data={data} cohorts={cohorts} memberships={memberships} />
       <ArchiveCard data={data} />
       {/*
         Only on an archived program, and only for whoever owns it — the same two conditions the
@@ -402,6 +430,71 @@ function CoursesCard({ data, courses }: { data: Data; courses: CopyableCourses }
       ) : (
         list
       )}
+    </section>
+  );
+}
+
+/**
+ * Who may join this program, and the link that enrolls them.
+ *
+ * **The expected list above the join link, because it is the first step rather than an extra
+ * one**: the link admits nobody who is not on this list, so an instructor who meets the link first
+ * has a program that silently refuses everybody they send it to.
+ */
+function EnrollmentCard({
+  data,
+  expected,
+  activeFellows,
+}: {
+  data: Data;
+  expected: Expected;
+  activeFellows: number;
+}) {
+  return (
+    <section
+      id="enrollment"
+      className="scroll-mt-(--outline-offset) flex flex-col gap-4 rounded-lg border border-border p-4"
+    >
+      <div className="flex flex-col gap-1">
+        <h2 className="text-sm font-medium">Enrollment</h2>
+        <p className="text-xs text-muted-foreground">
+          Who is expected, and the link that enrolls them. Enrolled fellows are on the Fellows
+          screen.
+        </p>
+      </div>
+      <ExpectedStudents programId={data.program.id} entries={expected} />
+      <JoinLinkCard
+        programId={data.program.id}
+        joinToken={data.program.joinToken}
+        active={activeFellows}
+      />
+    </section>
+  );
+}
+
+/**
+ * Dividing the roster among instructors.
+ *
+ * **Never narrowed by anybody's cohort filter**, which is the point of it being here rather than
+ * under the picker on the Fellows screen: a list narrowed to one cohort could not show the fellow
+ * who is in none, who is exactly who somebody opens this to place.
+ */
+function CohortsCard({
+  data,
+  cohorts,
+  memberships,
+}: {
+  data: Data;
+  cohorts: Cohorts;
+  memberships: Memberships;
+}) {
+  return (
+    <section
+      id="cohorts"
+      className="scroll-mt-(--outline-offset) flex flex-col gap-4 rounded-lg border border-border p-4"
+    >
+      <h2 className="text-sm font-medium">Cohorts</h2>
+      <CohortManager programId={data.program.id} data={cohorts} memberships={memberships} />
     </section>
   );
 }

@@ -34,7 +34,7 @@ import { lateness } from "@/lib/submissions/hand-in";
  * exceeding, and reading it as failing would start it in needs support; both are wrong about
  * somebody.
  *
- * **Read against the courses being looked at.** The Performance screen can narrow to some of a
+ * **Read against the courses being looked at.** The Performance tab can narrow to some of a
  * program's courses, and the groups follow: a fellow is placed by their attendance and by the
  * shown courses alone, so the same roster can be sorted by how it is doing in this month's courses,
  * or in one course, or in all of them. `standingAcross` is that computation, and it is the only one.
@@ -192,7 +192,7 @@ export function onTimeByStudent(
 export const COURSES_PARAM = "courses";
 
 /**
- * Which courses the Performance screen reads when nobody has chosen.
+ * Which courses the Performance tab reads when nobody has chosen.
  *
  * **The courses still running.** An archived course is over, and its last few deadlines stop being
  * recent the day it ends — a fellow who missed Prework's final week would otherwise carry that

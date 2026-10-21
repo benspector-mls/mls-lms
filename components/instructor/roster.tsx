@@ -55,7 +55,7 @@ import { useTRPC } from "@/trpc/client";
 import type { RouterOutputs } from "@/trpc/types";
 
 /**
- * Who is in this program: the Active roster tab.
+ * Who is in this program: the Roster tab of the Fellows screen.
  *
  * **One roster where there used to be one per course**, which is the duplication the program above
  * the course removed. A fellow joins a program once and is a student of every course in it, so
@@ -95,8 +95,8 @@ export function ProgramRoster({
   /**
    * The program's cohorts, for the column that names each fellow's.
    *
-   * Passed in rather than fetched, and read-only here. Placing fellows is the Cohorts tab's whole
-   * job; this column exists so that reading the roster answers "who is in nothing" without leaving
+   * Passed in rather than fetched, and read-only here. Placing fellows is the job of the Cohorts
+   * section of the program's settings; this column exists so that reading the roster answers "who is in nothing" without leaving
    * it, which is the question an instructor asks when somebody joins by the link mid-term.
    */
   cohorts: { id: string; name: string }[];
@@ -410,8 +410,8 @@ function RosterTable({
               className="hidden sm:table-cell"
             />
             {/*
-              Read-only here, and named rather than counted. The Cohorts tab is where a fellow is
-              placed; this column is so that reading the roster shows who is in none, which is who
+              Read-only here, and named rather than counted. The Cohorts section of the program's
+              settings is where a fellow is placed; this column is so that reading the roster shows who is in none, which is who
               an instructor comes looking for when somebody joins by the link mid-term.
             */}
             <SortableHead

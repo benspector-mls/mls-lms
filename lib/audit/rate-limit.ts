@@ -65,7 +65,7 @@ export const TEST_RUN_LIMIT: RateLimit = { max: 60, windowMinutes: 60 };
 export const CHECK_SUMMARY_LIMIT: RateLimit = { max: 20, windowMinutes: 60 };
 
 /**
- * Writing a preparation summary of one fellow's record: one model call over their figures,
+ * Writing one fellow's Themes: one model call over their figures,
  * writing, sessions, notes and feedback.
  *
  * A coaching afternoon is a handful of fellows, each summarized once or twice, so twenty an hour is

@@ -1,12 +1,17 @@
 import { Suspense } from "react";
 
-import { ProgramStudent } from "@/components/instructor/program-student";
+import {
+  SECTIONS,
+  StudentIdentity,
+  StudentPerformance,
+} from "@/components/instructor/program-student";
+import { RecordTabs } from "@/components/instructor/record-tabs";
 import { PageFallback } from "@/components/list-states";
 import { schoolDayOf } from "@/lib/school-time";
 import { getQueryClient, trpc } from "@/trpc/server";
 
 /**
- * One fellow, across the whole program.
+ * One fellow, across the whole program: the Performance tab of their record.
  *
  * **The first of two student pages, and they answer different questions.** This one is about the
  * person: their attendance and arrival averages, their cohort, their GCF history, and a row per
@@ -14,11 +19,12 @@ import { getQueryClient, trpc } from "@/trpc/server";
  * their work in one course and is where grading happens. Splitting them is what lets grading stay
  * per course while the roster lives above every course.
  *
- * It is what the program roster's rows point at, and every course row here links into the other one.
+ * It is what the Fellows screen's roster rows point at, and every course row here links into the
+ * other one.
  *
- * **It matches no sidebar item, deliberately.** A fellow's record belongs to the roster, to
- * attendance, and to the gradebook equally, so lighting one of them up would be picking arbitrarily —
- * `isActiveProgramView` leaves it dark for the same reason the per-course version is left dark.
+ * **The bare record address is this tab.** Coaching and Trends are one segment beneath it, each a
+ * page that fetches what its tab needs and shares this page's header. The three are read in one
+ * sitting, often switching between them, so each has an address the back button can return to.
  *
  * `cacheComponents` is enabled, so `params` is passed down rather than awaited here.
  */
@@ -37,36 +43,30 @@ export default function ProgramStudentPage({
 async function Student({ params }: { params: Promise<{ programId: string; studentId: string }> }) {
   const { programId, studentId } = await params;
   const queryClient = getQueryClient();
-  const [data, coaching, summaries, fellows] = await Promise.all([
+  const [data, fellows] = await Promise.all([
     queryClient.fetchQuery(trpc.programs.student.queryOptions({ programId, studentId })),
-    queryClient.fetchQuery(trpc.coaching.forStudent.queryOptions({ programId, studentId })),
-    queryClient.fetchQuery(
-      trpc.coachingSummaries.forStudent.queryOptions({ programId, studentId }),
-    ),
     /*
       The roster, for the record's own switcher. Fetched here rather than by the picker so the
-      names are in the first paint — one more query on a screen that already makes three, against a
+      names are in the first paint — one more query on a screen that already makes one, against a
       list of about twenty-five.
     */
     queryClient.fetchQuery(trpc.enrollments.listForProgram.queryOptions({ programId })),
   ]);
 
   /*
-    The record lays out its own page, header included — the outline beside it changes with the
-    open tab, so the record is what knows which sections it has, and its header names the fellow
-    once rather than above a card that names them again.
-
     The clock is read once, here, and handed down, so the server and the browser agree about which
     square on the attendance calendar is today. Reading it inside the component would put a
     different answer in each render, which React reports as a hydration mismatch.
   */
   return (
-    <ProgramStudent
-      data={data}
-      coaching={coaching}
-      summaries={summaries}
-      fellows={fellows}
-      today={schoolDayOf(new Date())}
-    />
+    <RecordTabs
+      programId={programId}
+      studentId={studentId}
+      header={<StudentIdentity data={data} fellows={fellows} />}
+      active="performance"
+      sections={SECTIONS.performance}
+    >
+      <StudentPerformance data={data} today={schoolDayOf(new Date())} />
+    </RecordTabs>
   );
 }

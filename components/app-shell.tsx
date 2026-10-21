@@ -6,7 +6,6 @@ import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useQuery, useSuspenseQuery } from "@tanstack/react-query";
 import { PreviewCard as PreviewCardPrimitive } from "@base-ui/react/preview-card";
 import {
-  Activity,
   BarChart3,
   CalendarCheck,
   Target,
@@ -88,10 +87,9 @@ import {
   gcfHref,
   myAttendanceHref,
   myGoalsHref,
-  performanceHref,
+  fellowsHref,
   programSettingsHref,
   programsHref,
-  rosterHref,
   sameViewInCourse,
   sameViewInProgram,
   teamsHref,
@@ -266,8 +264,9 @@ function useBreadcrumbs(
    * which year of it leaves the same question the sidebar used to answer wrongly.
    *
    * **Where each step leads, given that neither a program nor a course has a home screen.** The
-   * program leads to its roster, because the roster is the list of everybody in the program and
-   * "the program" is what a reader means when they are looking for a person in it. The course
+   * program leads to its Fellows screen, whose first tab is the roster, because the roster is the
+   * list of everybody in the program and "the program" is what a reader means when they are
+   * looking for a person in it. The course
    * leads to its triage, which is where the bare course address already redirects — so the step
    * lands where naming the course has always landed.
    *
@@ -284,7 +283,7 @@ function useBreadcrumbs(
         ? [
             {
               label: programLabel(programId),
-              href: instructor ? unlessHere(rosterHref(programId)) : undefined,
+              href: instructor ? unlessHere(fellowsHref(programId)) : undefined,
             },
           ]
         : []),
@@ -331,7 +330,7 @@ function useBreadcrumbs(
     const programId = segments[2];
     const programRest = segments.slice(3);
     const crumbs: Crumb[] = [
-      { label: programLabel(programId), href: unlessHere(rosterHref(programId)) },
+      { label: programLabel(programId), href: unlessHere(fellowsHref(programId)) },
     ];
 
     if (programRest[0] === "attendance") {
@@ -346,12 +345,19 @@ function useBreadcrumbs(
       if (programRest[1] === "day" && programRest[2]) {
         crumbs.push({ label: formatSchoolDay(programRest[2]) });
       }
-    } else if (programRest[0] === "performance") crumbs.push({ label: "Performance" });
-    else if (programRest[0] === "roster") crumbs.push({ label: "Roster" });
-    else if (programRest[0] === "cohorts") crumbs.push({ label: "Cohorts" });
+    } else if (programRest[0] === "fellows") {
+      // The four tabs get no crumb of their own, the rule Attendance's tabs follow: the strip on
+      // the page already says which is open, and the label a reader wants is the screen's.
+      crumbs.push({ label: "Fellows" });
+    } else if (programRest[0] === "cohorts") crumbs.push({ label: "Cohorts" });
     else if (programRest[0] === "instructors") crumbs.push({ label: "Instructors" });
     else if (programRest[0] === "settings") crumbs.push({ label: "Settings" });
-    else if (programRest[0] === "students") crumbs.push({ label: "Fellow record" });
+    else if (programRest[0] === "students") {
+      // A record is one row of the Fellows screen, so the screen is a step on its trail, the way
+      // Attendance is a step above one day of it.
+      crumbs.push({ label: "Fellows", href: fellowsHref(programId) });
+      crumbs.push({ label: "Fellow record" });
+    }
 
     return crumbs;
   }
@@ -841,28 +847,23 @@ function CourseViewPanel({
 }
 
 /**
- * The four views a program has, in the order they are offered.
+ * The three views a program has, in the order they are offered.
  *
  * Attendance leads, and it is the only item in either group touched at a fixed time every single
- * morning — being findable without thinking is most of what it needs. Performance is second, read
- * weekly to decide who to talk to. The roster is third, because managing who is on it is done at
- * the start of a term and when somebody joins or leaves, and the settings last because they are
- * read at the start of a year and rarely after.
+ * morning — being findable without thinking is most of what it needs. Fellows is second: the
+ * roster an instructor opens to find one fellow by name, and beside it as tabs the Performance and
+ * Coaching readings the cohort meeting is run from. The settings are last because they are read at
+ * the start of a year and rarely after, and that is where enrolling fellows and placing them in
+ * cohorts sit, beside the courses and the instructors.
  *
- * **Performance is its own view rather than a tab of the roster**, because an instructor reading
- * who needs support has no reason to be placing fellows in cohorts or sending the join link in the
- * same sitting. A tab would have put two unrelated jobs behind one address.
- *
- * **Four rather than six, and the two that went were sections rather than screens.** Cohorts are a
- * tab on the roster, because placing fellows is a thing done to it; instructors are a card on the
- * settings, because who runs a program is a fact about it. Each had its own address while the
- * question was open, and running it answered them — five sidebar items were five doors onto three
- * rooms, and a menu that long stops being read.
+ * **Fellows is one view with tabs rather than a view per tab**, because both jobs an instructor
+ * comes here for begin from the same list of people, and each tab has an address of its own so a
+ * link can still name one. Attendance stays apart because taking it is the morning's operation
+ * rather than a reading of the fellows.
  */
 const PROGRAM_VIEWS = [
   { title: "Attendance", href: attendanceHref, icon: CalendarCheck, segment: "attendance" },
-  { title: "Performance", href: performanceHref, icon: Activity, segment: "performance" },
-  { title: "Roster", href: rosterHref, icon: Users, segment: "roster" },
+  { title: "Fellows", href: fellowsHref, icon: Users, segment: "fellows" },
   { title: "Settings", href: programSettingsHref, icon: Settings, segment: "settings" },
 ] as const;
 
@@ -1289,16 +1290,20 @@ function courseLabel(course: StudentCourse): string {
 }
 
 /**
- * Which sidebar item the current address belongs to, for a program's five views.
+ * Which sidebar item the current address belongs to, for a program's three views.
  *
  * **Attendance owns the day drill-down beneath it**, so the item stays lit while an instructor
  * corrects an earlier morning rather than going blank on the one screen reached from it.
  *
- * A fellow's record under `/students/[studentId]` deliberately matches nothing. It is reached from
- * three different places and belongs to none of them.
+ * **Fellows owns the records under `/students/[studentId]`** for the same reason: a record is one
+ * row of the Fellows screen, and the tabs on it are the screen's tabs, so an instructor reading
+ * one fellow after another is still on Fellows.
  */
 function isActiveProgramView(pathname: string, programId: string, segment: string): boolean {
   const base = `/instructor/programs/${programId}`;
+
+  if (segment === "fellows" && pathname.startsWith(`${base}/students/`)) return true;
+
   return pathname === `${base}/${segment}` || pathname.startsWith(`${base}/${segment}/`);
 }
 

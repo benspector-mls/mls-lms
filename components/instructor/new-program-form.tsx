@@ -21,7 +21,7 @@ import {
   DISCIPLINE_META,
   type Discipline,
 } from "@/lib/competencies";
-import { rosterHref } from "@/lib/links";
+import { fellowsHref } from "@/lib/links";
 import { useTRPC } from "@/trpc/client";
 
 /**
@@ -73,7 +73,7 @@ export function NewProgramForm({
           link to send them. Its courses come next and are added from its settings screen, but a
           course with nobody on the roster has nobody to hand anything to.
         */
-        router.push(rosterHref(program.id));
+        router.push(fellowsHref(program.id));
       },
       onError: (error) => toast.error(error.message),
     }),

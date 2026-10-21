@@ -106,7 +106,7 @@ export function PreparationSummary({
     <section id={id} className="flex scroll-mt-(--outline-offset) flex-col gap-2">
       <div className="flex flex-col gap-0.5">
         <div className="flex flex-wrap items-center gap-2">
-          <h2 className="text-lg font-semibold">Preparation summary</h2>
+          <h2 className="text-lg font-semibold">Themes</h2>
           <Badge variant="outline" className="font-normal text-muted-foreground">
             Staff only
           </Badge>

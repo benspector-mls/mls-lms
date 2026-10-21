@@ -53,6 +53,25 @@ describe("closestAnswerKeyDir", () => {
     expect(closestAnswerKeyDir("swe-6-4-join-queries", MOD_6)).toBeNull();
   });
 
+  it("finds a short response key named with sr before the numbers", () => {
+    const dirs = [
+      "answer-keys-py/mod-1/swe-1-5-lists-dictionaries-python",
+      "answer-keys-py/mod-1/swe-sr-1-5-lists-dictionaries-python",
+    ];
+    expect(closestAnswerKeyDir("swe-sr-1-5-lists-dictionaries-python", dirs)).toBe(
+      "answer-keys-py/mod-1/swe-sr-1-5-lists-dictionaries-python",
+    );
+    expect(closestAnswerKeyDir("swe-1-5-lists-dictionaries-python", dirs)).toBe(
+      "answer-keys-py/mod-1/swe-1-5-lists-dictionaries-python",
+    );
+  });
+
+  it("accepts a program prefix other than swe", () => {
+    expect(
+      closestAnswerKeyDir("da-2-3-pandas", ["keys/mod-2/da-2-3-pandas", "keys/mod-2/da-2-3-sr"]),
+    ).toBe("keys/mod-2/da-2-3-pandas");
+  });
+
   it("finds a Python key by its full name", () => {
     expect(
       closestAnswerKeyDir("swe-1-4-loops-python", [

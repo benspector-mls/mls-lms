@@ -9,7 +9,7 @@ import { EmptyState } from "@/components/list-states";
 import { PageHeader } from "@/components/page-header";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
-import { attendanceHref, programSettingsHref, rosterHref } from "@/lib/links";
+import { attendanceHref, fellowsHref, programSettingsHref } from "@/lib/links";
 import { cn } from "@/lib/utils";
 import type { RouterOutputs } from "@/trpc/types";
 
@@ -129,7 +129,7 @@ function ProgramCard({ program }: { program: Program }) {
               */}
               <h2 className="text-base font-semibold text-balance text-foreground">
                 {program.instructs ? (
-                  <Link href={rosterHref(program.id)} className="hover:underline">
+                  <Link href={fellowsHref(program.id)} className="hover:underline">
                     {program.name}
                   </Link>
                 ) : (
@@ -173,7 +173,7 @@ function ProgramCard({ program }: { program: Program }) {
         */}
         {program.instructs && (
           <div className="flex flex-wrap items-center gap-2 border-t border-border pt-3">
-            <CardLink href={rosterHref(program.id)} icon={<Users className="size-3.5" />}>
+            <CardLink href={fellowsHref(program.id)} icon={<Users className="size-3.5" />}>
               Roster
             </CardLink>
             <CardLink

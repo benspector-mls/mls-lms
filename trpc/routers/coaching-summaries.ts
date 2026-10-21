@@ -17,7 +17,7 @@ import { createTRPCRouter, programProcedure } from "../init";
 import { displayNameOf, personNameSelect, personSelect } from "../selects";
 
 /**
- * The preparation summary on a fellow's record: Claude's reading of the parts of the record a coach
+ * Themes on a fellow's record: Claude's reading of the parts of the record a coach
  * chooses, written for that coach before a conversation. See `lib/coaching/summary.ts`.
  *
  * **Staff-only, by the coaching router's rule.** Every procedure is `programProcedure`, and every
@@ -224,7 +224,7 @@ export const coachingSummariesRouter = createTRPCRouter({
         actorId: actor.id,
         action: "COACHING_SUMMARY_GENERATED",
         limit: COACHING_SUMMARY_LIMIT,
-        whatTheyDid: "write another preparation summary",
+        whatTheyDid: "generate themes",
       });
       const { roundsRead, roundsSkipped, sessionsSkipped } = assembled.coveredThrough;
       await recordEvent(ctx.db, {

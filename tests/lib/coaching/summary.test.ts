@@ -9,7 +9,7 @@ import {
 } from "@/lib/coaching/summary";
 
 /**
- * The prompt a preparation summary is built from. Four properties are held here: the system half
+ * The prompt a fellow's Themes are built from. Four properties are held here: the system half
  * is the same bytes for every fellow; everything somebody wrote reaches the model inside the fence
  * for who wrote it; a part the coach did not choose is absent while a chosen part that is empty
  * says so; and each previous theme arrives whole, marked as edited when the coach changed it.

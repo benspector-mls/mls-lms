@@ -2246,7 +2246,7 @@ enum AuditAction {
   /// because they never belonged to it), which is worth being able to find without reading every
   /// edit.
   COACHING_SESSION_DELETED
-  /// The preparation summary. GENERATED is the fourth operation that costs money, recorded before
+  /// Themes, Claude's reading of a fellow's record. GENERATED is the fourth operation that costs money, recorded before
   /// the call so the rate limit can count it, and it is also the creation. EDITED covers a change
   /// to the body and the removal of a theme, with which one in the detail. None carries any text.
   COACHING_SUMMARY_GENERATED
@@ -2878,7 +2878,7 @@ enum DevelopmentMarker {
 
 /// Free-text staff observations about one fellow in one program. Staff-only forever: no procedure
 /// outside the instructor-guarded ones ever selects the body, and the body never reaches a CSV,
-/// an audit event, or any future Salesforce sync. The preparation summary sends it to Anthropic
+/// an audit event, or any future Salesforce sync. Generating Themes sends it to Anthropic
 /// when a coach chooses notes as an input, and nothing else does; see `CoachingSummary`.
 model InstructorNote {
   id           String @id @default(uuid()) @db.Uuid
@@ -2955,7 +2955,7 @@ model CoachingSession {
 
   /// `[{promptId, prompt, answer}]` — see `sessionAnswersSchema` in `lib/coaching.ts`. The
   /// prompt text is copied in server-side at save, so a session renders the prompts as they were
-  /// asked however the template moves afterwards. Staff-only. The preparation summary sends a
+  /// asked however the template moves afterwards. Staff-only. Generating Themes sends a
   /// completed session's answers to Anthropic when a coach chooses sessions as an input, and
   /// nothing else does; see `CoachingSummary`.
   answers Json @default("[]")

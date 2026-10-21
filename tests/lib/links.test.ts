@@ -11,8 +11,8 @@ import {
   programSettingsHref,
   programsHref,
   programStudentHref,
-  performanceHref,
-  rosterHref,
+  fellowsHref,
+  coachingSessionHref,
   sameViewInCourse,
   sameViewInProgram,
   studentHref,
@@ -60,9 +60,11 @@ describe("every course route names its course", () => {
 describe("every program route names its program, and no course route does", () => {
   it.each([
     attendanceHref(PROGRAM),
-    rosterHref(PROGRAM),
+    fellowsHref(PROGRAM),
+    fellowsHref(PROGRAM, "coaching"),
     programSettingsHref(PROGRAM),
     programStudentHref(PROGRAM, STUDENT),
+    programStudentHref(PROGRAM, STUDENT, "trends"),
   ])("%s names the program", (href) => {
     expect(href).toContain(PROGRAM);
   });
@@ -76,6 +78,47 @@ describe("every program route names its program, and no course route does", () =
     studentHref(COURSE, STUDENT),
   ])("%s names no program", (href) => {
     expect(href).not.toContain(PROGRAM);
+  });
+});
+
+/**
+ * The tabs are addresses, which is what lets a link name one and the back button return to one.
+ * The first tab of each screen is the bare address, so a link that names no tab lands where a
+ * program's name has always led.
+ */
+describe("the Fellows screen and a fellow's record address their tabs", () => {
+  it("the roster is the bare Fellows address", () => {
+    expect(fellowsHref(PROGRAM)).toBe(`/instructor/programs/${PROGRAM}/fellows`);
+    expect(fellowsHref(PROGRAM, "roster")).toBe(fellowsHref(PROGRAM));
+  });
+
+  it.each(["performance", "coaching", "trends"] as const)(
+    "%s sits one segment beneath it",
+    (tab) => {
+      expect(fellowsHref(PROGRAM, tab)).toBe(`/instructor/programs/${PROGRAM}/fellows/${tab}`);
+    },
+  );
+
+  it("performance is the bare record address", () => {
+    expect(programStudentHref(PROGRAM, STUDENT)).toBe(
+      `/instructor/programs/${PROGRAM}/students/${STUDENT}`,
+    );
+    expect(programStudentHref(PROGRAM, STUDENT, "performance")).toBe(
+      programStudentHref(PROGRAM, STUDENT),
+    );
+  });
+
+  it.each(["coaching", "trends"] as const)("a record's %s sits one segment beneath it", (tab) => {
+    expect(programStudentHref(PROGRAM, STUDENT, tab)).toBe(
+      `/instructor/programs/${PROGRAM}/students/${STUDENT}/${tab}`,
+    );
+  });
+
+  it("a coaching session sits beneath the Coaching tab's segment", () => {
+    // So that the session's address reads as part of the tab it is reached from and returns to.
+    expect(coachingSessionHref(PROGRAM, STUDENT, SUBMISSION)).toBe(
+      `${programStudentHref(PROGRAM, STUDENT, "coaching")}/${SUBMISSION}`,
+    );
   });
 });
 
@@ -172,7 +215,7 @@ describe("sameViewInCourse", () => {
     the same as from `/dashboard` — the new course's triage.
   */
   it("lands on triage from a program's roster, which names no course", () => {
-    expect(sameViewInCourse(rosterHref(PROGRAM), OTHER)).toBe(triageHref(OTHER));
+    expect(sameViewInCourse(fellowsHref(PROGRAM), OTHER)).toBe(triageHref(OTHER));
   });
 
   it.each(["assignments", "coursework", "modules", "resources"])(
@@ -221,13 +264,32 @@ describe("sameViewInProgram", () => {
   describe("the views every program has, which travel", () => {
     it.each([
       ["attendance", attendanceHref(OTHER_PROGRAM)],
-      ["performance", performanceHref(OTHER_PROGRAM)],
-      ["roster", rosterHref(OTHER_PROGRAM)],
+      ["fellows", fellowsHref(OTHER_PROGRAM)],
       ["settings", programSettingsHref(OTHER_PROGRAM)],
     ])("%s becomes the other program's %s", (segment, expected) => {
       expect(sameViewInProgram(`/instructor/programs/${PROGRAM}/${segment}`, OTHER_PROGRAM)).toBe(
         expected,
       );
+    });
+
+    /*
+      A Fellows tab travels as that tab: somebody comparing two years' Performance wants the other
+      year's Performance, and every program has all four. A segment under `fellows` that is not a
+      tab lands on the roster, so a mistyped address cannot be carried into another program.
+    */
+    it.each(["performance", "coaching", "trends"] as const)(
+      "the Fellows screen's %s tab becomes the other program's %s tab",
+      (tab) => {
+        expect(sameViewInProgram(fellowsHref(PROGRAM, tab), OTHER_PROGRAM)).toBe(
+          fellowsHref(OTHER_PROGRAM, tab),
+        );
+      },
+    );
+
+    it("a segment under fellows that is not a tab lands on the roster", () => {
+      expect(
+        sameViewInProgram(`/instructor/programs/${PROGRAM}/fellows/nonsense`, OTHER_PROGRAM),
+      ).toBe(fellowsHref(OTHER_PROGRAM));
     });
   });
 

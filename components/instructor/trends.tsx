@@ -19,12 +19,17 @@ import { cn } from "@/lib/utils";
 /**
  * The last few weeks of one fellow, rather than the term: attendance, work, and understanding.
  *
- * **Drawn whole at the top of a coaching session**, where it is what the conversation starts from
- * and having every recent reading in one card is the point. The Performance tab of the fellow's
- * record draws the same pieces instead in the section each belongs to — `AttendanceTrend` at the
- * top of Attendance, `CourseTrend` under each course row — so a reader scans each area once. Both
- * read the same server computations, `attendanceStandingFor` and `courseFiguresFor` in
- * lib/coaching/snapshot.ts, so the two cannot show different readings of the same fellow.
+ * **Drawn whole on the Trends tab of the fellow's record and at the top of a coaching session**,
+ * where it is what the conversation starts from and having every recent reading in one card is
+ * the point. The Performance tab of the record draws the same pieces instead in the section each
+ * belongs to — `AttendanceTrend` at the top of Attendance, `CourseTrend` under each course row —
+ * so a reader scans each area once. All read the same server computations, `attendanceStandingFor`
+ * and `courseFiguresFor` in lib/coaching/snapshot.ts, so no two can show different readings of
+ * the same fellow.
+ *
+ * **Its heading's rank and size are set by the caller**, because the card sits at two depths: a
+ * top-level section of the Trends tab, beside Themes, and one part of the coaching form's "Before
+ * the session", under that part's own heading.
  *
  * **Every figure counts what went right**: sessions attended, assignments on time, work complete.
  * A coaching conversation starts from this card, and a sentence made only of misses frames the
@@ -41,6 +46,8 @@ export function Trends({
   arrivals,
   courses,
   note,
+  id,
+  level,
 }: {
   recentAttendance: RecentAttendance;
   arrivals: ArrivalAverages;
@@ -53,11 +60,16 @@ export function Trends({
   }[];
   /** A line under the heading, for a screen that needs to say what this is and who sees it. */
   note?: string;
+  /** The section's anchor, where a page's outline links to it. */
+  id?: string;
+  /** 2 as a section of a tab, at a section heading's size; 3 inside a part of the coaching form. */
+  level: 2 | 3;
 }) {
   const work = courses
     .filter((course) => course.completedAssignments.possible > 0)
     .map((course) => ({ course, reasons: driftReasons(course.recent) }));
   const coursesWithChecks = courses.filter((course) => course.checks.checks > 0);
+  const HeadingTag = level === 2 ? "h2" : "h3";
 
   /* Once per reason, however many courses trip it: the red figures below say which courses. */
   const workFlags = (["deadlines", "falling-short"] as const)
@@ -65,14 +77,19 @@ export function Trends({
     .map((reason) => DRIFT_REASON_LABEL[reason]);
 
   return (
-    <section className="flex flex-col gap-2">
-      <h2 className="flex items-center gap-1.5 text-sm font-medium">
+    <section id={id} className="flex scroll-mt-(--outline-offset) flex-col gap-2">
+      <HeadingTag
+        className={cn(
+          "flex items-center gap-1.5",
+          level === 2 ? "text-lg font-semibold" : "text-sm font-medium",
+        )}
+      >
         Trends
         <HelpTip>
           The last few weeks, not the whole term, so a recent slip is not hidden by a good term
           average.
         </HelpTip>
-      </h2>
+      </HeadingTag>
       {note && <p className="text-xs text-muted-foreground">{note}</p>}
       <div className="flex flex-col gap-4 rounded-lg border border-border bg-muted/30 p-4">
         <AttendanceTrend recentAttendance={recentAttendance} arrivals={arrivals} />
@@ -273,7 +290,7 @@ function Figure({ flagged, children }: { flagged: boolean; children: React.React
  *
  * **Nothing until there are `DRIFT_RULE.needsAtLeast` sessions**, the way an arrival average waits
  * for `MIN_ARRIVALS` check-ins. Two sessions are not a trend, and "attended 1 of the 2 sessions so
- * far" printed in red would flag a fellow the Performance screen deliberately does not.
+ * far" printed in red would flag a fellow the Performance tab deliberately does not.
  *
  * **Nothing about punctuality when nothing was attended.** The lateness rule counts late arrivals,
  * and a fellow who attended nothing arrived late zero times, so the rule cannot trip: "On time 0

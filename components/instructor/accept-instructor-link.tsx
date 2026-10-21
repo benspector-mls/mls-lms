@@ -7,7 +7,7 @@ import { toast } from "sonner";
 
 import { Button } from "@/components/ui/button";
 import { Card, CardContent } from "@/components/ui/card";
-import { rosterHref } from "@/lib/links";
+import { fellowsHref } from "@/lib/links";
 import { useTRPC } from "@/trpc/client";
 import type { RouterOutputs } from "@/trpc/types";
 
@@ -52,7 +52,7 @@ export function AcceptInstructorLink({
           program actually starts: they have been given no course yet, and the roster is the
           one screen that is theirs the moment the link is redeemed.
         */
-        router.push(rosterHref(result.programId));
+        router.push(fellowsHref(result.programId));
       },
       onError: (error) => toast.error(error.message),
     }),
@@ -93,7 +93,7 @@ export function AcceptInstructorLink({
               <Check className="size-4" />
               You already instruct this program.
             </p>
-            <Button onClick={() => router.push(rosterHref(preview.programId))}>
+            <Button onClick={() => router.push(fellowsHref(preview.programId))}>
               Open the roster
               <ArrowRight data-icon="inline-end" />
             </Button>

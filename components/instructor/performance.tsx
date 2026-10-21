@@ -48,7 +48,7 @@ type Fellow = Reading & { standing: Standing };
 type Course = Payload["courses"][number];
 
 /**
- * The Performance screen: every real fellow in one of three groups, and the few there is not yet
+ * The Performance tab of the Fellows screen: every real fellow in one of three groups, and the few there is not yet
  * enough to say about, with the readings behind the group laid out across the row.
  *
  * **Read against the courses chosen in the page header.** The groups, the All courses figures and

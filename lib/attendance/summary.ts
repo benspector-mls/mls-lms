@@ -87,7 +87,7 @@ export function countsAsAttended(status: AttendanceStatus): boolean {
  * One row per fellow, whether or not they count.
  *
  * **Test students are summarized rather than dropped**, because the grid draws them badged the way
- * every other screen does. Everything that reports a number — the Performance screen, the CSV —
+ * every other screen does. Everything that reports a number — the Performance tab, the CSV —
  * filters on `testStudentNumber` itself. Removing them here instead would make the grid disagree
  * with the roster about who is on it.
  */
@@ -221,7 +221,7 @@ export function attendanceDriftReason(recent: RecentAttendance): AttendanceDrift
 }
 
 /**
- * The rule behind an attendance flag on the Performance screen and the fellow's Trends.
+ * The rule behind an attendance flag on the Performance tab and the fellow's Trends.
  *
  * **Recent rather than cumulative**, which is the whole point. A fellow at 88 percent over a term
  * who has missed the last four mornings is the one to call today, and a cumulative rate hides them

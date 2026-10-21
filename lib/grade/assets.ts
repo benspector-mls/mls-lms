@@ -469,11 +469,18 @@ export async function listAnswerKeyEntries(
 }
 
 /**
- * The `swe-N-M` part a template's name and its answer key folder's name share, with the module
- * number `N` captured. `swe-1-4-loops` matches as `swe-1-4`; `swe-checkpoint-4-1` does not match,
- * because a checkpoint is numbered differently and has no module number in that position.
+ * The part a template's name and its answer key folder's name share: every word before the
+ * numbers, then the module number `N` (captured) and the lesson number `M`. `swe-1-4-loops`
+ * matches as `swe-1-4`, `swe-sr-1-5-lists-dictionaries-python` as `swe-sr-1-5`, and a program
+ * whose repositories begin `da-2-3-` matches as `da-2-3`.
+ *
+ * The words before the numbers may be anything made of letters, so neither the program's prefix
+ * nor a marker such as `sr` is written into the application — but they are part of the match, so
+ * a short response template finds its own folder and never the coding assignment's beside it.
+ * `swe-checkpoint-4-databases` does not match, because a checkpoint has one number where this
+ * expects two.
  */
-const ASSIGNMENT_NUMBER = /^swe-(\d+)-\d+(?=-|$)/;
+const ASSIGNMENT_NUMBER = /^(?:[A-Za-z]+-)+(\d+)-\d+(?=-|$)/;
 
 /**
  * The folder holding one assignment's answer keys, found from its template's name, or null.
@@ -522,10 +529,12 @@ export async function findAnswerKeyDir(
  * shares its `swe-N-M` part.
  *
  * Several folders can share that part: `swe-7-1` sits beside `swe-7-1-sr`, and
- * `swe-6-1-sql-basics` beside `swe-6-1-sql-basics-sr`. The folder whose name agrees with the
- * template's on the most leading hyphen-separated words is chosen, so an exact name always wins.
- * When two folders agree on the same number of words, the shorter name is chosen, because the
- * longer one is a variant of the shorter and a template that names no variant wants the base.
+ * `swe-6-1-sql-basics` beside `swe-6-1-sql-basics-sr`. (`swe-sr-1-5-…` beside `swe-1-5-…` is
+ * not a case of this, because the shared part includes the words before the numbers.) The
+ * folder whose name agrees with the template's on the most leading hyphen-separated words is
+ * chosen, so an exact name always wins. When two folders agree on the same number of words, the
+ * shorter name is chosen, because the longer one is a variant of the shorter and a template that
+ * names no variant wants the base.
  */
 export function closestAnswerKeyDir(templateName: string, dirs: string[]): string | null {
   const assignment = ASSIGNMENT_NUMBER.exec(templateName)?.[0];

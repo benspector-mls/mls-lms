@@ -50,7 +50,7 @@ const CHECK_IN_HEADINGS: Record<CheckInPromptId, string> = {
 const OTHER = "other";
 
 /**
- * The Coaching tab of the Performance screen: where every fellow stands since their most recent
+ * The Coaching tab of the Fellows screen: where every fellow stands since their most recent
  * completed coaching session, one row each.
  *
  * The row reads left to right as the session did: the temperature and how long ago it was taken,
@@ -232,7 +232,7 @@ export function CoachingOverview({
                       </Avatar>
                       <div className="flex min-w-0 flex-col">
                         <Link
-                          href={programStudentHref(programId, fellow.student.id)}
+                          href={programStudentHref(programId, fellow.student.id, "coaching")}
                           className="truncate font-medium hover:underline"
                         >
                           {fellowName(fellow)}
