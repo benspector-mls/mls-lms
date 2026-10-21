@@ -271,7 +271,7 @@ Run it at whatever time of day you are actually sitting down, not at 9am. Nothin
     Watch for: whether the colours need explaining. The legend is there, but read their face before they read it — green for present, amber for excused, red for absent, grey for a session nobody recorded. Ask what the corner mark on a green square means before telling them; if "late" is not the first guess, that mark needs to be something else. Then ask whether a calendar or the old list would serve them better, and note that they cannot see the list to compare.
 
 49. **It is the end of the month and somebody needs an attendance report.** Get one.
-    Watch for: whether they find the second tab, whether the drift list reads as useful or as an accusation, and whether the CSV is the shape their reporting actually needs. Ask specifically: **does an excused absence counting as a missed session match how the school counts it?** If it does not, say so now — it is one function and one sentence, and it is quoted to funders.
+    Watch for: whether they find the second tab, and whether the CSV is the shape their reporting actually needs. Ask specifically: **does an excused absence counting as a missed session match how the school counts it?** If it does not, say so now — it is one function and one sentence, and it is quoted to funders.
 
 ---
 

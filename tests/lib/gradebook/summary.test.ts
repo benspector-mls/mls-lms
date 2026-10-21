@@ -1,6 +1,5 @@
 import {
   ASSIGNMENT_DRIFT_RULE,
-  assignmentDriftList,
   awaitingByStudent,
   completionByAssignment,
   completionByStudent,
@@ -550,24 +549,6 @@ describe("driftReasons", () => {
       "deadlines",
       "falling-short",
     ]);
-  });
-});
-
-describe("assignmentDriftList", () => {
-  function recent(studentId: string, over: Partial<RecentWork>): RecentWork {
-    return { studentId, missed: 0, late: 0, due: 10, incomplete: 0, graded: 5, ...over };
-  }
-
-  it("lists only those who trip the rule, worst first", () => {
-    const list = assignmentDriftList([
-      recent("fine", {}),
-      recent("short", { incomplete: 3 }),
-      recent("slipping", { missed: 2, late: 2 }),
-      recent("gone", { missed: 6, incomplete: 2 }),
-    ]);
-
-    expect(list.map((entry) => entry.recent.studentId)).toEqual(["gone", "slipping", "short"]);
-    expect(list[0].reasons).toEqual(["deadlines", "falling-short"]);
   });
 });
 

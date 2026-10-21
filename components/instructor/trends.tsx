@@ -135,9 +135,9 @@ export function AttendanceTrend({
 }) {
   /*
     Both attendance clauses, each on its own, rather than `attendanceDriftReason`'s single answer:
-    that function picks one reason for the drift list to sort by, but here each clause colours its
-    own figure, and a red figure with no flag naming it would be unexplained. Neither applies to a
-    fellow too new to judge, which is the drift list's own minimum.
+    that function picks one reason for a flag to name, but here each clause colours its own figure,
+    and a red figure with no flag naming it would be unexplained. Neither applies to a fellow too
+    new to judge, which is the drift rule's own minimum.
   */
   const enoughSessions = recentAttendance.missedOf >= DRIFT_RULE.needsAtLeast;
   const absent = enoughSessions && recentAttendance.missed >= DRIFT_RULE.missedAtLeast;
@@ -273,7 +273,7 @@ function Figure({ flagged, children }: { flagged: boolean; children: React.React
  *
  * **Nothing until there are `DRIFT_RULE.needsAtLeast` sessions**, the way an arrival average waits
  * for `MIN_ARRIVALS` check-ins. Two sessions are not a trend, and "attended 1 of the 2 sessions so
- * far" printed in red would flag a fellow the attendance screen's drift list deliberately does not.
+ * far" printed in red would flag a fellow the Performance screen deliberately does not.
  *
  * **Nothing about punctuality when nothing was attended.** The lateness rule counts late arrivals,
  * and a fellow who attended nothing arrived late zero times, so the rule cannot trip: "On time 0

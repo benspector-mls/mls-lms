@@ -698,7 +698,7 @@ export const programsRouter = createTRPCRouter({
 
           /*
             The attendance flag is read only once the fellow has enough mornings to be judged,
-            which is the drift rule's own minimum — `driftList` applies it, and the fellow's Trends
+            which is the drift rule's own minimum, `DRIFT_RULE.needsAtLeast`. The fellow's Trends
             is read by a person who can see how few mornings there have been.
           */
           const recent = judged ? recentAttendance(summary, summarySessions) : null;

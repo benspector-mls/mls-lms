@@ -1,31 +1,23 @@
-import Link from "next/link";
 import { CalendarRange } from "lucide-react";
 
 import { AttendanceGrid, LETTER_CLASS } from "@/components/instructor/attendance-grid";
 import { EmptyState } from "@/components/list-states";
 import type { ArrivalAverages } from "@/lib/attendance/arrival";
-import {
-  driftList,
-  DRIFT_RULE,
-  programRate,
-  type FellowSummary,
-  type SummarySession,
-} from "@/lib/attendance/summary";
-import { programStudentHref } from "@/lib/links";
-import { displayNameOf } from "@/lib/people";
-import { formatPercent } from "@/lib/status";
+import type { FellowSummary, SummarySession } from "@/lib/attendance/summary";
 
 /**
- * The whole term: who is slipping, when people arrive, and everything behind both answers.
+ * The whole term: every fellow against every session, and when each of them usually arrives.
  *
- * **The drift list is the actual answer and the grid is the evidence.** Twenty-five fellows against
- * sixty sessions is fifteen hundred letters, and nobody reads fifteen hundred letters looking for
- * three people. So the short list comes first, with the rule printed beside it so nobody has to
- * wonder what qualified somebody — and the grid sits below for the reader who wants to check.
+ * **The grid is the record, and the Performance screen is where an instructor reads who needs
+ * support.** Twenty-five fellows against sixty sessions is fifteen hundred letters, and nobody reads
+ * fifteen hundred letters looking for three people. Performance applies the attendance drift rule
+ * beside the fellow's work, so a fellow who is slipping is named on one screen for everything rather
+ * than on one screen per kind of problem. This tab is for checking that answer against the mornings
+ * themselves, correcting a morning, and exporting the term.
  *
- * **When people arrive is a column of the grid rather than a list.** Drift is about who is missing;
- * arrival is about who is late, which one check-in a day would otherwise have hidden — a fellow
- * marked present at 10:47 every Monday has a perfect record and a problem. A list of it was a row per
+ * **When people arrive is a column of the grid rather than a list.** One check-in a day would
+ * otherwise hide who arrives late — a fellow marked present at 10:47 every Monday has a perfect
+ * record and a problem. A list of it was a row per
  * fellow for a roster that mostly arrives on time, so the average sits beside the rate, where a
  * reader scanning down a column sees the one late figure among the nine o'clocks. The weekday detail
  * is on the fellow's own record, and the hover on the cell says it in a sentence.
@@ -62,55 +54,8 @@ export function AttendanceTerm({ programId, data }: { programId: string; data: T
     );
   }
 
-  const drifting = driftList(data.active, data.sessions);
-  const rate = programRate(data.active);
-
   return (
     <div className="flex flex-col gap-6">
-      <section className="flex flex-col gap-2">
-        <div className="flex flex-col gap-0.5">
-          <h2 className="text-sm font-medium">Needs a conversation · {drifting.length}</h2>
-          {/*
-            The rule, in words, on the screen. A list somebody is expected to act on has to say
-            what put a person on it, or the reader is deciding whether to trust an unexplained
-            judgement rather than deciding what to do about a fellow.
-          */}
-          <p className="text-xs text-muted-foreground">
-            Missed {DRIFT_RULE.missedAtLeast} or more of the last {DRIFT_RULE.missedOf} sessions, or
-            late {DRIFT_RULE.lateAtLeast} or more times in the last {DRIFT_RULE.lateOf}.
-          </p>
-        </div>
-
-        {drifting.length === 0 ? (
-          <p className="rounded-lg border border-dashed border-border px-4 py-6 text-center text-sm text-muted-foreground">
-            Nobody is drifting by that rule.
-            {rate !== null && ` The roster is at ${formatPercent(rate)}.`}
-          </p>
-        ) : (
-          <ul className="divide-y divide-border overflow-hidden rounded-lg border border-border">
-            {drifting.map((entry) => (
-              <li
-                key={entry.summary.fellow.enrollmentId}
-                className="flex flex-wrap items-center justify-between gap-2 px-3 py-2 text-sm"
-              >
-                <Link
-                  href={programStudentHref(programId, entry.summary.fellow.studentId)}
-                  className="font-medium hover:underline"
-                >
-                  {displayNameOf(entry.summary.fellow, "Unnamed")}
-                </Link>
-                <span className="text-xs text-muted-foreground">
-                  {entry.reason === "missing"
-                    ? `${entry.missedRecently} of the last ${DRIFT_RULE.missedOf} missed`
-                    : `${entry.lateRecently} lates in the last ${DRIFT_RULE.lateOf}`}
-                  {entry.summary.rate !== null && ` · ${formatPercent(entry.summary.rate)} overall`}
-                </span>
-              </li>
-            ))}
-          </ul>
-        )}
-      </section>
-
       <section className="flex flex-col gap-2">
         <div className="flex flex-col gap-0.5">
           <h2 className="text-sm font-medium">Every session</h2>

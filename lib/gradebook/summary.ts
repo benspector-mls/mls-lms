@@ -296,7 +296,7 @@ export function completionLabel(completion: Completion | undefined, possible: nu
 // ===========================================================================
 
 /**
- * The rule the gradebook's "Needs a conversation" list applies, printed on the screen beside it.
+ * The rule behind a work flag on the Performance screen and the fellow's Trends, printed beside both.
  *
  * **Recent rather than cumulative, which is the whole point**, and the same point the attendance
  * drift rule in `lib/attendance/summary.ts` makes: a fellow who finished every module in September
@@ -363,7 +363,7 @@ function whenOf(assignment: RecentAssignment): number {
  *
  * **Every student gets an entry**, unlike the counters above, because the fellow's record prints
  * these figures whether or not they trip the rule: "1 of the last 10 due late" is a sentence worth
- * reading about somebody who is doing fine. The list of who is drifting is `assignmentDriftList`.
+ * reading about somebody who is doing fine. Which clauses a fellow trips is `driftReasons`.
  *
  * **The deadline window is the cohort's, and the verdict window is the fellow's.** The last ten
  * assignments due are the same ten for everybody in the course, ordered by the class deadline, so
@@ -448,32 +448,11 @@ export function driftReasons(recent: RecentWork): DriftReason[] {
   return reasons;
 }
 
-export type AssignmentDrift = { recent: RecentWork; reasons: DriftReason[] };
-
 /**
- * Who is drifting, worst first, because the list is read from the top and acted on until somebody
- * runs out of afternoon. Missed deadlines sort ahead of work that fell short, and within each, more
- * ahead of fewer.
- */
-export function assignmentDriftList(recents: Iterable<RecentWork>): AssignmentDrift[] {
-  const drifting: AssignmentDrift[] = [];
-  for (const recent of recents) {
-    const reasons = driftReasons(recent);
-    if (reasons.length > 0) drifting.push({ recent, reasons });
-  }
-
-  return drifting.sort(
-    (a, b) =>
-      b.recent.missed + b.recent.late - (a.recent.missed + a.recent.late) ||
-      b.recent.incomplete - a.recent.incomplete,
-  );
-}
-
-/**
- * The two windows in words, for the gradebook's list of drifting fellows: "2 missed, 1 late of the
- * last 10 due · 1 of the last 5 graded fell short". The list is a list of problems, so it counts
- * what went wrong. The fellow's Trends card reads the same two windows and counts what went right
- * instead; see `WorkLine` in components/instructor/trends.tsx.
+ * The two windows in words, for the coaching preparation summary's inputs: "2 missed, 1 late of
+ * the last 10 due · 1 of the last 5 graded fell short". It counts what went wrong. The fellow's
+ * Trends card reads the same two windows and counts what went right instead; see `WorkLine` in
+ * components/instructor/trends.tsx.
  *
  * The counts are printed even when they are zero, because "none of the last 10 due missed or late"
  * is the sentence a reader wants about somebody who is fine, and a blank would say only that

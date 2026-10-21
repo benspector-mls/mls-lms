@@ -87,7 +87,7 @@ export function countsAsAttended(status: AttendanceStatus): boolean {
  * One row per fellow, whether or not they count.
  *
  * **Test students are summarized rather than dropped**, because the grid draws them badged the way
- * every other screen does. Everything that reports a number — `driftList`, `programRate`, the CSV —
+ * every other screen does. Everything that reports a number — the Performance screen, the CSV —
  * filters on `testStudentNumber` itself. Removing them here instead would make the grid disagree
  * with the roster about who is on it.
  */
@@ -159,8 +159,8 @@ export function summarize(
  * The last `window` settled sessions this fellow was enrolled for, as positions into `cells`.
  *
  * Settled first and then narrowed to the fellow, so the window is the cohort's last few mornings
- * rather than the fellow's: two fellows on the drift list are being judged against the same days,
- * and one who joined last week is judged against the days since, which are fewer.
+ * rather than the fellow's: two fellows flagged by the drift rule are being judged against the same
+ * days, and one who joined last week is judged against the days since, which are fewer.
  */
 function recentSettled(
   summary: FellowSummary,
@@ -189,8 +189,8 @@ export type RecentAttendance = {
  * The two windows the drift rule reads, for one fellow — drifting or not.
  *
  * Exported on its own because the fellow's record prints these whether or not the rule trips:
- * "attended 9 of the last 10 sessions" is worth reading about somebody who is fine. `driftList` is
- * this over a roster, kept to those it names.
+ * "attended 9 of the last 10 sessions" is worth reading about somebody who is fine. Which clause a
+ * fellow trips is `attendanceDriftReason`.
  */
 export function recentAttendance(
   summary: FellowSummary,
@@ -214,14 +214,14 @@ export function recentAttendance(
  * Which clause of the rule this fellow trips, or null. Missing outranks late, because absence and
  * lateness are different conversations and the first is the more urgent one.
  */
-export function attendanceDriftReason(recent: RecentAttendance): Drift["reason"] | null {
+export function attendanceDriftReason(recent: RecentAttendance): AttendanceDriftReason | null {
   if (recent.missed >= DRIFT_RULE.missedAtLeast) return "missing";
   if (recent.late >= DRIFT_RULE.lateAtLeast) return "late";
   return null;
 }
 
 /**
- * The rule the drift list applies, printed on the screen beside it.
+ * The rule behind an attendance flag on the Performance screen and the fellow's Trends.
  *
  * **Recent rather than cumulative**, which is the whole point. A fellow at 88 percent over a term
  * who has missed the last four mornings is the one to call today, and a cumulative rate hides them
@@ -245,39 +245,14 @@ export const DRIFT_RULE = {
   needsAtLeast: 5,
 } as const;
 
+/** Which clause of the attendance drift rule a fellow trips. */
+export type AttendanceDriftReason = "missing" | "late";
+
 /** What each reason is called where it is shown as a label rather than a sentence. */
-export const ATTENDANCE_DRIFT_REASON_LABEL: Record<Drift["reason"], string> = {
+export const ATTENDANCE_DRIFT_REASON_LABEL: Record<AttendanceDriftReason, string> = {
   missing: "Often absent",
   late: "Arriving late",
 };
-
-export type Drift = {
-  summary: FellowSummary;
-  missedRecently: number;
-  lateRecently: number;
-  reason: "missing" | "late";
-};
-
-export function driftList(summaries: FellowSummary[], sessions: SummarySession[]): Drift[] {
-  const drifting: Drift[] = [];
-
-  for (const summary of summaries) {
-    if (summary.fellow.testStudentNumber !== null) continue;
-    if (summary.eligible < DRIFT_RULE.needsAtLeast) continue;
-
-    const recent = recentAttendance(summary, sessions);
-    const reason = attendanceDriftReason(recent);
-    if (reason !== null) {
-      drifting.push({ summary, missedRecently: recent.missed, lateRecently: recent.late, reason });
-    }
-  }
-
-  // Worst first, because the list is read from the top and acted on until somebody runs out of
-  // morning.
-  return drifting.sort(
-    (a, b) => b.missedRecently - a.missedRecently || b.lateRecently - a.lateRecently,
-  );
-}
 
 /**
  * How much of the roster turned up, one figure per day, in the order the sessions came.
@@ -321,16 +296,6 @@ export function dailyRates(
 
     return enrolled === 0 ? null : attended / enrolled;
   });
-}
-
-/** The whole roster's figure, over the fellows who count. */
-export function programRate(summaries: FellowSummary[]): number | null {
-  const counted = summaries.filter((summary) => summary.fellow.testStudentNumber === null);
-  const eligible = counted.reduce((total, summary) => total + summary.eligible, 0);
-  if (eligible === 0) return null;
-
-  const attended = counted.reduce((total, summary) => total + summary.present + summary.late, 0);
-  return attended / eligible;
 }
 
 /**

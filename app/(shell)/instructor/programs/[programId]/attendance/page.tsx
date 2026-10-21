@@ -28,17 +28,18 @@ import { getQueryClient, trpc } from "@/trpc/server";
  *
  * **Two tabs, because the screen answers two questions asked at different times of day.** Taking
  * attendance happens once, in the first minutes of class, and wants one board and nothing else in
- * the way. Reading the record — who is drifting, what to send a funder — happens at a desk, later,
- * and wants the whole term at once. They were two addresses reached by a button, which put the
- * question an instructor asks every morning one click away from the one they ask once a month.
+ * the way. Reading the record — how a fellow's mornings went, what to send a funder — happens at a
+ * desk, later, and wants the whole term at once. They were two addresses reached by a button, which
+ * put the question an instructor asks every morning one click away from the one they ask once a
+ * month.
  *
  * **The cohort picker narrows The whole term and nothing else.** Attendance is taken for everybody
  * in the room, so Today reads everybody: `resolveCohort` falls back to an instructor's *remembered*
  * grading filter, and somebody who narrowed the gradebook to their fifteen last Tuesday would
  * otherwise open this at 9:00 and read "11 of 15" — a number that is wrong about the room while
  * looking entirely correct. The term is read at a desk, as the gradebook is, by an instructor
- * asking about their own fellows, and it narrows the same way. The drift list, the grid and the
- * export all follow the picker, so the file somebody downloads describes the fellows on the screen
+ * asking about their own fellows, and it narrows the same way. The grid and the export both
+ * follow the picker, so the file somebody downloads describes the fellows on the screen
  * they downloaded it from.
  *
  * **Today carries a way to any other morning.** The board is today's; correcting last Tuesday
@@ -84,7 +85,7 @@ async function Attendance({
 
   /*
     Narrowed here, once, and every reading on the term tab is built from the narrowed lists: the
-    drift list, the grid, the removed table and the export. The procedure returns the whole
+    grid, the removed table and the export. The procedure returns the whole
     roster, because the Today tab reads the whole roster from the same screen.
   */
   const selection = parseCohortSelection(cohorts.cohort);

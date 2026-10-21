@@ -2337,10 +2337,10 @@ describe("checking into a day that opens itself", () => {
  * What happened, and what is coming: two questions, two procedures.
  *
  * A scheduled program has a session row for every meeting day to June. `history` is what the term
- * grid, the drift list and the export are built from, and every one of them is about days that
- * have happened — so it stops at today rather than stretching a hundred and ninety empty columns
- * into next summer. `upcoming` answers the other half, per day rather than per fellow, for the two
- * screens that show no fellow at all.
+ * grid and the export are built from, and both of them are about days that have happened — so it
+ * stops at today rather than stretching a hundred and ninety empty columns into next summer.
+ * `upcoming` answers the other half, per day rather than per fellow, for the two screens that
+ * show no fellow at all.
  */
 describe("the days ahead", () => {
   const tx = withRollback(180_000);

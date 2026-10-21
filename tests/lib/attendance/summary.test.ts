@@ -1,10 +1,7 @@
 import {
   attendanceDriftReason,
-  programRate,
   countsAsAttended,
   dailyRates,
-  driftList,
-  DRIFT_RULE,
   recentAttendance,
   recentSessionsFrom,
   summarize,
@@ -14,7 +11,7 @@ import {
 } from "@/lib/attendance/summary";
 
 /**
- * A term reduced to a rate and a short list.
+ * A term reduced to a rate and a recent window.
  *
  * Three rules are the reason this is a tested function rather than arithmetic on a screen, and
  * each of them is a way to publish a wrong number: excused still counts as missed, a fellow is
@@ -154,180 +151,6 @@ describe("summarize", () => {
   });
 });
 
-describe("driftList", () => {
-  const term = sessions(10);
-
-  it("names a fellow who has missed enough of the recent sessions", () => {
-    const drifting = driftList(
-      summarize(
-        term,
-        [fellow()],
-        marks([
-          "PRESENT",
-          "PRESENT",
-          "PRESENT",
-          "PRESENT",
-          "PRESENT",
-          "PRESENT",
-          "PRESENT",
-          "ABSENT",
-          "PRESENT",
-          "ABSENT",
-        ]),
-      ),
-      term,
-    );
-
-    expect(drifting).toHaveLength(1);
-    expect(drifting[0].reason).toBe("missing");
-    expect(drifting[0].missedRecently).toBe(DRIFT_RULE.missedAtLeast);
-  });
-
-  it("names a fellow who is repeatedly late even though they are always here", () => {
-    const drifting = driftList(
-      summarize(
-        term,
-        [fellow()],
-        marks([
-          "PRESENT",
-          "PRESENT",
-          "LATE",
-          "PRESENT",
-          "LATE",
-          "PRESENT",
-          "PRESENT",
-          "LATE",
-          "PRESENT",
-          "PRESENT",
-        ]),
-      ),
-      term,
-    );
-
-    expect(drifting).toHaveLength(1);
-    expect(drifting[0].reason).toBe("late");
-  });
-
-  it("counts an excused absence towards drifting, since it is still a missed session", () => {
-    const drifting = driftList(
-      summarize(
-        term,
-        [fellow()],
-        marks([
-          "PRESENT",
-          "PRESENT",
-          "PRESENT",
-          "PRESENT",
-          "PRESENT",
-          "PRESENT",
-          "PRESENT",
-          "PRESENT",
-          "EXCUSED",
-          "EXCUSED",
-        ]),
-      ),
-      term,
-    );
-
-    expect(drifting).toHaveLength(1);
-  });
-
-  it("leaves alone somebody whose absences are all in the distant past", () => {
-    // Cumulatively this fellow is at 71 percent, and they have been at every recent session. The
-    // list is about who to call today, not about who has had a hard term.
-    const long = sessions(14);
-    const drifting = driftList(
-      summarize(
-        long,
-        [fellow()],
-        marks(["ABSENT", "ABSENT", "ABSENT", "ABSENT", ...Array<"PRESENT">(10).fill("PRESENT")]),
-      ),
-      long,
-    );
-
-    expect(drifting).toHaveLength(0);
-  });
-
-  it("does not judge a fellow who has barely arrived", () => {
-    // A Monday joiner who misses Tuesday is not drifting, and a list that said so would be
-    // ignored by the third week.
-    const short = sessions(3);
-    const drifting = driftList(
-      summarize(short, [fellow()], marks(["ABSENT", "ABSENT", "ABSENT"])),
-      short,
-    );
-
-    expect(drifting).toHaveLength(0);
-  });
-
-  it("never names a test student", () => {
-    const drifting = driftList(summarize(term, [fellow({ testStudentNumber: 1 })], []), term);
-    expect(drifting).toHaveLength(0);
-  });
-
-  it("puts the worst first", () => {
-    const summaries = summarize(
-      term,
-      [
-        fellow({ enrollmentId: "e1", studentId: "p1" }),
-        fellow({ enrollmentId: "e2", studentId: "p2", displayName: "Grace" }),
-      ],
-      [
-        ...marks(
-          [
-            "PRESENT",
-            "PRESENT",
-            "PRESENT",
-            "PRESENT",
-            "PRESENT",
-            "PRESENT",
-            "PRESENT",
-            "PRESENT",
-            "ABSENT",
-            "ABSENT",
-          ],
-          "e1",
-        ),
-        ...marks(
-          [
-            "PRESENT",
-            "PRESENT",
-            "PRESENT",
-            "PRESENT",
-            "PRESENT",
-            "ABSENT",
-            "ABSENT",
-            "ABSENT",
-            "ABSENT",
-            "ABSENT",
-          ],
-          "e2",
-        ),
-      ],
-    );
-
-    const drifting = driftList(summaries, term);
-    expect(drifting.map((entry) => entry.summary.fellow.enrollmentId)).toEqual(["e2", "e1"]);
-  });
-});
-
-describe("programRate", () => {
-  it("is over the fellows who count", () => {
-    const summaries = summarize(
-      sessions(2),
-      [fellow({ enrollmentId: "e1" }), fellow({ enrollmentId: "e2", testStudentNumber: 1 })],
-      [...marks(["PRESENT", "ABSENT"], "e1"), ...marks(["PRESENT", "PRESENT"], "e2")],
-    );
-
-    // The test student's perfect record does not lift the roster's figure.
-    expect(programRate(summaries)).toBe(0.5);
-  });
-
-  it("is null when nothing has closed yet", () => {
-    expect(programRate(summarize(sessions(2, 2), [fellow()], []))).toBeNull();
-  });
-});
-
 describe("a day that has not happened yet", () => {
   /*
     The failure this guards against is the one the date-range schedule introduced: a program that
@@ -364,7 +187,7 @@ describe("a day that has not happened yet", () => {
     expect(summary.rate).toBe(0);
   });
 
-  // The drift list reads the last few settled days. A term of days ahead must not push every real
+  // The drift rule reads the last few settled days. A term of days ahead must not push every real
   // morning out of that window.
   it("is outside the drift window", () => {
     const settled: SummarySession[] = Array.from({ length: 5 }, (_, index) => ({
@@ -387,7 +210,7 @@ describe("a day that has not happened yet", () => {
       { enrollmentId: "e1", sessionId: "d5", status: "PRESENT" },
     ]);
 
-    expect(driftList(summaries, all)).toHaveLength(1);
+    expect(attendanceDriftReason(recentAttendance(summaries[0], all))).toBe("missing");
   });
 });
 
@@ -510,7 +333,7 @@ describe("dailyRates", () => {
 });
 
 /**
- * The windows behind the drift list, for one fellow whether or not they are on it. What these
+ * The windows behind the drift rule, for one fellow whether or not they trip it. What these
  * protect is that the window is the cohort's last few mornings narrowed to the fellow, so a fellow
  * who joined last week is measured over fewer days rather than charged with the days before.
  */
@@ -562,7 +385,7 @@ describe("recentAttendance", () => {
     });
   });
 
-  it("names the clause the drift list would, and nothing when neither applies", () => {
+  it("names the clause the rule trips, and nothing when neither applies", () => {
     expect(attendanceDriftReason({ missed: 2, missedOf: 5, late: 0, lateOf: 10 })).toBe("missing");
     expect(attendanceDriftReason({ missed: 1, missedOf: 5, late: 3, lateOf: 10 })).toBe("late");
     expect(attendanceDriftReason({ missed: 2, missedOf: 5, late: 3, lateOf: 10 })).toBe("missing");

@@ -1,4 +1,7 @@
-import { ATTENDANCE_DRIFT_REASON_LABEL, type Drift } from "@/lib/attendance/summary";
+import {
+  ATTENDANCE_DRIFT_REASON_LABEL,
+  type AttendanceDriftReason,
+} from "@/lib/attendance/summary";
 import {
   DRIFT_REASON_LABEL,
   isMissing,
@@ -63,7 +66,7 @@ export const PERFORMANCE_RULE = {
 /** A reason the fellow's Trends would print in red. */
 export type PerformanceFlag =
   | { kind: "work"; courseId: string; courseName: string; reason: DriftReason }
-  | { kind: "attendance"; reason: Drift["reason"] };
+  | { kind: "attendance"; reason: AttendanceDriftReason };
 
 export type PerformanceBucket = "needs-support" | "meeting" | "exceeding" | "too-early";
 
@@ -261,7 +264,7 @@ export type Standing = {
  * than to any course, so it counts whichever courses are shown.
  */
 export function standingAcross(
-  attendance: { rate: number | null; reason: Drift["reason"] | null },
+  attendance: { rate: number | null; reason: AttendanceDriftReason | null },
   courses: readonly { id: string; name: string }[],
   readings: Readonly<Record<string, CourseStanding>>,
 ): Standing {

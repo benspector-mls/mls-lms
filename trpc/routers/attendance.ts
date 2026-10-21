@@ -1297,9 +1297,8 @@ export const attendanceRouter = createTRPCRouter({
   /**
    * Every session of a course, with every fellow's record against it.
    *
-   * The one read behind the term grid, the drift list, and the export — all three from one
-   * payload, so the file somebody downloads cannot describe a different cohort from the screen
-   * they downloaded it on. Same reasoning as `lib/gradebook/csv.ts`.
+   * The one read behind the term grid and the export — both from one payload, so the file
+   * somebody downloads cannot describe a different cohort from the screen they downloaded it on. Same reasoning as `lib/gradebook/csv.ts`.
    */
   history: programProcedure.query(async ({ ctx, input }) => {
     const now = new Date();
@@ -1312,8 +1311,8 @@ export const attendanceRouter = createTRPCRouter({
       ctx.db.attendanceSession.findMany({
         /*
           Today and everything behind it. A scheduled program has a row for every meeting day to
-          June, and this payload is what the term grid, the drift list and the export are all built
-          from — so without the bound the grid would stretch a hundred and ninety empty columns
+          June, and this payload is what the term grid and the export are both built from —
+          so without the bound the grid would stretch a hundred and ninety empty columns
           into next summer and the export would carry a row per fellow per day that has not
           happened. What is ahead is `upcoming`'s job: a different question, with a different
           answer shape.

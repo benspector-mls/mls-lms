@@ -33,7 +33,7 @@ import { formatPercent } from "@/lib/status";
 import { cn } from "@/lib/utils";
 
 /**
- * Every fellow against every session: the evidence under the drift list.
+ * Every fellow against every session: the attendance record for the whole term.
  *
  * **It opens on the last two weeks.** A term is sixty columns, and the ones a reader wants are
  * the most recent, which a grid that drew the whole term put off the right edge of the screen

@@ -62,8 +62,8 @@ export type CourseFigures = {
   missing: number;
   late: number;
   /**
-   * The last few weeks rather than the term: the two windows the gradebook's "Needs a conversation"
-   * rule reads. The record prints them whether or not the rule trips.
+   * The last few weeks rather than the term: the two windows the gradebook's drift rule reads. The
+   * record prints them whether or not the rule trips.
    */
   recent: RecentWork;
   /**
