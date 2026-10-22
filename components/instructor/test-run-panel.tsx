@@ -301,6 +301,23 @@ function LogTail({
   tone?: "muted" | "danger";
 }) {
   const [open, setOpen] = React.useState(false);
+  // True once the instructor has dragged the resize handle. Until then the box grows
+  // with its content up to a cap; after, the cap is lifted so the drag is honoured.
+  const [resized, setResized] = React.useState(false);
+  const preRef = React.useRef<HTMLPreElement>(null);
+
+  React.useEffect(() => {
+    const el = preRef.current;
+    if (!el || resized) return;
+    // The browser writes an inline height when the user drags the CSS resize handle,
+    // and that is the only way an inline height appears on this element.
+    const observer = new ResizeObserver(() => {
+      if (el.style.height) setResized(true);
+    });
+    observer.observe(el);
+    return () => observer.disconnect();
+  }, [open, resized]);
+
   if (!content) return null;
 
   return (
@@ -312,8 +329,10 @@ function LogTail({
       </CollapsibleTrigger>
       <CollapsibleContent>
         <pre
+          ref={preRef}
           className={cn(
-            "mt-1 max-h-48 overflow-auto rounded-md bg-foreground/[0.04] p-3 font-mono text-xs",
+            "mt-1 min-h-24 resize-y overflow-auto rounded-md bg-foreground/[0.04] p-3 font-mono text-xs",
+            !resized && "max-h-96",
             tone === "danger" && "text-destructive",
           )}
         >
