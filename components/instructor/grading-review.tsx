@@ -457,7 +457,7 @@ export function GradingReview({
 
       {previous.length > 0 && (
         <TabsContent value="history" keepMounted className="text-base">
-          <DraftHistory drafts={previous} now={now} />
+          <DraftHistory submission={submission} drafts={previous} now={now} />
         </TabsContent>
       )}
     </Tabs>

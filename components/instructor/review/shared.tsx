@@ -33,6 +33,28 @@ export function effectiveReport(section: Section): string | null {
 }
 
 /**
+ * The address of the feedback comment a round posted to the pull request, or null when there is
+ * no such comment to open.
+ *
+ * GitHub addresses one comment on a pull request by the pull request's own address followed by
+ * `#issuecomment-` and the comment's numeric id, and opening that address scrolls the page to
+ * the comment and highlights it. Both parts are already recorded: approval saves the id on the
+ * draft, and the submission holds the pull request's address — so the link costs no request to
+ * GitHub and no new column.
+ *
+ * Null for a hand-graded document or upload, which has no pull request, and for a round whose
+ * comment never posted, which has no id. The second case is what the "never posted" alert and
+ * its retry button exist for, so a link would be the wrong thing to show there.
+ */
+export function postedCommentUrl(
+  submission: { prUrl: string | null },
+  draft: { postedPrCommentId: bigint | null },
+): string | null {
+  if (submission.prUrl === null || draft.postedPrCommentId === null) return null;
+  return `${submission.prUrl}#issuecomment-${draft.postedPrCommentId}`;
+}
+
+/**
  * "Ana, Ben, Chi and Dev" — a list a person reads rather than one a program prints.
  *
  * Its own function because the armed release button's caption is the one place the whole team is

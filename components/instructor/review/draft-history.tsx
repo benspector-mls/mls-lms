@@ -7,11 +7,16 @@
  * the caller decides that, and this draws what it is given.
  */
 
-import { ChevronDown } from "lucide-react";
+import { ChevronDown, ExternalLink, GitPullRequest } from "lucide-react";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { formatRelative, shortSha } from "@/lib/status";
 import { ReleasedSection } from "@/components/instructor/review/draft-body";
-import { Draft, effectiveScore } from "@/components/instructor/review/shared";
+import {
+  Draft,
+  QueueSubmission,
+  effectiveScore,
+  postedCommentUrl,
+} from "@/components/instructor/review/shared";
 /**
  * The rounds released before the one on screen, newest first — each one openable to read what
  * the student was actually sent, drawn by the same `ReleasedSection` the released card uses.
@@ -28,12 +33,22 @@ import { Draft, effectiveScore } from "@/components/instructor/review/shared";
  * The rows have no wrapper around them, because the History tab's label already names the list
  * and counts it.
  */
-export function DraftHistory({ drafts, now }: { drafts: Draft[]; now: Date }) {
+export function DraftHistory({
+  submission,
+  drafts,
+  now,
+}: {
+  /** Holds the pull request's address, which each round's link to its comment is built from. */
+  submission: QueueSubmission;
+  drafts: Draft[];
+  now: Date;
+}) {
   return (
     <div className="flex flex-col gap-2">
       {drafts.map((entry) => {
         const earned = entry.sections.reduce((sum, s) => sum + (effectiveScore(s) ?? 0), 0);
         const possible = entry.sections.reduce((sum, s) => sum + (s.scorePossible ?? 0), 0);
+        const commentUrl = postedCommentUrl(submission, entry);
 
         return (
           /*
@@ -75,6 +90,23 @@ export function DraftHistory({ drafts, now }: { drafts: Draft[]; now: Date }) {
             </CollapsibleTrigger>
             <CollapsibleContent>
               <div className="flex flex-col gap-4 border-t border-border p-3">
+                {/*
+                  Inside the expanded body rather than on the row, because the row is a button
+                  that opens the round, and a link inside a button is a click with two meanings.
+                  Each round posted its own comment, so each links to its own.
+                */}
+                {commentUrl && (
+                  <a
+                    href={commentUrl}
+                    target="_blank"
+                    rel="noreferrer"
+                    className="inline-flex items-center gap-1 self-start text-sm text-muted-foreground underline-offset-4 hover:underline"
+                  >
+                    <GitPullRequest className="size-3.5" />
+                    Open the comment on the pull request
+                    <ExternalLink className="size-3.5" />
+                  </a>
+                )}
                 {entry.sections.map((section, index) => (
                   <ReleasedSection key={section.id} section={section} first={index === 0} />
                 ))}

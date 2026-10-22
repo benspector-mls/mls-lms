@@ -45,6 +45,7 @@ import {
   StateCard,
   effectiveReport,
   effectiveScore,
+  postedCommentUrl,
   useGenerateReport,
 } from "@/components/instructor/review/shared";
 /** Routes to the presentation for whatever state the grading run is actually in. */
@@ -472,8 +473,8 @@ function GeneratePanel({
           {title}
         </CardTitle>
         <CardDescription>
-          Runs the tests if they have not run at this commit, then drafts feedback for each
-          section. Nothing is recorded or sent until you approve it.
+          Runs the tests if they have not run at this commit, then drafts feedback for each section.
+          Nothing is recorded or sent until you approve it.
           {onWrite && " Or write the report yourself."}
         </CardDescription>
       </CardHeader>
@@ -539,10 +540,13 @@ function GeneratePanel({
  * whose only job was to say the cards below belonged to the card above.
  */
 export function ReleasedGradeCard({
+  submission,
   draft,
   data,
   onEdit,
 }: {
+  /** Holds the pull request's address, which the link to the posted comment is built from. */
+  submission: QueueSubmission;
   draft: Draft;
   data: DraftList;
   /**
@@ -552,6 +556,7 @@ export function ReleasedGradeCard({
   onEdit?: () => void;
 }) {
   const percent = scorePercent(data.grade?.finalScore, data.grade?.finalScorePossible);
+  const commentUrl = postedCommentUrl(submission, draft);
 
   return (
     <Card>
@@ -565,6 +570,23 @@ export function ReleasedGradeCard({
             <CardDescription>{formatDateTime(draft.approvedAt)}</CardDescription>
             {/* Who told the student this — the question a released round prompts. */}
             <CardDescription>{draft.approvedBy?.displayName ?? "An instructor"}</CardDescription>
+            {/*
+              Where the student reads this. The comment is the feedback as it reached them, and
+              an instructor checking what went out, or replying to it, wants that page rather
+              than this record of it. Absent where no comment exists — see `postedCommentUrl`.
+            */}
+            {commentUrl && (
+              <a
+                href={commentUrl}
+                target="_blank"
+                rel="noreferrer"
+                className="inline-flex items-center gap-1 text-sm text-muted-foreground underline-offset-4 hover:underline"
+              >
+                <GitPullRequest className="size-3.5" />
+                Open the comment on the pull request
+                <ExternalLink className="size-3.5" />
+              </a>
+            )}
           </div>
 
           {data.grade?.finalScore != null && (
@@ -674,7 +696,12 @@ function ReleasedBody({
         only where a correction is what comes next. Revised work is graded anew from the work
         itself, by the round offered below, so the pen would be a second, worse way in.
       */}
-      <ReleasedGradeCard draft={draft} data={data} onEdit={revised ? undefined : onEdit} />
+      <ReleasedGradeCard
+        submission={submission}
+        draft={draft}
+        data={data}
+        onEdit={revised ? undefined : onEdit}
+      />
 
       {/*
         Revising a released grade means a new round, not an edit of this one. The student keeps
