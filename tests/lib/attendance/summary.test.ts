@@ -205,7 +205,7 @@ describe("a day that has not happened yet", () => {
     const summaries = summarize(all, fellows, [
       { enrollmentId: "e1", sessionId: "d1", status: "ABSENT" },
       { enrollmentId: "e1", sessionId: "d2", status: "ABSENT" },
-      { enrollmentId: "e1", sessionId: "d3", status: "PRESENT" },
+      { enrollmentId: "e1", sessionId: "d3", status: "ABSENT" },
       { enrollmentId: "e1", sessionId: "d4", status: "PRESENT" },
       { enrollmentId: "e1", sessionId: "d5", status: "PRESENT" },
     ]);
@@ -367,6 +367,37 @@ describe("recentAttendance", () => {
       missedOf: 10,
       late: 2,
       lateOf: 10,
+      excused: 0,
+    });
+  });
+
+  // An excused morning is still a missed one. The count beside it says how many had a reason.
+  it("counts how many of the missed mornings were excused", () => {
+    const [summary] = summarize(
+      term,
+      [fellow()],
+      marks([
+        "PRESENT",
+        "PRESENT",
+        "EXCUSED",
+        "PRESENT",
+        "ABSENT",
+        "PRESENT",
+        "EXCUSED",
+        "PRESENT",
+        "PRESENT",
+        "PRESENT",
+        null,
+        null,
+      ]),
+    );
+
+    expect(recentAttendance(summary, term)).toEqual({
+      missed: 3,
+      missedOf: 10,
+      late: 0,
+      lateOf: 10,
+      excused: 2,
     });
   });
 
@@ -382,14 +413,22 @@ describe("recentAttendance", () => {
       missedOf: 3,
       late: 0,
       lateOf: 3,
+      excused: 0,
     });
   });
 
   it("names the clause the rule trips, and nothing when neither applies", () => {
-    expect(attendanceDriftReason({ missed: 2, missedOf: 5, late: 0, lateOf: 10 })).toBe("missing");
-    expect(attendanceDriftReason({ missed: 1, missedOf: 5, late: 3, lateOf: 10 })).toBe("late");
-    expect(attendanceDriftReason({ missed: 2, missedOf: 5, late: 3, lateOf: 10 })).toBe("missing");
-    expect(attendanceDriftReason({ missed: 1, missedOf: 5, late: 2, lateOf: 10 })).toBeNull();
+    const recent = (missed: number, late: number) => ({
+      missed,
+      missedOf: 5,
+      late,
+      lateOf: 10,
+      excused: 0,
+    });
+    expect(attendanceDriftReason(recent(3, 0))).toBe("missing");
+    expect(attendanceDriftReason(recent(2, 3))).toBe("late");
+    expect(attendanceDriftReason(recent(3, 3))).toBe("missing");
+    expect(attendanceDriftReason(recent(2, 2))).toBeNull();
   });
 });
 

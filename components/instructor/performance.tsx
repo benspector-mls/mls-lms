@@ -18,21 +18,24 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import { ATTENDANCE_DRIFT_REASON_LABEL, DRIFT_RULE } from "@/lib/attendance/summary";
+import { DRIFT_RULE } from "@/lib/attendance/summary";
 import { CHECK_TREND_RULE } from "@/lib/checks/trends";
 import { CATEGORY_LABEL, type CheckCategory } from "@/lib/checks/levels";
 import { CATEGORY_META, UNIT_CATEGORIES } from "@/lib/course-units";
 import type { CourseUnitCategory } from "@/lib/generated/prisma/enums";
-import { ASSIGNMENT_DRIFT_RULE, DRIFT_REASON_LABEL } from "@/lib/gradebook/summary";
+import { ASSIGNMENT_DRIFT_RULE } from "@/lib/gradebook/summary";
 import { programStudentHref } from "@/lib/links";
 import { initials } from "@/lib/people";
 import {
+  countBand,
   COURSES_PARAM,
   PERFORMANCE_BUCKET_LABEL,
   PERFORMANCE_BUCKETS,
   PERFORMANCE_RULE,
+  shareBand,
   shownCourseIds,
   standingAcross,
+  type Band as CellBand,
   type PerformanceBucket,
   type Standing,
 } from "@/lib/programs/performance";
@@ -57,15 +60,17 @@ type Course = Payload["courses"][number];
  * whichever are shown. `standingAcross` in lib/programs/performance.ts is the computation.
  *
  * **A grid for the whole roster**, the fellow's Trends section turned on its side. Attendance
- * comes first, then the program-wide figures — work handed in on time, and the share of
- * assignments, projects and assessments completed — then a band of columns per course: the
- * deadlines hit, the work of each kind completed, and the average understanding level on the last
- * few checks. A cell whose rule trips is filled red, so the reason a fellow is in needs support is
- * on the row rather than a click away.
+ * comes first, then the program-wide figures — deadlines hit across the term, recent graded work,
+ * and the share of assignments, projects and assessments completed — then a band of columns per
+ * course: the deadlines hit, the recent graded work, the work of each kind completed, and the
+ * average understanding level on the last few checks. A cell is filled red or yellow by its own
+ * band, and the group is the worst band on the row, so the reason a fellow is where they are is on
+ * the row rather than a click away. Completed and Understanding are figures to look at and never
+ * coloured.
  *
  * **Counted by what was done rather than what was not.** A column says how many deadlines were
- * hit and how much work was completed, so a row reads as what a fellow has achieved; the drift
- * rules underneath are unchanged, and a cell still turns red where one trips.
+ * hit and how much work was completed, so a row reads as what a fellow has achieved; the rules
+ * underneath count what went wrong, and a cell turns red or yellow where one trips.
  *
  * **One table per group, at the same column widths**, so each group can be read on its own and the
  * four still line up as one grid down the page.
@@ -175,9 +180,11 @@ export function ProgramPerformance({
 
 const BUCKET_DESCRIPTION: Record<PerformanceBucket, string> = {
   "needs-support":
-    "Flagged on attendance or work, or below the bar on either term figure. Worth a conversation this week.",
-  meeting: "On time with their work and here most mornings, with nothing flagged.",
-  exceeding: "On time with their work, here nearly every morning, and nothing flagged.",
+    "At least one red cell: a term figure under 75 percent, or a recent window past its bar. Worth a conversation this week.",
+  meeting:
+    "No red cell, but at least one yellow: a term figure under 90 percent, or a small recent slip.",
+  exceeding:
+    "Every coloured cell green: both term figures at 90 percent or more, and nothing slipped recently.",
   "too-early":
     "Nothing has come due yet, or too few mornings have been counted to read their attendance.",
 };
@@ -219,69 +226,67 @@ function BucketingHelp() {
             At least one cell in the row is red.
           </HelpRule>
           <HelpRule name={PERFORMANCE_BUCKET_LABEL.meeting}>
-            No cell is red, and overall attendance is under{" "}
-            {percent(PERFORMANCE_RULE.exceedingAttendanceAtLeast)}. With nothing red, the fellow has
-            handed in at least {percent(PERFORMANCE_RULE.onTimeAtLeast)} of their work on time and
-            attended at least {percent(PERFORMANCE_RULE.meetingAttendanceAtLeast)} of mornings.
+            No cell is red, and at least one is yellow.
           </HelpRule>
-          <HelpRule name={PERFORMANCE_BUCKET_LABEL.exceeding}>
-            No cell is red, and overall attendance is{" "}
-            {percent(PERFORMANCE_RULE.exceedingAttendanceAtLeast)} or more.
-          </HelpRule>
+          <HelpRule name={PERFORMANCE_BUCKET_LABEL.exceeding}>No cell is red or yellow.</HelpRule>
         </HelpSection>
 
         <HelpSection title="Red and yellow cells">
           <p className="text-muted-foreground">
-            A red cell is a reason the fellow needs support. A yellow cell appears only on Overall
-            Rate in Meeting the bar, and marks the one figure keeping the fellow out of Exceeding.
-            Hover a coloured cell to see which rule it tripped.
+            Every coloured cell has the same three bands. Red is a reason the fellow needs support.
+            Yellow is a figure short of exceeding. Green is neither. The group is the worst band on
+            the row. Hover a coloured cell to see which rule it tripped. Completed and Understanding
+            are figures to look at and are never coloured.
           </p>
         </HelpSection>
 
         <HelpSection title="Attendance">
           <HelpRule name="Overall Rate">
-            Mornings attended, present or late, out of every morning counted this term. Red under{" "}
-            {percent(PERFORMANCE_RULE.meetingAttendanceAtLeast)}; yellow under{" "}
-            {percent(PERFORMANCE_RULE.exceedingAttendanceAtLeast)} for a fellow meeting the bar.
+            Mornings attended, present or late, out of every morning counted this term, with how
+            many of the missed mornings were excused. An excused morning still counts as missed.{" "}
+            {shareBands(PERFORMANCE_RULE.attendance)}
           </HelpRule>
           <HelpRule name="Recent Absence">
-            Absences in the last {DRIFT_RULE.missedOf} mornings. Red at {DRIFT_RULE.missedAtLeast}{" "}
-            or more.
+            Absences in the last {DRIFT_RULE.missedOf} mornings, with how many of them were excused.{" "}
+            {countBands(PERFORMANCE_RULE.absences)}
           </HelpRule>
           <HelpRule name="Recent Tardiness">
-            Late arrivals in the last {DRIFT_RULE.lateOf} mornings. Red at {DRIFT_RULE.lateAtLeast}{" "}
-            or more.
+            Late arrivals in the last {DRIFT_RULE.lateOf} mornings.{" "}
+            {countBands(PERFORMANCE_RULE.lateArrivals)}
           </HelpRule>
         </HelpSection>
 
         <HelpSection title="All courses">
-          <HelpRule name="On time submissions">
+          <HelpRule name="Deadlines Hit">
             Past-due work handed in by its deadline or by an agreed extension, whether or not it has
-            been graded, summed across the shown courses. Red under{" "}
-            {percent(PERFORMANCE_RULE.onTimeAtLeast)}.
+            been graded, summed across the shown courses. {shareBands(PERFORMANCE_RULE.onTime)}
+          </HelpRule>
+          <HelpRule name="Recently Completed">
+            The shown courses’ Recently Completed added together. Never coloured.
           </HelpRule>
           <HelpRule name="Completed">
-            Work graded complete, out of everything of that kind released so far. Never red.
+            Work graded complete, out of everything of that kind released so far. Never coloured.
           </HelpRule>
         </HelpSection>
 
         <HelpSection title="Each course">
           <HelpRule name="Deadlines Hit">
             Handed in on time, of the last {ASSIGNMENT_DRIFT_RULE.dueOf} assignments due in the
-            course. Red when {ASSIGNMENT_DRIFT_RULE.slippedAtLeast} or more of them were missed or
-            late.
+            course, counting missed and late together. {countBands(PERFORMANCE_RULE.slipped)}
+          </HelpRule>
+          <HelpRule name="Recently Completed">
+            Graded complete, of the fellow’s last {ASSIGNMENT_DRIFT_RULE.gradedOf} graded
+            assignments in the course, whatever kind of work they are. Counted by the number graded
+            incomplete: {countBands(PERFORMANCE_RULE.incomplete)}
           </HelpRule>
           <HelpRule name="Completed">
-            Work graded complete, out of everything of that kind released in the course. The first
-            Completed column in a course turns red when {ASSIGNMENT_DRIFT_RULE.incompleteAtLeast} or
-            more of the fellow’s last {ASSIGNMENT_DRIFT_RULE.gradedOf} graded assignments in the
-            course were graded incomplete. That rule reads every kind of work in the course, so the
-            flag sits on one column rather than on each.
+            Work graded complete, out of everything of that kind released in the course. Never
+            coloured.
           </HelpRule>
           <HelpRule name="Understanding">
             The average level on the latest attempt at each of the last {CHECK_TREND_RULE.checksOf}{" "}
             checks for understanding: 1 is Blocked, 2 Understands facts, 3 Making connections. Never
-            red.
+            coloured.
           </HelpRule>
         </HelpSection>
 
@@ -341,18 +346,52 @@ type Band = { key: string; label: React.ReactNode; archived?: boolean };
 /**
  * What a cell holds: a figure, the line under it, and why it is coloured.
  *
- * `flag` is a reason the fellow needs support, drawn red. `short` is what keeps a fellow meeting the
- * bar from exceeding it, drawn yellow. Each names the rule, for a screen reader and the tooltip.
+ * `band` is the cell's colour and `reason` names the rule that gave it, for a screen reader and
+ * the tooltip. A green cell has neither, since green is nothing to say.
  */
 type CellContent = {
   value: string;
   detail: string;
-  flag?: string | null;
-  short?: string | null;
+  band?: "yellow" | "red";
+  reason?: string;
   title?: string;
 };
 
 const EMPTY = (detail: string): CellContent => ({ value: "—", detail });
+
+/** The colour of a term share, with the bar it fell under in words. */
+function byShare(
+  share: number,
+  rule: { meeting: number; exceeding: number },
+  describe: (under: number) => string,
+): Pick<CellContent, "band" | "reason"> {
+  const band = shareBand(share, rule);
+  if (band === "green") return {};
+  return { band, reason: describe(band === "red" ? rule.meeting : rule.exceeding) };
+}
+
+/** The colour of a count of things gone wrong, with the bar it reached in words. */
+function byCount(
+  count: number,
+  rule: { yellowAt: number; redAt: number },
+  describe: (atLeast: number) => string,
+): Pick<CellContent, "band" | "reason"> {
+  const band = countBand(count, rule);
+  if (band === "green") return {};
+  return { band, reason: describe(band === "red" ? rule.redAt : rule.yellowAt) };
+}
+
+/**
+ * The figure the two Recently Completed columns print. The title names what is counted,
+ * so the line under the figure says which window it was counted over.
+ */
+function recentlyGradedCell(
+  figures: { complete: number; graded: number },
+  detail: string,
+): CellContent {
+  if (figures.graded === 0) return EMPTY("nothing graded yet");
+  return { value: `${figures.complete} of ${figures.graded}`, detail };
+}
 
 function fraction(done: number, of: number): SortValue {
   return of === 0 ? null : done / of;
@@ -369,27 +408,27 @@ function columnsFor(courses: Course[], categories: CourseUnitCategory[]): Column
       title: "Overall Rate",
       sortValue: (f) => fraction(f.attendance.attended, f.attendance.eligible),
       /*
-        Read against the bar only once the fellow has enough mornings to be judged, which is when
+        Read against the bars only once the fellow has enough mornings to be judged, which is when
         `attendance.rate` stops being null — the figure shown before then is real, and nothing yet.
-        Red below the meeting bar. Yellow for somebody meeting the bar below the exceeding one,
-        which is the only figure that can hold them there: meeting already asks for every other.
+        The excused count sits beside the figure because an excused morning is still a missed one,
+        and a reader deciding whether to act on a red cell wants to know how much of it had a reason.
       */
       render: (f) => {
-        if (f.attendance.eligible === 0) return EMPTY("no mornings yet");
-        const { rate } = f.attendance;
+        const { rate, attended, eligible, excused } = f.attendance;
+        if (eligible === 0) return EMPTY("no mornings yet");
         return {
-          value: formatPercent(f.attendance.attended / f.attendance.eligible),
-          detail: `${f.attendance.attended} of ${f.attendance.eligible}`,
-          flag:
-            rate !== null && rate < PERFORMANCE_RULE.meetingAttendanceAtLeast
-              ? `Attendance under ${percent(PERFORMANCE_RULE.meetingAttendanceAtLeast)}`
-              : null,
-          short:
-            f.standing.bucket === "meeting" &&
-            rate !== null &&
-            rate < PERFORMANCE_RULE.exceedingAttendanceAtLeast
-              ? `Attendance under ${percent(PERFORMANCE_RULE.exceedingAttendanceAtLeast)}`
-              : null,
+          value: formatPercent(attended / eligible),
+          detail:
+            excused > 0
+              ? `${attended} of ${eligible} · ${excused} excused`
+              : `${attended} of ${eligible}`,
+          ...(rate === null
+            ? {}
+            : byShare(
+                rate,
+                PERFORMANCE_RULE.attendance,
+                (under) => `Attendance under ${percent(under)}`,
+              )),
         };
       },
     },
@@ -398,44 +437,48 @@ function columnsFor(courses: Course[], categories: CourseUnitCategory[]): Column
       band: attendance,
       title: "Recent Absence",
       sortValue: (f) => f.attendance.recent?.missed ?? null,
-      render: (f) =>
-        f.attendance.recent
-          ? {
-              value: `${f.attendance.recent.missed} of ${f.attendance.recent.missedOf}`,
-              detail: "recent mornings",
-              flag:
-                f.attendance.recent.missed >= DRIFT_RULE.missedAtLeast
-                  ? ATTENDANCE_DRIFT_REASON_LABEL.missing
-                  : null,
-            }
-          : EMPTY("too few yet"),
+      render: (f) => {
+        const recent = f.attendance.recent;
+        if (!recent) return EMPTY("too few yet");
+        return {
+          value: `${recent.missed} of ${recent.missedOf}`,
+          detail: recent.excused > 0 ? `${recent.excused} excused` : "recent mornings",
+          ...byCount(
+            recent.missed,
+            PERFORMANCE_RULE.absences,
+            (atLeast) => `${atLeast} or more of the last ${DRIFT_RULE.missedOf} mornings missed`,
+          ),
+        };
+      },
     },
     {
       key: "tardiness",
       band: attendance,
       title: "Recent Tardiness",
       sortValue: (f) => f.attendance.recent?.late ?? null,
-      render: (f) =>
-        f.attendance.recent
-          ? {
-              value: `${f.attendance.recent.late} of ${f.attendance.recent.lateOf}`,
-              detail: "recent mornings",
-              /*
-                Red whenever its own clause trips, even when absence trips as well. The drift rule
-                names one reason for a list that shows one, but a fellow both absent and late is
-                held back by both, and the grid shows every cell that does it.
-              */
-              flag:
-                f.attendance.recent.late >= DRIFT_RULE.lateAtLeast
-                  ? ATTENDANCE_DRIFT_REASON_LABEL.late
-                  : null,
-            }
-          : EMPTY("too few yet"),
+      /*
+        Coloured by its own count, even when absence is coloured as well. A fellow both absent and
+        late is held back by both, and the grid shows every cell that does it.
+      */
+      render: (f) => {
+        const recent = f.attendance.recent;
+        if (!recent) return EMPTY("too few yet");
+        return {
+          value: `${recent.late} of ${recent.lateOf}`,
+          detail: "recent mornings",
+          ...byCount(
+            recent.late,
+            PERFORMANCE_RULE.lateArrivals,
+            (atLeast) =>
+              `${atLeast} or more late arrivals in the last ${DRIFT_RULE.lateOf} mornings`,
+          ),
+        };
+      },
     },
     {
       key: "onTime",
       band: allCourses,
-      title: "On time submissions",
+      title: "Deadlines Hit",
       sortValue: (f) =>
         f.standing.onTime ? f.standing.onTime.onTime / f.standing.onTime.due : null,
       render: (f) => {
@@ -444,12 +487,21 @@ function columnsFor(courses: Course[], categories: CourseUnitCategory[]): Column
         return {
           value: formatPercent(onTime.onTime / onTime.due),
           detail: `${onTime.onTime} of ${onTime.due}`,
-          flag:
-            onTime.onTime / onTime.due < PERFORMANCE_RULE.onTimeAtLeast
-              ? `Under ${percent(PERFORMANCE_RULE.onTimeAtLeast)} on time`
-              : null,
+          ...byShare(
+            onTime.onTime / onTime.due,
+            PERFORMANCE_RULE.onTime,
+            (under) => `Under ${percent(under)} of deadlines hit`,
+          ),
         };
       },
+    },
+    {
+      key: "recentlyGraded",
+      band: allCourses,
+      title: "Recently Completed",
+      sortValue: (f) =>
+        fraction(f.standing.recentlyGraded.complete, f.standing.recentlyGraded.graded),
+      render: (f) => recentlyGradedCell(f.standing.recentlyGraded, "across the shown courses"),
     },
     ...categories.map((category): Column => ({
       key: `all:${category}`,
@@ -490,41 +542,68 @@ function columnsFor(courses: Course[], categories: CourseUnitCategory[]): Column
           return recent ? fraction(recent.due - recent.missed - recent.late, recent.due) : null;
         },
         render: (f) => {
-          const { recent, reasons } = reading(f);
+          const { recent } = reading(f);
           if (!recent || recent.due === 0) return EMPTY("nothing due yet");
           return {
             value: `${recent.due - recent.missed - recent.late} of ${recent.due}`,
             detail: `${recent.late} late, ${recent.missed} missing`,
-            flag: reasons.includes("deadlines") ? DRIFT_REASON_LABEL.deadlines : null,
+            ...byCount(
+              recent.missed + recent.late,
+              PERFORMANCE_RULE.slipped,
+              (atLeast) =>
+                `${atLeast} or more of the last ${ASSIGNMENT_DRIFT_RULE.dueOf} deadlines missed or late`,
+            ),
+          };
+        },
+      });
+
+      /*
+        The graded window has a column of its own, because the rule reads the fellow's last few
+        graded assignments in the course whatever kind of unit they sit in, and a colour on one of
+        the Completed columns would read as a judgement on that kind of work alone.
+      */
+      columns.push({
+        key: `course:${course.id}:graded`,
+        band,
+        title: "Recently Completed",
+        sortValue: (f) => {
+          const recent = reading(f).recent;
+          return recent ? fraction(recent.graded - recent.incomplete, recent.graded) : null;
+        },
+        render: (f) => {
+          const { recent } = reading(f);
+          if (!recent) return EMPTY("nothing graded yet");
+          // The same words the fellow's Themes input uses for this window; see `recentWorkSentence`.
+          const window =
+            recent.graded === ASSIGNMENT_DRIFT_RULE.gradedOf
+              ? `of the last ${recent.graded} graded`
+              : `of the ${recent.graded} graded so far`;
+          return {
+            ...recentlyGradedCell(
+              { complete: recent.graded - recent.incomplete, graded: recent.graded },
+              window,
+            ),
+            ...byCount(
+              recent.incomplete,
+              PERFORMANCE_RULE.incomplete,
+              (atLeast) =>
+                `${atLeast} or more of the last ${ASSIGNMENT_DRIFT_RULE.gradedOf} graded incomplete`,
+            ),
           };
         },
       });
     }
 
-    course.categories.forEach((category, position) => {
+    course.categories.forEach((category) => {
       columns.push({
         key: `course:${course.id}:${category}`,
         band,
         title: completedTitle(category),
-        /*
-          The course's "Falling short" flag is drawn on its first completion column. The rule reads
-          the fellow's last few graded assignments in the course, whatever kind of unit they sit in,
-          so it has no column of its own; this is the column nearest to what it measures.
-        */
         sortValue: (f) => {
           const completion = reading(f).completion[category];
           return completion ? fraction(completion.complete, completion.possible) : null;
         },
-        render: (f) => {
-          const { completion, recent, reasons } = reading(f);
-          const cell = completionCell(completion[category]);
-          if (position !== 0 || !reasons.includes("falling-short") || !recent) return cell;
-          return {
-            ...cell,
-            flag: DRIFT_REASON_LABEL["falling-short"],
-            title: `${recent.graded - recent.incomplete} of the last ${recent.graded} graded were complete`,
-          };
-        },
+        render: (f) => completionCell(reading(f).completion[category]),
       });
     });
 
@@ -573,13 +652,18 @@ function completionCell(
 /** A column key, or "name" for the fellow column, and which way. */
 type Sort = { key: string; direction: "asc" | "desc" };
 
-/** More flags first, then the lower on-time share, then the lower attendance. */
+/** More red windows first, then more yellow, then the lower on-time share, then the lower attendance. */
 function worstFirst(a: Fellow, b: Fellow): number {
   return (
-    b.standing.flags.length - a.standing.flags.length ||
+    flagged(b, "red") - flagged(a, "red") ||
+    flagged(b, "yellow") - flagged(a, "yellow") ||
     ratio(a.standing.onTime) - ratio(b.standing.onTime) ||
     (a.attendance.rate ?? 1) - (b.attendance.rate ?? 1)
   );
+}
+
+function flagged(fellow: Fellow, band: CellBand): number {
+  return fellow.standing.flags.filter((flag) => flag.band === band).length;
 }
 
 function ratio(onTime: Standing["onTime"]): number {
@@ -798,32 +882,30 @@ function SortButton({
 }
 
 /**
- * One figure in the grid, with its cell filled red when its rule trips.
+ * One figure in the grid, with its cell filled red or yellow by its band.
  *
- * **No flag text on the screen**, so a row of red cells stays as compact as a row of plain ones and
- * the figure is what the eye lands on. The rule's name is still in the cell for a screen reader,
- * and in the tooltip for anybody who hovers, so the red is never the only way to know which rule
- * tripped.
+ * **No rule text on the screen**, so a row of coloured cells stays as compact as a row of plain
+ * ones and the figure is what the eye lands on. The rule is still in the cell for a screen reader,
+ * and in the tooltip for anybody who hovers, so the colour is never the only way to know which
+ * rule tripped.
  */
 function Cell({ edge, content }: { edge: string | null; content: CellContent }) {
-  const { value, detail, flag, short, title } = content;
-  // Red wins: a cell that is a reason to need support is that before it is anything else.
-  const yellow = !flag && short;
+  const { value, detail, band, reason, title } = content;
 
   return (
     <TableCell
       className={cn(
         edge,
-        flag && "bg-destructive/10 text-destructive",
-        yellow && "bg-amber-500/15 text-amber-800 dark:text-amber-200",
+        band === "red" && "bg-destructive/10 text-destructive",
+        band === "yellow" && "bg-amber-500/15 text-amber-800 dark:text-amber-200",
       )}
-      title={title ?? flag ?? short ?? undefined}
+      title={title ?? reason}
     >
       <div className="flex min-w-0 flex-col">
         <span className="text-sm tabular-nums">{value}</span>
         <span className="truncate text-xs opacity-70">{detail}</span>
-        {flag && <span className="sr-only">Flagged: {flag}</span>}
-        {yellow && <span className="sr-only">Short of exceeding: {short}</span>}
+        {band === "red" && <span className="sr-only">Red: {reason}</span>}
+        {band === "yellow" && <span className="sr-only">Yellow: {reason}</span>}
       </div>
     </TableCell>
   );
@@ -831,4 +913,18 @@ function Cell({ edge, content }: { edge: string | null; content: CellContent }) 
 
 function percent(fraction: number): string {
   return `${Math.round(fraction * 100)} percent`;
+}
+
+/** A term share's two bars in words, for the help popover. */
+function shareBands(rule: { meeting: number; exceeding: number }): string {
+  return `Red under ${percent(rule.meeting)}; yellow under ${percent(rule.exceeding)}.`;
+}
+
+/** A count's two bars in words, for the help popover. */
+function countBands(rule: { yellowAt: number; redAt: number }): string {
+  const yellow =
+    rule.yellowAt === rule.redAt - 1
+      ? `Yellow at ${rule.yellowAt}`
+      : `Yellow at ${rule.yellowAt} to ${rule.redAt - 1}`;
+  return `${yellow}; red at ${rule.redAt} or more.`;
 }

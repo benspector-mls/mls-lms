@@ -4,17 +4,12 @@ import { z } from "zod";
 import { inTransaction, type Tx } from "@/lib/prisma";
 
 import { auditActor, recordEvent } from "@/lib/audit/record";
-import { attendanceDriftReason, recentAttendance, summarize } from "@/lib/attendance/summary";
+import { recentAttendance, summarize } from "@/lib/attendance/summary";
 import { recentChecks, type RecentChecks } from "@/lib/checks/trends";
 import { attendanceStandingFor, courseFiguresFor } from "@/lib/coaching/snapshot";
 import { enrollmentsIn } from "@/lib/courses/membership";
 import { allUnits, cellsFor, groupByUnit, published, workOf } from "@/lib/gradebook/categories";
-import {
-  completionByStudent,
-  driftReasons,
-  recentWorkByStudent,
-  type RecentWork,
-} from "@/lib/gradebook/summary";
+import { completionByStudent, recentWorkByStudent, type RecentWork } from "@/lib/gradebook/summary";
 import { cohortSelectionInput, parseCohortSelection } from "@/lib/programs/cohorts";
 import { onTimeByStudent, PERFORMANCE_RULE, type CourseStanding } from "@/lib/programs/performance";
 import { DISCIPLINES } from "@/lib/competencies";
@@ -639,7 +634,6 @@ export const programsRouter = createTRPCRouter({
           const recent = recents?.get(studentId) ?? null;
           readingsByStudent.get(studentId)![course.id] = {
             recent,
-            reasons: recent ? driftReasons(recent) : [],
             onTime: onTimes.get(studentId)!,
             checks: hasChecks
               ? recentChecks(
@@ -697,12 +691,11 @@ export const programsRouter = createTRPCRouter({
           const judged = summary.eligible >= PERFORMANCE_RULE.needsSessionsAtLeast;
 
           /*
-            The attendance flag is read only once the fellow has enough mornings to be judged,
+            The attendance windows are read only once the fellow has enough mornings to be judged,
             which is the drift rule's own minimum, `DRIFT_RULE.needsAtLeast`. The fellow's Trends
             is read by a person who can see how few mornings there have been.
           */
           const recent = judged ? recentAttendance(summary, summarySessions) : null;
-          const attendanceReason = recent ? attendanceDriftReason(recent) : null;
           const rate = judged ? summary.rate : null;
           return {
             enrollmentId: enrollment.id,
@@ -713,9 +706,10 @@ export const programsRouter = createTRPCRouter({
               rate,
               eligible: summary.eligible,
               attended: summary.present + summary.late,
+              /** Of the mornings missed this term, how many were excused. Still missed; see `summarize`. */
+              excused: summary.excused,
               /** The drift rule's two windows, or null until the fellow can be judged by it. */
               recent,
-              reason: attendanceReason,
             },
             /**
              * Keyed by course id, one entry for every course in `courses`. The group, the on-time

@@ -1,6 +1,9 @@
 import {
+  attendanceFlags,
+  countBand,
   onTimeByStudent,
   defaultCourseIds,
+  shareBand,
   shownCourseIds,
   standingAcross,
   type CourseStanding,
@@ -9,15 +12,17 @@ import {
   PERFORMANCE_RULE,
   type PerformanceFlag,
   type PerformanceReading,
+  workFlags,
 } from "@/lib/programs/performance";
-import type { RecentAssignment, RecentCell } from "@/lib/gradebook/summary";
+import type { RecentAssignment, RecentCell, RecentWork } from "@/lib/gradebook/summary";
+import type { RecentAttendance } from "@/lib/attendance/summary";
 
 /**
  * The roster's Performance rule.
  *
- * What these protect is the promise the tab makes to the instructor reading it: that a fellow in
- * exceeding is on time, here, and has nothing flagged this fortnight, and that anybody with a flag
- * is in needs support however good their term has been.
+ * What these protect is the promise the tab makes to the instructor reading it: that the group is
+ * the worst band on the row, so a fellow in exceeding has nothing red or yellow anywhere, and
+ * anybody with a red cell is in needs support however good their term has been.
  */
 
 const AT = new Date("2026-10-15T12:00:00Z");
@@ -34,8 +39,38 @@ const workFlag: PerformanceFlag = {
   courseId: "c1",
   courseName: "Web Fundamentals",
   reason: "deadlines",
+  band: "red",
 };
-const attendanceFlag: PerformanceFlag = { kind: "attendance", reason: "late" };
+const attendanceFlag: PerformanceFlag = { kind: "attendance", reason: "late", band: "red" };
+const yellowFlag: PerformanceFlag = { ...workFlag, band: "yellow" };
+
+const quiet: RecentAttendance = { missed: 0, missedOf: 10, late: 0, lateOf: 10, excused: 0 };
+const steady: RecentWork = {
+  studentId: "s1",
+  missed: 0,
+  late: 0,
+  due: 10,
+  incomplete: 0,
+  graded: 5,
+};
+
+describe("shareBand and countBand", () => {
+  it("a share is red under meeting, yellow under exceeding, and green from there", () => {
+    const rule = { meeting: 0.75, exceeding: 0.9 };
+    expect(shareBand(0.74, rule)).toBe("red");
+    expect(shareBand(0.75, rule)).toBe("yellow");
+    expect(shareBand(0.89, rule)).toBe("yellow");
+    expect(shareBand(0.9, rule)).toBe("green");
+  });
+
+  it("a count is green under yellowAt, yellow under redAt, and red from there", () => {
+    const rule = { yellowAt: 2, redAt: 4 };
+    expect(countBand(1, rule)).toBe("green");
+    expect(countBand(2, rule)).toBe("yellow");
+    expect(countBand(3, rule)).toBe("yellow");
+    expect(countBand(4, rule)).toBe("red");
+  });
+});
 
 describe("performanceBucket", () => {
   it("a fellow on time, here, and unflagged exceeds", () => {
@@ -44,7 +79,7 @@ describe("performanceBucket", () => {
 
   it("exceeding begins at the attendance threshold itself", () => {
     expect(
-      performanceBucket(reading({ attendanceRate: PERFORMANCE_RULE.exceedingAttendanceAtLeast })),
+      performanceBucket(reading({ attendanceRate: PERFORMANCE_RULE.attendance.exceeding })),
     ).toBe("exceeding");
   });
 
@@ -54,35 +89,47 @@ describe("performanceBucket", () => {
 
   it("meeting begins at its own attendance threshold", () => {
     expect(
-      performanceBucket(reading({ attendanceRate: PERFORMANCE_RULE.meetingAttendanceAtLeast })),
+      performanceBucket(reading({ attendanceRate: PERFORMANCE_RULE.attendance.meeting })),
     ).toBe("meeting");
   });
 
   it("below the meeting attendance needs support", () => {
-    expect(performanceBucket(reading({ attendanceRate: 0.79 }))).toBe("needs-support");
+    expect(performanceBucket(reading({ attendanceRate: 0.74 }))).toBe("needs-support");
   });
 
-  it("nine of ten on time is still the bar", () => {
+  it("nine of ten on time still exceeds", () => {
     expect(performanceBucket(reading({ onTime: { onTime: 9, due: 10 } }))).toBe("exceeding");
   });
 
-  it("eight of ten on time needs support, however good attendance is", () => {
+  it("eight of ten on time is meeting, however good attendance is", () => {
     expect(performanceBucket(reading({ onTime: { onTime: 8, due: 10 }, attendanceRate: 1 }))).toBe(
-      "needs-support",
+      "meeting",
     );
+  });
+
+  it("seven of ten on time needs support", () => {
+    expect(performanceBucket(reading({ onTime: { onTime: 7, due: 10 } }))).toBe("needs-support");
   });
 
   /*
     The case the rule is shaped around: a fellow whose term is excellent and whose fortnight is not.
   */
-  it("a work flag needs support even with a perfect term", () => {
+  it("a red work flag needs support even with a perfect term", () => {
     expect(performanceBucket(reading({ attendanceRate: 1, flags: [workFlag] }))).toBe(
       "needs-support",
     );
   });
 
-  it("an attendance flag needs support even at 95 percent", () => {
+  it("a red attendance flag needs support even at 95 percent", () => {
     expect(performanceBucket(reading({ flags: [attendanceFlag] }))).toBe("needs-support");
+  });
+
+  it("a yellow flag alone is meeting, not needs support", () => {
+    expect(performanceBucket(reading({ flags: [yellowFlag] }))).toBe("meeting");
+  });
+
+  it("one red among yellows is still needs support", () => {
+    expect(performanceBucket(reading({ flags: [yellowFlag, workFlag] }))).toBe("needs-support");
   });
 
   it("nothing due yet is too early, not exceeding", () => {
@@ -105,6 +152,57 @@ describe("performanceFlagLabel", () => {
 
   it("uses the attendance screen's own words for an attendance flag", () => {
     expect(performanceFlagLabel(attendanceFlag)).toBe("Arriving late");
+  });
+});
+
+describe("workFlags", () => {
+  const course = { id: "c1", name: "Web Fundamentals" };
+
+  it("says nothing about a course with no window, or a quiet one", () => {
+    expect(workFlags(course, null)).toEqual([]);
+    expect(workFlags(course, steady)).toEqual([]);
+  });
+
+  it("one slipped deadline is green, two are yellow, and four are red", () => {
+    expect(workFlags(course, { ...steady, missed: 1 })).toEqual([]);
+    expect(workFlags(course, { ...steady, missed: 1, late: 1 })).toEqual([
+      { ...workFlag, band: "yellow" },
+    ]);
+    expect(workFlags(course, { ...steady, missed: 2, late: 2 })).toEqual([workFlag]);
+  });
+
+  it("one incomplete of the last five graded is yellow, and two are red", () => {
+    const fallingShort = { ...workFlag, reason: "falling-short" as const };
+    expect(workFlags(course, { ...steady, incomplete: 1 })).toEqual([
+      { ...fallingShort, band: "yellow" },
+    ]);
+    expect(workFlags(course, { ...steady, incomplete: 2 })).toEqual([fallingShort]);
+  });
+});
+
+describe("attendanceFlags", () => {
+  it("says nothing before the fellow can be judged, or when the fortnight is clean", () => {
+    expect(attendanceFlags(null)).toEqual([]);
+    expect(attendanceFlags(quiet)).toEqual([]);
+  });
+
+  it("one or two absences are yellow, and three are red", () => {
+    const missing = { kind: "attendance" as const, reason: "missing" as const };
+    expect(attendanceFlags({ ...quiet, missed: 1 })).toEqual([{ ...missing, band: "yellow" }]);
+    expect(attendanceFlags({ ...quiet, missed: 2 })).toEqual([{ ...missing, band: "yellow" }]);
+    expect(attendanceFlags({ ...quiet, missed: 3 })).toEqual([{ ...missing, band: "red" }]);
+  });
+
+  it("one or two late arrivals are yellow, and three are red", () => {
+    expect(attendanceFlags({ ...quiet, late: 2 })).toEqual([{ ...attendanceFlag, band: "yellow" }]);
+    expect(attendanceFlags({ ...quiet, late: 3 })).toEqual([attendanceFlag]);
+  });
+
+  // An excused morning is still a missed one; the count beside it is for the reader, not the rule.
+  it("reads excused absences as absences", () => {
+    expect(attendanceFlags({ ...quiet, missed: 3, excused: 3 })).toEqual([
+      { kind: "attendance", reason: "missing", band: "red" },
+    ]);
   });
 });
 
@@ -237,20 +335,20 @@ describe("standingAcross", () => {
   const fundamentals = { id: "fundamentals", name: "Web Fundamentals" };
 
   const readings: Record<string, CourseStanding> = {
-    // A course that ended badly: most deadlines missed, and flagged for it.
+    // A course that ended badly: most deadlines missed, and red for it.
     prework: {
       onTime: { onTime: 2, due: 10 },
       completion: { MODULE: { complete: 3, possible: 10 } },
-      reasons: ["deadlines"],
+      recent: { ...steady, missed: 6, late: 2, incomplete: 1, graded: 4 },
     },
     // A course going well.
     fundamentals: {
       onTime: { onTime: 10, due: 10 },
       completion: { MODULE: { complete: 8, possible: 10 }, PROJECT: { complete: 1, possible: 1 } },
-      reasons: [],
+      recent: steady,
     },
   };
-  const here = { rate: 0.95, reason: null };
+  const here = { rate: 0.95, recent: quiet };
 
   it("sums every course given", () => {
     const standing = standingAcross(here, [prework, fundamentals], readings);
@@ -259,11 +357,25 @@ describe("standingAcross", () => {
       MODULE: { complete: 11, possible: 20 },
       PROJECT: { complete: 1, possible: 1 },
     });
+    expect(standing.recentlyGraded).toEqual({ complete: 8, graded: 9 });
   });
 
-  it("carries each course's flags, named by course", () => {
+  it("carries each course's windows as flags, named by course", () => {
     expect(standingAcross(here, [prework, fundamentals], readings).flags).toEqual([
-      { kind: "work", courseId: "prework", courseName: "Prework", reason: "deadlines" },
+      {
+        kind: "work",
+        courseId: "prework",
+        courseName: "Prework",
+        reason: "deadlines",
+        band: "red",
+      },
+      {
+        kind: "work",
+        courseId: "prework",
+        courseName: "Prework",
+        reason: "falling-short",
+        band: "yellow",
+      },
     ]);
   });
 
@@ -276,10 +388,24 @@ describe("standingAcross", () => {
     expect(standingAcross(here, [fundamentals], readings).bucket).toBe("exceeding");
   });
 
+  /*
+    Two deadlines slipped in each of two courses is one small slip twice: the windows are banded
+    per course and never added into a rule, so no course is red and the fellow is meeting.
+  */
+  it("a small slip in each of two courses is meeting, not needs support", () => {
+    const slipped: Record<string, CourseStanding> = {
+      prework: { ...readings.fundamentals!, recent: { ...steady, missed: 2 } },
+      fundamentals: { ...readings.fundamentals!, recent: { ...steady, missed: 1, late: 1 } },
+    };
+    const standing = standingAcross(here, [prework, fundamentals], slipped);
+    expect(standing.flags.map((flag) => flag.band)).toEqual(["yellow", "yellow"]);
+    expect(standing.bucket).toBe("meeting");
+  });
+
   it("keeps an attendance flag whichever courses are shown", () => {
-    const late = { rate: 1, reason: "late" as const };
+    const late = { rate: 1, recent: { ...quiet, late: 3 } };
     expect(standingAcross(late, [fundamentals], readings).flags).toEqual([
-      { kind: "attendance", reason: "late" },
+      { kind: "attendance", reason: "late", band: "red" },
     ]);
     expect(standingAcross(late, [fundamentals], readings).bucket).toBe("needs-support");
   });

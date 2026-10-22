@@ -200,8 +200,8 @@ describe("sorting a roster into the Performance groups", () => {
 
   it("and the attendance windows the grid prints", async () => {
     const row = await fellow(ids.lateLately);
-    expect(row?.attendance.recent).toMatchObject({ late: 3, lateOf: 5 });
-    expect(row?.attendance.reason).toBe("late");
+    expect(row?.attendance.recent).toMatchObject({ late: 3, lateOf: 5, excused: 0 });
+    expect(row?.attendance.excused).toBe(0);
   });
 
   it("a fellow who never handed in the work needs support", async () => {
@@ -213,7 +213,7 @@ describe("sorting a roster into the Performance groups", () => {
   it("a fellow late three mornings running needs support, at full attendance", async () => {
     const row = await fellow(ids.lateLately);
     expect(row?.attendance.rate).toBe(1);
-    expect(row?.standing.flags).toEqual([{ kind: "attendance", reason: "late" }]);
+    expect(row?.standing.flags).toEqual([{ kind: "attendance", reason: "late", band: "red" }]);
     expect(row?.standing.bucket).toBe("needs-support");
   });
 

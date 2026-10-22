@@ -183,6 +183,12 @@ export type RecentAttendance = {
   /** Of the last `DRIFT_RULE.lateOf`: */
   late: number;
   lateOf: number;
+  /**
+   * How many of `missed` were excused. An excused morning is still a missed one, which is the
+   * rule `summarize` states; this count is printed beside the figure so a reader can see how much
+   * of a fellow's absence had a reason given for it.
+   */
+  excused: number;
 };
 
 /**
@@ -207,6 +213,7 @@ export function recentAttendance(
     missedOf: missedWindow.length,
     late: lateWindow.filter((index) => summary.cells[index] === "LATE").length,
     lateOf: lateWindow.length,
+    excused: missedWindow.filter((index) => summary.cells[index] === "EXCUSED").length,
   };
 }
 
@@ -238,7 +245,7 @@ export function attendanceDriftReason(recent: RecentAttendance): AttendanceDrift
  */
 export const DRIFT_RULE = {
   missedOf: 10,
-  missedAtLeast: 2,
+  missedAtLeast: 3,
   lateOf: 10,
   lateAtLeast: 3,
   /** Below this many settled sessions, a fellow is too new to be judged by either clause. */
