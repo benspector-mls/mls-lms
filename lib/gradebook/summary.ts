@@ -15,6 +15,8 @@
  * yet", which is not the same as failing and must not be counted as either.
  */
 
+import { inRecentWindow, type RecentWindow } from "@/lib/recent-window";
+import { schoolDayOf } from "@/lib/school-time";
 import { handedIn } from "@/lib/status";
 import { lateness } from "@/lib/submissions/hand-in";
 import type { SubmissionStatus } from "@/lib/generated/prisma/enums";
@@ -305,32 +307,31 @@ export function completionLabel(completion: Completion | undefined, possible: nu
  * count hides them behind the good weeks. Two clauses because not handing work in and handing in
  * work that falls short are different problems with different conversations.
  *
- * **Ten deadlines, not five, because assignments go out in pairs.** Two are released on one day and
- * four in a week, so one bad day is two missed deadlines, and a window of five would put a fellow
- * on the list for one afternoon. Four of ten is two bad days.
+ * **Both clauses read the deadlines that fell in the window**, `RecentWindow`: two weeks ending
+ * today unless the Performance tab was asked for another range. The window holds however many
+ * deadlines fell in it, so each clause is a share rather than a count, read against the bar every
+ * percentage on the Performance tab uses.
  *
  * **Missed and late are one count.** Handing in a missing assignment turns it into a late one, so a
  * combined figure holds steady across that trade, where two separate thresholds would let a fellow
  * drop off the list by handing in a week late. That is unlike the attendance rule, where turning up
  * late is still turning up.
  *
- * **The second clause is over graded work, not due work.** The last ten assignments due are often
- * mostly ungraded, and ungraded work must count neither way, so it is measured over the fellow's
- * last five assignments that carry a verdict.
+ * **The second clause leaves out work waiting on a grade.** Much of a fortnight's work is still
+ * ungraded, and ungraded work must count neither way, so the clause reads the window's deadlines
+ * that have a verdict or were never handed in, and counts the latter as incomplete.
  *
- * No minimum before a fellow is judged, unlike the attendance rule. The thresholds are absolute,
- * so fewer than four deadlines cannot trip the first clause and fewer than two verdicts cannot trip
- * the second — and a fellow who joined late is missing the earlier work by policy, which the rule
- * inherits rather than excuses.
+ * No minimum before a fellow is judged: one deadline missed of one due is a flag, and a fellow who
+ * joined late is missing the earlier work by policy, which the rule inherits rather than excuses.
  *
  * Deliberately not configurable, for the reason the attendance thresholds are not: they are a first
  * guess to be argued with after a term of use, and a setting would freeze it as though reasoned.
  */
 export const ASSIGNMENT_DRIFT_RULE = {
-  dueOf: 10,
-  slippedAtLeast: 4,
-  gradedOf: 5,
-  incompleteAtLeast: 2,
+  /** Flagged for deadlines below this share of the window's due work handed in on time. */
+  onTimeAtLeast: 0.75,
+  /** Flagged as falling short below this share of the window's graded work graded complete. */
+  completeAtLeast: 0.75,
 } as const;
 
 /** The parts of an assignment the recent window reads. Released work only; see `recentWorkByStudent`. */
@@ -339,61 +340,55 @@ export type RecentAssignment = MissingAssignment;
 /** The parts of a cell the recent window reads: everything the two counts above read, plus the verdict. */
 export type RecentCell = MissingCell & LateCell & { isComplete: boolean | null };
 
-/** One fellow's last few weeks in one course, as the two windows the rule reads. */
+/** One fellow's recent work in one course: the window's deadlines, and the verdicts on them. */
 export type RecentWork = {
   studentId: string;
-  /** Of the last `dueOf` assignments whose class deadline has passed: */
+  /** Of the released assignments whose class deadline fell in the window and has passed: */
   missed: number;
   late: number;
-  /** How many were in that window, which is fewer than `dueOf` early in a course. */
+  /** How many deadlines that was. */
   due: number;
-  /** Of the fellow's last `gradedOf` assignments with a verdict: */
+  /**
+   * Of those with a verdict for this fellow, or never handed in: how many fell short. Work handed
+   * in and still waiting on a grade is in neither figure, and work never handed in counts as
+   * incomplete, the same reading the term's Completed share gives it.
+   */
   incomplete: number;
-  /** How many were in that window, which is fewer than `gradedOf` until enough has been graded. */
   graded: number;
 };
 
-/** When an assignment happened, for ordering: its deadline, or its release where it has none. */
-function whenOf(assignment: RecentAssignment): number {
-  const at = assignment.dueAt ?? assignment.distributedAt;
-  return at == null ? 0 : new Date(at).getTime();
-}
-
 /**
- * Per student: the two windows the drift rule reads, for everybody — drifting or not.
+ * Per student: the window the drift rule reads, for everybody — drifting or not.
  *
  * **Every student gets an entry**, unlike the counters above, because the fellow's record prints
- * these figures whether or not they trip the rule: "1 of the last 10 due late" is a sentence worth
+ * these figures whether or not they trip the rule: "1 of the 8 due late" is a sentence worth
  * reading about somebody who is doing fine. Which clauses a fellow trips is `driftReasons`.
  *
- * **The deadline window is the cohort's, and the verdict window is the fellow's.** The last ten
- * assignments due are the same ten for everybody in the course, ordered by the class deadline, so
- * two fellows on the list are being measured against the same work. The last five graded are
- * whichever five of the fellow's own assignments most recently came due and have a verdict, because
- * grading happens in whatever order an instructor takes it and the question is about the fellow's
- * recent work rather than the instructor's recent afternoons.
+ * **One set of assignments for both figures**: the released work whose class deadline fell inside
+ * the window and has passed. Deadlines Hit reads all of it, and Recently Completed reads the part
+ * that has a verdict for the fellow or was never handed in, so the two denominators differ only by
+ * the work waiting on an instructor. The window is `RecentWindow`: two weeks ending today unless
+ * the Performance tab was asked for another range.
  *
  * Missing is `isMissing` and late is `lateness`, the same two tests every other reader of those
  * words runs — a fellow with an unexpired extension is neither, and one who met a renegotiated
- * deadline is not late. Drafts and undated work cannot be missed, and are left out of the deadline
- * window for the same reason they are left out of the missing count.
+ * deadline is not late. Drafts and undated work cannot be missed, and are left out for the same
+ * reason they are left out of the missing count.
  */
 export function recentWorkByStudent(
   studentIds: readonly string[],
   work: readonly RecentAssignment[],
   cells: readonly RecentCell[],
+  window: RecentWindow,
   at: Date,
 ): Map<string, RecentWork> {
-  const ordered = [...work].sort((a, b) => whenOf(a) - whenOf(b));
-
-  const dueWindow = ordered
-    .filter(
-      (assignment) =>
-        assignment.dueAt != null &&
-        assignment.distributedAt != null &&
-        new Date(assignment.dueAt).getTime() < at.getTime(),
-    )
-    .slice(-ASSIGNMENT_DRIFT_RULE.dueOf);
+  const dueWindow = work.filter(
+    (assignment) =>
+      assignment.dueAt != null &&
+      assignment.distributedAt != null &&
+      new Date(assignment.dueAt).getTime() < at.getTime() &&
+      inRecentWindow(schoolDayOf(new Date(assignment.dueAt)), window),
+  );
 
   const cellByKey = new Map(cells.map((cell) => [`${cell.assignmentId}:${cell.studentId}`, cell]));
 
@@ -401,35 +396,36 @@ export function recentWorkByStudent(
     studentIds.map((studentId) => {
       let missed = 0;
       let late = 0;
+      let graded = 0;
+      let incomplete = 0;
       for (const assignment of dueWindow) {
         const cell = cellByKey.get(`${assignment.id}:${studentId}`);
-        if (isMissing(assignment, cell, at)) missed += 1;
-        else if (cell && lateness({ ...cell, dueAt: assignment.dueAt }) === "late") late += 1;
+        if (isMissing(assignment, cell, at)) {
+          missed += 1;
+          graded += 1;
+          incomplete += 1;
+          continue;
+        }
+        if (cell && lateness({ ...cell, dueAt: assignment.dueAt }) === "late") late += 1;
+        if (cell && handedIn(cell.status) && cell.isComplete !== null) {
+          graded += 1;
+          if (!cell.isComplete) incomplete += 1;
+        }
       }
 
-      const gradedWindow = ordered
-        .filter((assignment) => {
-          const cell = cellByKey.get(`${assignment.id}:${studentId}`);
-          return cell !== undefined && cell.isComplete !== null;
-        })
-        .slice(-ASSIGNMENT_DRIFT_RULE.gradedOf);
-      const incomplete = gradedWindow.filter(
-        (assignment) => cellByKey.get(`${assignment.id}:${studentId}`)?.isComplete === false,
-      ).length;
-
-      return [
-        studentId,
-        {
-          studentId,
-          missed,
-          late,
-          due: dueWindow.length,
-          incomplete,
-          graded: gradedWindow.length,
-        },
-      ];
+      return [studentId, { studentId, missed, late, due: dueWindow.length, incomplete, graded }];
     }),
   );
+}
+
+/** Of the window's deadlines, the share handed in on time. Null when the window holds none. */
+export function recentOnTimeShare(recent: RecentWork): number | null {
+  return recent.due === 0 ? null : (recent.due - recent.missed - recent.late) / recent.due;
+}
+
+/** Of the window's graded work, the share graded complete. Null when nothing is graded yet. */
+export function recentCompleteShare(recent: RecentWork): number | null {
+  return recent.graded === 0 ? null : (recent.graded - recent.incomplete) / recent.graded;
 }
 
 export type DriftReason = "deadlines" | "falling-short";
@@ -442,44 +438,40 @@ export type DriftReason = "deadlines" | "falling-short";
  */
 export function driftReasons(recent: RecentWork): DriftReason[] {
   const reasons: DriftReason[] = [];
-  if (recent.missed + recent.late >= ASSIGNMENT_DRIFT_RULE.slippedAtLeast) {
-    reasons.push("deadlines");
+  const onTime = recentOnTimeShare(recent);
+  const complete = recentCompleteShare(recent);
+  if (onTime !== null && onTime < ASSIGNMENT_DRIFT_RULE.onTimeAtLeast) reasons.push("deadlines");
+  if (complete !== null && complete < ASSIGNMENT_DRIFT_RULE.completeAtLeast) {
+    reasons.push("falling-short");
   }
-  if (recent.incomplete >= ASSIGNMENT_DRIFT_RULE.incompleteAtLeast) reasons.push("falling-short");
   return reasons;
 }
 
 /**
- * The two windows in words, for the inputs of a fellow's Themes: "2 missed, 1 late of
- * the last 10 due · 1 of the last 5 graded fell short". It counts what went wrong. The fellow's
- * Last few weeks card reads the same two windows and counts what went right instead; see `WorkLine` in
+ * The window in words, for the inputs of a fellow's Themes: "2 missed, 1 late of the 10 due in the
+ * last two weeks · 1 of the 6 graded fell short". It counts what went wrong. The fellow's Last few
+ * weeks card reads the same window and counts what went right instead; see `WorkLine` in
  * components/instructor/trends.tsx.
  *
- * The counts are printed even when they are zero, because "none of the last 10 due missed or late"
- * is the sentence a reader wants about somebody who is fine, and a blank would say only that
- * something failed to render. A window with nothing in it yet says so rather than printing "0 of 0".
+ * The counts are printed even when they are zero, because "none of the 10 due missed or late" is
+ * the sentence a reader wants about somebody who is fine, and a blank would say only that something
+ * failed to render. A window with nothing in it says so rather than printing "0 of 0".
  */
 export function recentWorkSentence(recent: RecentWork): string {
   const { missed, late, due, incomplete, graded } = recent;
 
-  const dueWindow =
-    due === ASSIGNMENT_DRIFT_RULE.dueOf ? `the last ${due} due` : `the ${due} due so far`;
   const slipped = [missed > 0 && `${missed} missed`, late > 0 && `${late} late`]
     .filter(Boolean)
     .join(", ");
   const deadlines =
     due === 0
-      ? "nothing has come due yet"
+      ? "nothing came due in the last two weeks"
       : slipped === ""
-        ? `none of ${dueWindow} missed or late`
-        : `${slipped} of ${dueWindow}`;
+        ? `none of the ${due} due in the last two weeks missed or late`
+        : `${slipped} of the ${due} due in the last two weeks`;
 
-  const gradedWindow =
-    graded === ASSIGNMENT_DRIFT_RULE.gradedOf
-      ? `the last ${graded} graded`
-      : `the ${graded} graded so far`;
   const verdicts =
-    graded === 0 ? "nothing graded yet" : `${incomplete} of ${gradedWindow} fell short`;
+    graded === 0 ? "nothing graded yet" : `${incomplete} of the ${graded} graded fell short`;
 
   return `${deadlines} · ${verdicts}`;
 }

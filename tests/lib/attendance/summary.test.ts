@@ -2,13 +2,24 @@ import {
   attendanceDriftReason,
   countsAsAttended,
   dailyRates,
+  DEFAULT_TERM_SORT,
   recentAttendance,
   recentSessionsFrom,
+  sortSummaries,
   summarize,
+  termAverages,
+  termRate,
+  toggleTermSort,
+  type FellowSummary,
   type SummaryFellow,
   type SummaryRecord,
   type SummarySession,
+  type TermSort,
 } from "@/lib/attendance/summary";
+import type { RecentWindow } from "@/lib/recent-window";
+
+/** A window wide enough to hold every session a test makes. */
+const ANY_TIME: RecentWindow = { from: "2000-01-01", to: "2099-12-31" };
 
 /**
  * A term reduced to a rate and a recent window.
@@ -210,7 +221,7 @@ describe("a day that has not happened yet", () => {
       { enrollmentId: "e1", sessionId: "d5", status: "PRESENT" },
     ]);
 
-    expect(attendanceDriftReason(recentAttendance(summaries[0], all))).toBe("missing");
+    expect(attendanceDriftReason(recentAttendance(summaries[0], all, ANY_TIME))).toBe("missing");
   });
 });
 
@@ -333,20 +344,20 @@ describe("dailyRates", () => {
 });
 
 /**
- * The windows behind the drift rule, for one fellow whether or not they trip it. What these
- * protect is that the window is the cohort's last few mornings narrowed to the fellow, so a fellow
- * who joined last week is measured over fewer days rather than charged with the days before.
+ * The window behind the drift rule, for one fellow whether or not they trip it. What these protect
+ * is that the window is the cohort's days narrowed to the fellow, so a fellow who joined last week
+ * is measured over fewer mornings rather than charged with the days before.
  */
 describe("recentAttendance", () => {
   const term = sessions(12, 2);
 
-  it("reads the last settled mornings, leaving open ones and older ones out", () => {
+  it("reads the settled mornings inside the window, leaving open ones and others out", () => {
     const longer = sessions(13, 2);
     const [summary] = summarize(
       longer,
       [fellow()],
       marks([
-        "ABSENT", // outside both windows
+        "ABSENT", // the 1st, before the window
         "ABSENT",
         "PRESENT",
         "PRESENT",
@@ -362,7 +373,7 @@ describe("recentAttendance", () => {
       ]),
     );
 
-    expect(recentAttendance(summary, longer)).toEqual({
+    expect(recentAttendance(summary, longer, { from: "2026-09-02", to: "2026-09-13" })).toEqual({
       missed: 2,
       missedOf: 10,
       late: 2,
@@ -392,7 +403,7 @@ describe("recentAttendance", () => {
       ]),
     );
 
-    expect(recentAttendance(summary, term)).toEqual({
+    expect(recentAttendance(summary, term, ANY_TIME)).toEqual({
       missed: 3,
       missedOf: 10,
       late: 0,
@@ -408,7 +419,7 @@ describe("recentAttendance", () => {
       marks([null, null, null, null, null, null, null, "PRESENT", "ABSENT", "PRESENT"]),
     );
 
-    expect(recentAttendance(summary, term)).toEqual({
+    expect(recentAttendance(summary, term, ANY_TIME)).toEqual({
       missed: 1,
       missedOf: 3,
       late: 0,
@@ -417,18 +428,32 @@ describe("recentAttendance", () => {
     });
   });
 
+  it("is empty over a window with no settled mornings, such as a break", () => {
+    const [summary] = summarize(term, [fellow()], marks(["PRESENT"]));
+    expect(recentAttendance(summary, term, { from: "2026-10-01", to: "2026-10-14" })).toEqual({
+      missed: 0,
+      missedOf: 0,
+      late: 0,
+      lateOf: 0,
+      excused: 0,
+    });
+  });
+
   it("names the clause the rule trips, and nothing when neither applies", () => {
     const recent = (missed: number, late: number) => ({
       missed,
-      missedOf: 5,
+      missedOf: 10,
       late,
       lateOf: 10,
       excused: 0,
     });
+    // Under 75 percent attended is missing; under 75 percent on time is late; missing outranks.
     expect(attendanceDriftReason(recent(3, 0))).toBe("missing");
     expect(attendanceDriftReason(recent(2, 3))).toBe("late");
     expect(attendanceDriftReason(recent(3, 3))).toBe("missing");
     expect(attendanceDriftReason(recent(2, 2))).toBeNull();
+    // An empty window trips nothing.
+    expect(attendanceDriftReason({ ...recent(0, 0), missedOf: 0, lateOf: 0 })).toBeNull();
   });
 });
 
@@ -454,5 +479,228 @@ describe("recentSessionsFrom", () => {
     const sessions = at(["2026-06-01", "2026-06-08", "2026-06-15", "2026-06-22"]);
     // The 22nd is a Monday; the week before starts on the 15th.
     expect(recentSessionsFrom(sessions)).toBe(2);
+  });
+});
+
+describe("termRate", () => {
+  /*
+    The one figure at the head of the Rate column. Summed over the roster rather than averaged over
+    the fellows' rates, so a fellow with four eligible mornings does not weigh as much as one with
+    sixty.
+  */
+  const day1 = { id: "s1", day: "2026-09-07", unsettled: false };
+  const day2 = { id: "s2", day: "2026-09-08", unsettled: false };
+  const day3 = { id: "s3", day: "2026-09-09", unsettled: false };
+
+  it("is attended over eligible, summed across the roster", () => {
+    const ada = fellow({ enrollmentId: "e1", studentId: "p1" });
+    // Enrolled for the last day only: one eligible morning against Ada's three.
+    const bo = fellow({
+      enrollmentId: "e2",
+      studentId: "p2",
+      displayName: "Bo",
+      enrolledFrom: "2026-09-09",
+    });
+    const summaries = summarize(
+      [day1, day2, day3],
+      [ada, bo],
+      [
+        { enrollmentId: "e1", sessionId: "s1", status: "PRESENT" },
+        { enrollmentId: "e1", sessionId: "s2", status: "LATE" },
+        { enrollmentId: "e1", sessionId: "s3", status: "EXCUSED" },
+        { enrollmentId: "e2", sessionId: "s3", status: "ABSENT" },
+      ],
+    );
+
+    // Ada 2 of 3, Bo 0 of 1: 2 of 4 pooled, where a mean of the two rates would say 1 of 3.
+    expect(termRate(summaries)).toEqual({ eligible: 4, attended: 2, rate: 0.5 });
+  });
+
+  it("leaves test students out, and is null before anything is settled", () => {
+    const ada = fellow({ enrollmentId: "e1", studentId: "p1" });
+    const tester = fellow({
+      enrollmentId: "e2",
+      studentId: "p2",
+      displayName: "Test",
+      testStudentNumber: 1,
+    });
+    const summaries = summarize(
+      [day1],
+      [ada, tester],
+      [
+        { enrollmentId: "e1", sessionId: "s1", status: "ABSENT" },
+        { enrollmentId: "e2", sessionId: "s1", status: "PRESENT" },
+      ],
+    );
+    expect(termRate(summaries)).toEqual({ eligible: 1, attended: 0, rate: 0 });
+
+    expect(termRate(summarize([{ ...day1, unsettled: true }], [ada], []))).toEqual({
+      eligible: 0,
+      attended: 0,
+      rate: null,
+    });
+  });
+});
+
+describe("termAverages", () => {
+  /*
+    The figure at the head of each of the other five columns. The counts are a mean per fellow who
+    has an eligible session; the arrival is one mean over every check-in, so a fellow whose average
+    stands on three mornings does not weigh as much as one whose average stands on fifty.
+  */
+  const day1 = { id: "s1", day: "2026-09-07", unsettled: false };
+  const day2 = { id: "s2", day: "2026-09-08", unsettled: false };
+
+  const ada = fellow({ enrollmentId: "e1", studentId: "p1" });
+  const bo = fellow({ enrollmentId: "e2", studentId: "p2", displayName: "Bo" });
+  // Enrolled for nothing settled yet: zero of everything, and out of every mean.
+  const newcomer = fellow({
+    enrollmentId: "e3",
+    studentId: "p3",
+    displayName: "New",
+    enrolledFrom: "2026-09-09",
+  });
+  const tester = fellow({
+    enrollmentId: "e4",
+    studentId: "p4",
+    displayName: "Test",
+    testStudentNumber: 1,
+  });
+
+  const summaries = summarize(
+    [day1, day2],
+    [ada, bo, newcomer, tester],
+    [
+      { enrollmentId: "e1", sessionId: "s1", status: "PRESENT" },
+      { enrollmentId: "e1", sessionId: "s2", status: "LATE" },
+      { enrollmentId: "e2", sessionId: "s1", status: "EXCUSED" },
+      // Bo's second morning is unrecorded, which the Absent column prints as an absence.
+      { enrollmentId: "e4", sessionId: "s1", status: "PRESENT" },
+      { enrollmentId: "e4", sessionId: "s2", status: "PRESENT" },
+    ],
+  );
+
+  it("means the counts per fellow with an eligible session", () => {
+    const averages = termAverages(summaries, () => null);
+    expect(averages.fellows).toBe(2);
+    expect(averages.present).toBe(0.5);
+    expect(averages.late).toBe(0.5);
+    expect(averages.excused).toBe(0.5);
+    expect(averages.absent).toBe(0.5);
+    expect(averages.arrival).toEqual({ minutes: null, fellows: 0 });
+  });
+
+  it("means the arrival times the column prints, leaving out the dashes and the test student", () => {
+    const arrivalsByEnrollment: Record<string, number | null> = {
+      e1: 540,
+      e2: 600,
+      e3: null,
+      e4: 700,
+    };
+    const averages = termAverages(
+      summaries,
+      (summary) => arrivalsByEnrollment[summary.fellow.enrollmentId] ?? null,
+    );
+    expect(averages.arrival).toEqual({ minutes: 570, fellows: 2 });
+  });
+
+  it("is dashes when nobody is counted", () => {
+    expect(termAverages([], () => null)).toEqual({
+      fellows: 0,
+      present: null,
+      late: null,
+      excused: null,
+      absent: null,
+      arrival: { minutes: null, fellows: 0 },
+    });
+  });
+});
+
+describe("sortSummaries", () => {
+  function row(
+    name: string,
+    counts: Partial<Pick<FellowSummary, "present" | "late" | "excused" | "absent" | "unrecorded">>,
+    overrides: Partial<SummaryFellow> = {},
+  ): FellowSummary {
+    const summary: FellowSummary = {
+      fellow: fellow({ enrollmentId: name, studentId: name, displayName: name, ...overrides }),
+      eligible: 0,
+      present: 0,
+      late: 0,
+      excused: 0,
+      absent: 0,
+      unrecorded: 0,
+      rate: null,
+      cells: [],
+      ...counts,
+    };
+    summary.eligible =
+      summary.present + summary.late + summary.excused + summary.absent + summary.unrecorded;
+    if (summary.eligible > 0) summary.rate = (summary.present + summary.late) / summary.eligible;
+    return summary;
+  }
+
+  const rows = [
+    row("Dev", { present: 2, absent: 2 }), // 50%
+    row("Bea", { present: 4 }), // 100%
+    row("Cara", { present: 1, late: 2, unrecorded: 1 }), // 75%, absent column reads 1
+    row("Ada", {}), // nothing eligible yet: no rate
+    row("Test", { present: 4 }, { testStudentNumber: 1 }), // a dash on screen, whatever the rate
+  ];
+  const arrivals: Record<string, number | null> = { Dev: 600, Bea: 540, Cara: null, Ada: 630 };
+
+  const order = (sort: TermSort) =>
+    sortSummaries(rows, sort, {
+      nameOf: (summary) => summary.fellow.displayName ?? "",
+      arrivalOf: (summary) => arrivals[summary.fellow.enrollmentId] ?? null,
+    }).map((summary) => summary.fellow.displayName);
+
+  it("opens in name order", () => {
+    expect(order(DEFAULT_TERM_SORT)).toEqual(["Ada", "Bea", "Cara", "Dev", "Test"]);
+  });
+
+  it("sorts rate lowest first, with the dashes last in both directions", () => {
+    expect(order({ by: "rate", direction: "asc" })).toEqual(["Dev", "Cara", "Bea", "Ada", "Test"]);
+    expect(order({ by: "rate", direction: "desc" })).toEqual(["Bea", "Cara", "Dev", "Ada", "Test"]);
+  });
+
+  it("sorts arrival with no-average rows last, and absent by what the column prints", () => {
+    expect(order({ by: "arrives", direction: "desc" })).toEqual([
+      "Ada",
+      "Dev",
+      "Bea",
+      "Cara",
+      "Test",
+    ]);
+    // Cara's one unrecorded morning prints as an absence, so she sorts between Dev and the rest.
+    expect(order({ by: "absent", direction: "desc" })).toEqual([
+      "Dev",
+      "Cara",
+      "Ada",
+      "Bea",
+      "Test",
+    ]);
+  });
+
+  it("breaks ties by name", () => {
+    expect(order({ by: "present", direction: "desc" })).toEqual([
+      "Bea",
+      "Test",
+      "Dev",
+      "Cara",
+      "Ada",
+    ]);
+  });
+});
+
+describe("toggleTermSort", () => {
+  it("reverses the same column and opens a new one its own way", () => {
+    expect(toggleTermSort(DEFAULT_TERM_SORT, "name")).toEqual({ by: "name", direction: "desc" });
+    expect(toggleTermSort(DEFAULT_TERM_SORT, "rate")).toEqual({ by: "rate", direction: "asc" });
+    expect(toggleTermSort(DEFAULT_TERM_SORT, "arrives")).toEqual({
+      by: "arrives",
+      direction: "desc",
+    });
+    expect(toggleTermSort(DEFAULT_TERM_SORT, "late")).toEqual({ by: "late", direction: "desc" });
   });
 });

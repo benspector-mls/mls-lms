@@ -1,6 +1,6 @@
 "use client";
 
-import { ChevronsLeft, ChevronsRight } from "lucide-react";
+import { ArrowDown, ArrowUp, ChevronsLeft, ChevronsRight, ChevronsUpDown } from "lucide-react";
 import Link from "next/link";
 import * as React from "react";
 
@@ -20,10 +20,17 @@ import {
 } from "@/components/ui/table";
 import { arrivalSentence, type ArrivalAverages } from "@/lib/attendance/arrival";
 import {
+  DEFAULT_TERM_SORT,
   dailyRates,
   recentSessionsFrom,
+  sortSummaries,
+  termAverages,
+  termRate,
+  toggleTermSort,
   type FellowSummary,
   type SummarySession,
+  type TermSort,
+  type TermSortColumn,
 } from "@/lib/attendance/summary";
 import type { AttendanceStatus } from "@/lib/generated/prisma/enums";
 import { attendanceDayHref, programStudentHref } from "@/lib/links";
@@ -43,15 +50,20 @@ import { cn } from "@/lib/utils";
  * The summary columns count the whole term whichever is showing, because a rate over two weeks
  * would be a different figure under the same heading.
  *
- * **Rows are in first-name order**, as `history` returns them, so a name is found by reading down
- * the frozen column rather than by scanning it.
+ * **Rows open in first-name order**, as `history` returns them, so a name is found by reading down
+ * the frozen column rather than by scanning it. Each summary column sorts the rows when its heading
+ * is pressed — the lowest rate or the latest arrival first, because those are the fellows the grid
+ * is read to find — and the rule for which way a column opens is `toggleTermSort`. The rate at the
+ * head of the Rate column is the whole roster's, so a fellow's figure has one number to be read
+ * against rather than twenty-five; it is `termRate`, and the note there says why it is not a mean
+ * of the column.
  *
  * The grid copies `gradebook.tsx`: an `overflow-x-auto` wrapper, a sticky name column, summary
  * columns before the day columns. One thing it does not copy is pinning a second column — see the
  * note there about why the summary columns scroll.
  *
- * A client component for the one piece of state the arrow holds; every cell is still static and
- * every link is a link.
+ * A client component for the two pieces of state it holds, the arrow's and the sort's; every cell
+ * is still static and every link is a link.
  */
 
 const LETTER: Record<AttendanceStatus, string> = {
@@ -83,8 +95,25 @@ export function AttendanceGrid({
 }) {
   // One figure per column, from the same summaries the letters below come from. See `dailyRates`.
   const rates = dailyRates(sessions, fellows);
+  const roster = termRate(fellows);
+  const averages = termAverages(
+    fellows,
+    (summary) => arrivals[summary.fellow.enrollmentId]?.overall.minutes ?? null,
+  );
   const recent = recentSessionsFrom(sessions);
   const [showingEarlier, setShowingEarlier] = React.useState(false);
+  const [sort, setSort] = React.useState<TermSort>(DEFAULT_TERM_SORT);
+
+  // Sorted on the strings and minutes the cells print, so the order can be checked by reading down
+  // the column. See `sortSummaries`.
+  const rows = React.useMemo(
+    () =>
+      sortSummaries(fellows, sort, {
+        nameOf: (summary) => displayNameOf(summary.fellow, "Unnamed"),
+        arrivalOf: (summary) => arrivals[summary.fellow.enrollmentId]?.overall.minutes ?? null,
+      }),
+    [fellows, sort, arrivals],
+  );
 
   /*
     The first column drawn. Everything is sliced from the same index — the sessions, each fellow's
@@ -112,13 +141,49 @@ export function AttendanceGrid({
               Only the name column is pinned. Pinning the summary columns too would leave a phone
               with nothing but frozen columns and no grid — the same note `gradebook.tsx` makes.
             */}
-            <TableHead className={stickyColumn}>Fellow</TableHead>
-            <TableHead className="text-right">Rate</TableHead>
-            <TableHead className="text-right">Arrives</TableHead>
-            <TableHead className="text-right">P</TableHead>
-            <TableHead className="text-right">L</TableHead>
-            <TableHead className="text-right">E</TableHead>
-            <TableHead className="text-right">A</TableHead>
+            <SortableHead
+              className={stickyColumn}
+              label="Fellow"
+              by="name"
+              sort={sort}
+              onSort={setSort}
+            />
+            <SortableHead
+              className="text-right"
+              label="Rate"
+              by="rate"
+              sort={sort}
+              onSort={setSort}
+            />
+            <SortableHead
+              className="text-right"
+              label="Arrives"
+              by="arrives"
+              sort={sort}
+              onSort={setSort}
+            />
+            <SortableHead
+              className="text-right"
+              label="P"
+              by="present"
+              sort={sort}
+              onSort={setSort}
+            />
+            <SortableHead className="text-right" label="L" by="late" sort={sort} onSort={setSort} />
+            <SortableHead
+              className="text-right"
+              label="E"
+              by="excused"
+              sort={sort}
+              onSort={setSort}
+            />
+            <SortableHead
+              className="text-right"
+              label="A"
+              by="absent"
+              sort={sort}
+              onSort={setSort}
+            />
             {/*
               Between the term's figures and the first date, which is where the dates it brings in
               will appear. Absent entirely when there is nothing earlier, rather than disabled: a
@@ -166,14 +231,44 @@ export function AttendanceGrid({
           */}
           <TableRow className="hover:bg-transparent">
             <TableHead className={cn(stickyColumn, "text-xs font-normal text-muted-foreground")}>
-              Attendance rate
+              Average
             </TableHead>
-            <TableHead />
-            <TableHead />
-            <TableHead />
-            <TableHead />
-            <TableHead />
-            <TableHead />
+            {/*
+              The whole roster's rate over the whole term, at the head of the column of each
+              fellow's. The hover gives the two counts it divides, so a reader can see how much
+              of a term the figure stands on.
+            */}
+            <TableHead
+              className="text-right text-xs font-medium tabular-nums text-muted-foreground"
+              title={
+                roster.rate === null
+                  ? undefined
+                  : `Whole roster: ${roster.attended} of ${roster.eligible} eligible sessions attended.`
+              }
+            >
+              {roster.rate === null ? "—" : formatPercent(roster.rate)}
+            </TableHead>
+            {/*
+              What each of the other columns averages to, so a fellow's figure is read against
+              the roster's rather than against twenty-four others. Each is the plain mean of what
+              the column prints; `termAverages` says who is counted.
+            */}
+            <TableHead
+              className="text-right text-xs font-medium tabular-nums whitespace-nowrap text-muted-foreground"
+              title={
+                averages.arrival.minutes === null
+                  ? undefined
+                  : `Mean of ${averages.arrival.fellows} fellows' average arrival times.`
+              }
+            >
+              {averages.arrival.minutes === null
+                ? "—"
+                : formatClockMinutes(averages.arrival.minutes)}
+            </TableHead>
+            <AverageHead value={averages.present} fellows={averages.fellows} />
+            <AverageHead value={averages.late} fellows={averages.fellows} />
+            <AverageHead value={averages.excused} fellows={averages.fellows} />
+            <AverageHead value={averages.absent} fellows={averages.fellows} />
             {hasEarlier && <TableHead />}
             {rates.slice(from).map((rate, index) => (
               <TableHead
@@ -191,7 +286,7 @@ export function AttendanceGrid({
           </TableRow>
         </TableHeader>
         <TableBody>
-          {fellows.map((summary) => (
+          {rows.map((summary) => (
             <TableRow key={summary.fellow.enrollmentId}>
               <TableCell className={stickyColumn}>
                 <div className={stickyColumnContent}>
@@ -260,5 +355,65 @@ function ArrivesCell({ averages }: { averages: ArrivalAverages | undefined }) {
         formatClockMinutes(minutes)
       )}
     </TableCell>
+  );
+}
+
+/**
+ * The mean of one count column, per fellow, to one decimal place.
+ *
+ * One decimal because the mean of whole numbers is rarely one, and a figure rounded to "4" above a
+ * column of 3s and 5s would read as a count rather than an average. A dash until somebody is
+ * counted.
+ */
+function AverageHead({ value, fellows }: { value: number | null; fellows: number }) {
+  return (
+    <TableHead
+      className="text-right text-xs font-medium tabular-nums text-muted-foreground"
+      title={value === null ? undefined : `Per fellow, over ${fellows} counted.`}
+    >
+      {value === null ? "—" : value.toFixed(1)}
+    </TableHead>
+  );
+}
+
+/** A header that sorts the rows, with the arrow showing which way when it is the active one. */
+function SortableHead({
+  label,
+  by,
+  sort,
+  onSort,
+  className,
+}: {
+  label: string;
+  by: TermSortColumn;
+  sort: TermSort;
+  onSort: (sort: TermSort) => void;
+  className?: string;
+}) {
+  const active = sort.by === by;
+
+  return (
+    <TableHead
+      className={className}
+      aria-sort={active ? (sort.direction === "asc" ? "ascending" : "descending") : undefined}
+    >
+      <button
+        type="button"
+        onClick={() => onSort(toggleTermSort(sort, by))}
+        className={cn(
+          "inline-flex items-center gap-1 rounded-sm transition-colors hover:text-foreground",
+          active ? "text-foreground" : "text-muted-foreground",
+        )}
+      >
+        {label}
+        {!active ? (
+          <ChevronsUpDown className="size-3 shrink-0" aria-hidden />
+        ) : sort.direction === "asc" ? (
+          <ArrowUp className="size-3 shrink-0" aria-hidden />
+        ) : (
+          <ArrowDown className="size-3 shrink-0" aria-hidden />
+        )}
+      </button>
+    </TableHead>
   );
 }

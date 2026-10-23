@@ -25,8 +25,8 @@ import type { FellowSummary, SummarySession } from "@/lib/attendance/summary";
  * The grid is `AttendanceGrid`, which opens on the last two weeks and brings the earlier dates in
  * on request; removed fellows get a second one below with their own explanation.
  *
- * A server component with no `"use client"`; the grid is a client island for the one piece of
- * state its arrow holds.
+ * A server component with no `"use client"`; the grid is a client island for the two pieces of
+ * state it holds, its arrow's and its sort's.
  */
 
 type Term = {

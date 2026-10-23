@@ -1,6 +1,7 @@
 import {
   attendanceFlags,
-  countBand,
+  gradedCompletionByStudent,
+  meetingShares,
   onTimeByStudent,
   defaultCourseIds,
   shareBand,
@@ -12,6 +13,7 @@ import {
   PERFORMANCE_RULE,
   type PerformanceFlag,
   type PerformanceReading,
+  type Standing,
   workFlags,
 } from "@/lib/programs/performance";
 import type { RecentAssignment, RecentCell, RecentWork } from "@/lib/gradebook/summary";
@@ -31,7 +33,13 @@ const LATER_PAST = "2026-10-10T12:00:00Z";
 const FUTURE = "2026-10-20T12:00:00Z";
 
 function reading(overrides: Partial<PerformanceReading> = {}): PerformanceReading {
-  return { onTime: { onTime: 10, due: 10 }, attendanceRate: 0.95, flags: [], ...overrides };
+  return {
+    onTime: { onTime: 10, submitted: 10, due: 10 },
+    completion: {},
+    attendanceRate: 0.95,
+    flags: [],
+    ...overrides,
+  };
 }
 
 const workFlag: PerformanceFlag = {
@@ -54,21 +62,13 @@ const steady: RecentWork = {
   graded: 5,
 };
 
-describe("shareBand and countBand", () => {
+describe("shareBand", () => {
   it("a share is red under meeting, yellow under exceeding, and green from there", () => {
     const rule = { meeting: 0.75, exceeding: 0.9 };
     expect(shareBand(0.74, rule)).toBe("red");
     expect(shareBand(0.75, rule)).toBe("yellow");
     expect(shareBand(0.89, rule)).toBe("yellow");
     expect(shareBand(0.9, rule)).toBe("green");
-  });
-
-  it("a count is green under yellowAt, yellow under redAt, and red from there", () => {
-    const rule = { yellowAt: 2, redAt: 4 };
-    expect(countBand(1, rule)).toBe("green");
-    expect(countBand(2, rule)).toBe("yellow");
-    expect(countBand(3, rule)).toBe("yellow");
-    expect(countBand(4, rule)).toBe("red");
   });
 });
 
@@ -98,17 +98,39 @@ describe("performanceBucket", () => {
   });
 
   it("nine of ten on time still exceeds", () => {
-    expect(performanceBucket(reading({ onTime: { onTime: 9, due: 10 } }))).toBe("exceeding");
-  });
-
-  it("eight of ten on time is meeting, however good attendance is", () => {
-    expect(performanceBucket(reading({ onTime: { onTime: 8, due: 10 }, attendanceRate: 1 }))).toBe(
-      "meeting",
+    expect(performanceBucket(reading({ onTime: { onTime: 9, submitted: 10, due: 10 } }))).toBe(
+      "exceeding",
     );
   });
 
+  it("eight of ten on time is meeting, however good attendance is", () => {
+    expect(
+      performanceBucket(
+        reading({ onTime: { onTime: 8, submitted: 10, due: 10 }, attendanceRate: 1 }),
+      ),
+    ).toBe("meeting");
+  });
+
   it("seven of ten on time needs support", () => {
-    expect(performanceBucket(reading({ onTime: { onTime: 7, due: 10 } }))).toBe("needs-support");
+    expect(performanceBucket(reading({ onTime: { onTime: 7, submitted: 10, due: 10 } }))).toBe(
+      "needs-support",
+    );
+  });
+
+  it("reads the submitted share and each kind of work's completion share the same way", () => {
+    expect(performanceBucket(reading({ onTime: { onTime: 7, submitted: 7, due: 10 } }))).toBe(
+      "needs-support",
+    );
+    expect(
+      performanceBucket(reading({ completion: { MODULE: { complete: 8, possible: 10 } } })),
+    ).toBe("meeting");
+    expect(
+      performanceBucket(reading({ completion: { PROJECT: { complete: 0, possible: 1 } } })),
+    ).toBe("needs-support");
+    // Nothing past due and graded of a kind is no share, and no band.
+    expect(
+      performanceBucket(reading({ completion: { PROJECT: { complete: 0, possible: 0 } } })),
+    ).toBe("exceeding");
   });
 
   /*
@@ -163,7 +185,7 @@ describe("workFlags", () => {
     expect(workFlags(course, steady)).toEqual([]);
   });
 
-  it("one slipped deadline is green, two are yellow, and four are red", () => {
+  it("of ten deadlines, one slipped is green, two are yellow, and four are red", () => {
     expect(workFlags(course, { ...steady, missed: 1 })).toEqual([]);
     expect(workFlags(course, { ...steady, missed: 1, late: 1 })).toEqual([
       { ...workFlag, band: "yellow" },
@@ -171,7 +193,7 @@ describe("workFlags", () => {
     expect(workFlags(course, { ...steady, missed: 2, late: 2 })).toEqual([workFlag]);
   });
 
-  it("one incomplete of the last five graded is yellow, and two are red", () => {
+  it("of five graded, one incomplete is yellow, and two are red", () => {
     const fallingShort = { ...workFlag, reason: "falling-short" as const };
     expect(workFlags(course, { ...steady, incomplete: 1 })).toEqual([
       { ...fallingShort, band: "yellow" },
@@ -186,16 +208,21 @@ describe("attendanceFlags", () => {
     expect(attendanceFlags(quiet)).toEqual([]);
   });
 
-  it("one or two absences are yellow, and three are red", () => {
+  it("of ten mornings, one absence is green, two are yellow, and three are red", () => {
     const missing = { kind: "attendance" as const, reason: "missing" as const };
-    expect(attendanceFlags({ ...quiet, missed: 1 })).toEqual([{ ...missing, band: "yellow" }]);
+    expect(attendanceFlags({ ...quiet, missed: 1 })).toEqual([]);
     expect(attendanceFlags({ ...quiet, missed: 2 })).toEqual([{ ...missing, band: "yellow" }]);
     expect(attendanceFlags({ ...quiet, missed: 3 })).toEqual([{ ...missing, band: "red" }]);
   });
 
-  it("one or two late arrivals are yellow, and three are red", () => {
+  it("of ten mornings, two late arrivals are yellow, and three are red", () => {
+    expect(attendanceFlags({ ...quiet, late: 1 })).toEqual([]);
     expect(attendanceFlags({ ...quiet, late: 2 })).toEqual([{ ...attendanceFlag, band: "yellow" }]);
     expect(attendanceFlags({ ...quiet, late: 3 })).toEqual([attendanceFlag]);
+  });
+
+  it("says nothing over an empty window", () => {
+    expect(attendanceFlags({ missed: 0, missedOf: 0, late: 0, lateOf: 0, excused: 0 })).toEqual([]);
   });
 
   // An excused morning is still a missed one; the count beside it is for the reader, not the rule.
@@ -227,12 +254,17 @@ describe("onTimeByStudent", () => {
     onTimeByStudent(["s1"], work, cells, AT).get("s1");
 
   it("counts work handed in by the deadline, graded or not", () => {
-    expect(onTimeOf([assignment("a1", LATER_PAST)], [cell("a1")])).toEqual({ onTime: 1, due: 1 });
+    expect(onTimeOf([assignment("a1", LATER_PAST)], [cell("a1")])).toEqual({
+      onTime: 1,
+      submitted: 1,
+      due: 1,
+    });
   });
 
   it("counts late work as due and not on time", () => {
     expect(onTimeOf([assignment("a1", PAST)], [cell("a1", { submittedAt: LATER_PAST })])).toEqual({
       onTime: 0,
+      submitted: 1,
       due: 1,
     });
   });
@@ -243,17 +275,17 @@ describe("onTimeByStudent", () => {
         [assignment("a1", PAST)],
         [cell("a1", { submittedAt: LATER_PAST, extendedDueAt: LATER_PAST })],
       ),
-    ).toEqual({ onTime: 1, due: 1 });
+    ).toEqual({ onTime: 1, submitted: 1, due: 1 });
   });
 
   it("counts work never taken up as due and not on time", () => {
-    expect(onTimeOf([assignment("a1", PAST)], [])).toEqual({ onTime: 0, due: 1 });
+    expect(onTimeOf([assignment("a1", PAST)], [])).toEqual({ onTime: 0, submitted: 0, due: 1 });
   });
 
   it("counts accepted-but-not-handed-in work as due and not on time", () => {
     expect(
       onTimeOf([assignment("a1", PAST)], [cell("a1", { status: "ACCEPTED", submittedAt: null })]),
-    ).toEqual({ onTime: 0, due: 1 });
+    ).toEqual({ onTime: 0, submitted: 0, due: 1 });
   });
 
   /*
@@ -266,23 +298,161 @@ describe("onTimeByStudent", () => {
         [assignment("a1", PAST)],
         [cell("a1", { status: "ACCEPTED", submittedAt: null, extendedDueAt: FUTURE })],
       ),
-    ).toEqual({ onTime: 0, due: 0 });
+    ).toEqual({ onTime: 0, submitted: 0, due: 0 });
   });
 
   it("leaves out work whose deadline has not passed", () => {
-    expect(onTimeOf([assignment("a1", FUTURE)], [])).toEqual({ onTime: 0, due: 0 });
+    expect(onTimeOf([assignment("a1", FUTURE)], [])).toEqual({ onTime: 0, submitted: 0, due: 0 });
   });
 
   it("leaves out drafts and undated work", () => {
     expect(onTimeOf([assignment("a1", PAST, null), assignment("a2", null)], [])).toEqual({
       onTime: 0,
+      submitted: 0,
       due: 0,
     });
   });
 
   it("gives every student asked about an entry", () => {
     const result = onTimeByStudent(["s1", "s2"], [assignment("a1", PAST)], [cell("a1")], AT);
-    expect(result.get("s2")).toEqual({ onTime: 0, due: 1 });
+    expect(result.get("s2")).toEqual({ onTime: 0, submitted: 0, due: 1 });
+  });
+});
+
+describe("gradedCompletionByStudent", () => {
+  /*
+    The Completed share's own denominator: past due for the fellow, and either graded or never
+    handed in. What is left out is exactly the work waiting on an instructor, so a fellow is never
+    marked down for a grading queue.
+  */
+  const assignment = (
+    id: string,
+    dueAt: string | null,
+    distributedAt: string | null = PAST,
+  ): RecentAssignment => ({ id, dueAt, distributedAt });
+
+  const cell = (assignmentId: string, overrides: Partial<RecentCell> = {}): RecentCell => ({
+    assignmentId,
+    studentId: "s1",
+    status: "GRADED",
+    submittedAt: PAST,
+    extendedDueAt: null,
+    isComplete: true,
+    ...overrides,
+  });
+
+  const completionOf = (work: RecentAssignment[], cells: RecentCell[]) =>
+    gradedCompletionByStudent(["s1"], work, cells, AT).get("s1");
+
+  it("counts graded work, complete or not, however late it was handed in", () => {
+    expect(
+      completionOf(
+        [assignment("a1", PAST), assignment("a2", PAST)],
+        [cell("a1"), cell("a2", { isComplete: false, submittedAt: LATER_PAST })],
+      ),
+    ).toEqual({ complete: 1, possible: 2 });
+  });
+
+  it("leaves out work handed in and not yet graded", () => {
+    expect(
+      completionOf(
+        [assignment("a1", PAST), assignment("a2", PAST)],
+        [cell("a1"), cell("a2", { status: "SUBMITTED", isComplete: null })],
+      ),
+    ).toEqual({ complete: 1, possible: 1 });
+  });
+
+  it("counts work never handed in as incomplete", () => {
+    expect(completionOf([assignment("a1", PAST)], [])).toEqual({ complete: 0, possible: 1 });
+    expect(
+      completionOf(
+        [assignment("a1", PAST)],
+        [cell("a1", { status: "ACCEPTED", isComplete: null })],
+      ),
+    ).toEqual({ complete: 0, possible: 1 });
+  });
+
+  it("leaves out work not yet due, inside an extension, undated, or a draft", () => {
+    expect(
+      completionOf(
+        [
+          assignment("a1", FUTURE),
+          assignment("a2", PAST),
+          assignment("a3", null),
+          assignment("a4", PAST, null),
+        ],
+        [cell("a2", { status: "ACCEPTED", isComplete: null, extendedDueAt: FUTURE })],
+      ),
+    ).toEqual({ complete: 0, possible: 0 });
+  });
+
+  it("gives every student asked about an entry", () => {
+    const result = gradedCompletionByStudent(
+      ["s1", "s2"],
+      [assignment("a1", PAST)],
+      [cell("a1")],
+      AT,
+    );
+    expect(result.get("s2")).toEqual({ complete: 0, possible: 1 });
+  });
+});
+
+describe("meetingShares", () => {
+  /*
+    The tiles above the grid: of the fellows with a figure in a column, how many are not red there.
+    A fellow the rule has not read is in neither number.
+  */
+  const standing = (overrides: Partial<Standing> = {}): Standing => ({
+    bucket: "exceeding",
+    onTime: { onTime: 9, submitted: 10, due: 10 },
+    completion: { MODULE: { complete: 8, possible: 10 } },
+    recentlyGraded: { complete: 0, graded: 0 },
+    flags: [],
+    ...overrides,
+  });
+
+  const rows = [
+    // Green or yellow everywhere.
+    { attendance: { rate: 0.95, recent: quiet }, standing: standing() },
+    // Red on the term shares, and absent lately.
+    {
+      attendance: { rate: 0.6, recent: { ...quiet, missed: 3 } },
+      standing: standing({
+        onTime: { onTime: 2, submitted: 5, due: 10 },
+        completion: { MODULE: { complete: 1, possible: 4 } },
+      }),
+    },
+    // Too early on every count: nothing to read.
+    {
+      attendance: { rate: null, recent: null },
+      standing: standing({ onTime: null, completion: {} }),
+    },
+  ];
+
+  it("counts the fellows not red in each column, of those with a figure", () => {
+    const byKey = Object.fromEntries(meetingShares(rows, ["MODULE"]).map((s) => [s.key, s]));
+    expect(byKey.attendance).toMatchObject({ meeting: 1, counted: 2 });
+    expect(byKey.absence).toMatchObject({ meeting: 1, counted: 2 });
+    expect(byKey.tardiness).toMatchObject({ meeting: 2, counted: 2 });
+    expect(byKey.onTime).toMatchObject({ meeting: 1, counted: 2 });
+    expect(byKey.submitted).toMatchObject({ meeting: 1, counted: 2 });
+    expect(byKey["completion:MODULE"]).toMatchObject({
+      title: "Graded Assignments Completed",
+      meeting: 1,
+      counted: 2,
+    });
+  });
+
+  it("makes one Completed tile per kind of work given", () => {
+    expect(meetingShares(rows, ["MODULE", "PROJECT"]).map((s) => s.key)).toEqual([
+      "attendance",
+      "absence",
+      "tardiness",
+      "onTime",
+      "submitted",
+      "completion:MODULE",
+      "completion:PROJECT",
+    ]);
   });
 });
 
@@ -337,14 +507,14 @@ describe("standingAcross", () => {
   const readings: Record<string, CourseStanding> = {
     // A course that ended badly: most deadlines missed, and red for it.
     prework: {
-      onTime: { onTime: 2, due: 10 },
+      onTime: { onTime: 2, submitted: 4, due: 10 },
       completion: { MODULE: { complete: 3, possible: 10 } },
       recent: { ...steady, missed: 6, late: 2, incomplete: 1, graded: 4 },
     },
     // A course going well.
     fundamentals: {
-      onTime: { onTime: 10, due: 10 },
-      completion: { MODULE: { complete: 8, possible: 10 }, PROJECT: { complete: 1, possible: 1 } },
+      onTime: { onTime: 10, submitted: 10, due: 10 },
+      completion: { MODULE: { complete: 9, possible: 10 }, PROJECT: { complete: 1, possible: 1 } },
       recent: steady,
     },
   };
@@ -352,9 +522,9 @@ describe("standingAcross", () => {
 
   it("sums every course given", () => {
     const standing = standingAcross(here, [prework, fundamentals], readings);
-    expect(standing.onTime).toEqual({ onTime: 12, due: 20 });
+    expect(standing.onTime).toEqual({ onTime: 12, submitted: 14, due: 20 });
     expect(standing.completion).toEqual({
-      MODULE: { complete: 11, possible: 20 },
+      MODULE: { complete: 12, possible: 20 },
       PROJECT: { complete: 1, possible: 1 },
     });
     expect(standing.recentlyGraded).toEqual({ complete: 8, graded: 9 });

@@ -3,9 +3,11 @@ import { Suspense } from "react";
 import { CourseFilter } from "@/components/instructor/course-filter";
 import { FellowsPage } from "@/components/instructor/fellows-page";
 import { ProgramPerformance } from "@/components/instructor/performance";
+import { WindowFilter } from "@/components/instructor/window-filter";
 import { PageFallback } from "@/components/list-states";
 import { cohortSelectionLabel, parseCohortSelection } from "@/lib/programs/cohorts";
 import { resolveCohort } from "@/lib/programs/resolve-cohort";
+import { schoolDayOf } from "@/lib/school-time";
 import { getQueryClient, trpc } from "@/trpc/server";
 
 /**
@@ -15,8 +17,10 @@ import { getQueryClient, trpc } from "@/trpc/server";
  * to talk to. It sorts every fellow into a group by the attendance and work rules, and draws each
  * one's attendance and per-course work so the reader sees why.
  *
- * **It carries a course filter of its own**, which narrows the course bands drawn without changing
- * anybody's group; see `CourseFilter`. The cohort picker is the frame's, shared with every tab.
+ * **It carries a course filter and a window filter of its own.** The course filter narrows the
+ * course bands drawn and the courses the groups read; see `CourseFilter`. The window filter picks
+ * the days the recent columns count over, two weeks ending today unless chosen; see
+ * `WindowFilter`. The cohort picker is the frame's, shared with every tab.
  *
  * The rule is `performanceBucket` in lib/programs/performance.ts, and the figures come from
  * `programs.performance`.
@@ -28,7 +32,7 @@ export default function FellowsPerformancePage({
   searchParams,
 }: {
   params: Promise<{ programId: string }>;
-  searchParams: Promise<{ cohort?: string }>;
+  searchParams: Promise<{ cohort?: string; from?: string; to?: string }>;
 }) {
   return (
     <Suspense fallback={<PageFallback rows={8} width="full" />}>
@@ -42,7 +46,7 @@ async function Performance({
   searchParams,
 }: {
   params: Promise<{ programId: string }>;
-  searchParams: Promise<{ cohort?: string }>;
+  searchParams: Promise<{ cohort?: string; from?: string; to?: string }>;
 }) {
   const { programId } = await params;
   const query = await searchParams;
@@ -50,7 +54,12 @@ async function Performance({
   const queryClient = getQueryClient();
 
   const data = await queryClient.fetchQuery(
-    trpc.programs.performance.queryOptions({ programId, cohort: cohorts.cohort }),
+    trpc.programs.performance.queryOptions({
+      programId,
+      cohort: cohorts.cohort,
+      from: query.from,
+      to: query.to,
+    }),
   );
 
   const selection = parseCohortSelection(cohorts.cohort);
@@ -72,7 +81,7 @@ async function Performance({
       }`}
     >
       <div className="flex flex-wrap items-center justify-between gap-2">
-        <p className="text-xs text-muted-foreground">Attendance, and work across every course.</p>
+        <WindowFilter window={data.window} today={schoolDayOf(new Date())} />
         <CourseFilter courses={data.courses} programArchived={data.programArchived} />
       </div>
       <ProgramPerformance programId={programId} data={data} cohortName={cohortName} />

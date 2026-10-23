@@ -9,9 +9,15 @@ import { recentChecks, type RecentChecks } from "@/lib/checks/trends";
 import { attendanceStandingFor, courseFiguresFor } from "@/lib/coaching/snapshot";
 import { enrollmentsIn } from "@/lib/courses/membership";
 import { allUnits, cellsFor, groupByUnit, published, workOf } from "@/lib/gradebook/categories";
-import { completionByStudent, recentWorkByStudent, type RecentWork } from "@/lib/gradebook/summary";
+import { recentWorkByStudent, type RecentWork } from "@/lib/gradebook/summary";
+import { parseRecentWindow } from "@/lib/recent-window";
 import { cohortSelectionInput, parseCohortSelection } from "@/lib/programs/cohorts";
-import { onTimeByStudent, PERFORMANCE_RULE, type CourseStanding } from "@/lib/programs/performance";
+import {
+  gradedCompletionByStudent,
+  onTimeByStudent,
+  PERFORMANCE_RULE,
+  type CourseStanding,
+} from "@/lib/programs/performance";
 import { DISCIPLINES } from "@/lib/competencies";
 import { newSessionSecret } from "@/lib/attendance/code";
 import {
@@ -464,10 +470,21 @@ export const programsRouter = createTRPCRouter({
    * nothing, and an archived one is part of the term a fellow is being read against.
    */
   performance: programProcedure
-    .input(z.object({ cohort: cohortSelectionInput }))
+    .input(
+      z.object({
+        cohort: cohortSelectionInput,
+        /**
+         * The recent window, as the address carries it. Parsed leniently rather than refused: a
+         * stale or hand-edited link should show the default window, not an error.
+         */
+        from: z.string().optional(),
+        to: z.string().optional(),
+      }),
+    )
     .query(async ({ ctx, input }) => {
       const now = new Date();
       const programId = input.programId;
+      const window = parseRecentWindow(input, schoolDayOf(now));
 
       const enrollments = await ctx.db.enrollment.findMany({
         where: {
@@ -600,12 +617,12 @@ export const programsRouter = createTRPCRouter({
         const courseByCategory = UNIT_CATEGORIES.map(
           (category) => [category, published(workOf(grouped[category]))] as const,
         ).filter(([, work]) => work.length > 0);
+        // Per fellow, over their past-due graded work of each kind; see `gradedCompletionByStudent`.
         const courseCompletion = courseByCategory.map(
           ([category, work]) =>
             [
               category,
-              work.length,
-              completionByStudent(cellsFor(cells, work), work.length),
+              gradedCompletionByStudent(studentIds, work, cellsFor(cells, work), now),
             ] as const,
         );
 
@@ -626,7 +643,7 @@ export const programsRouter = createTRPCRouter({
 
         const courseCells = cellsFor(cells, released);
         const recents = hasWork
-          ? recentWorkByStudent(studentIds, released, courseCells, now)
+          ? recentWorkByStudent(studentIds, released, courseCells, window, now)
           : null;
         const onTimes = onTimeByStudent(studentIds, released, courseCells, now);
 
@@ -644,9 +661,9 @@ export const programsRouter = createTRPCRouter({
                 )
               : null,
             completion: Object.fromEntries(
-              courseCompletion.map(([category, possible, byStudent]) => [
+              courseCompletion.map(([category, byStudent]) => [
                 category,
-                byStudent.get(studentId) ?? { complete: 0, possible },
+                byStudent.get(studentId)!,
               ]),
             ),
           };
@@ -681,6 +698,8 @@ export const programsRouter = createTRPCRouter({
       );
 
       return {
+        /** The days every recent figure below was read over. See `RecentWindow`. */
+        window,
         /** The courses the grid can draw a band for, in the program's order. */
         courses: shownCourses,
         /** A finished program is read across every course by default; see `defaultCourseIds`. */
@@ -695,7 +714,7 @@ export const programsRouter = createTRPCRouter({
             which is the drift rule's own minimum, `DRIFT_RULE.needsAtLeast`. The fellow's Trends
             is read by a person who can see how few mornings there have been.
           */
-          const recent = judged ? recentAttendance(summary, summarySessions) : null;
+          const recent = judged ? recentAttendance(summary, summarySessions, window) : null;
           const rate = judged ? summary.rate : null;
           return {
             enrollmentId: enrollment.id,

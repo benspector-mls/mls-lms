@@ -25,6 +25,7 @@ import { arrivalAverages } from "../attendance/arrival";
 import { recentAttendance, summarize } from "../attendance/summary";
 import { sessionStateOf, stateIsUnsettled } from "../attendance/window";
 import { displayNameOf } from "../people";
+import { defaultRecentWindow } from "../recent-window";
 import { schoolDayFromColumn, schoolDayOf } from "../school-time";
 
 /**
@@ -174,9 +175,13 @@ export async function courseFiguresFor(
         ) ?? 0,
       late: lateByStudent(own_cells, released).get(enrollment.studentId) ?? 0,
       // Never absent: the map holds an entry for every id it was asked about.
-      recent: recentWorkByStudent([enrollment.studentId], released, own_cells, at).get(
-        enrollment.studentId,
-      )!,
+      recent: recentWorkByStudent(
+        [enrollment.studentId],
+        released,
+        own_cells,
+        defaultRecentWindow(schoolDayOf(at)),
+        at,
+      ).get(enrollment.studentId)!,
       checks: recentChecks(
         checks.filter((check) => check.resource.courseUnit.courseId === course.id),
       ),
@@ -267,8 +272,12 @@ export async function attendanceStandingFor(db: Tx, enrollment: EnrollmentKey, a
 
   return {
     summary,
-    /** The last few mornings, by the whole-term drift rule. */
-    recentAttendance: recentAttendance(summary, summarySessions),
+    /** The last two weeks of mornings, by the drift rule. */
+    recentAttendance: recentAttendance(
+      summary,
+      summarySessions,
+      defaultRecentWindow(schoolDayOf(at)),
+    ),
     arrivals: arrivalAverages(
       records.flatMap((record) => {
         const day = record.checkedInAt ? dayBySession.get(record.sessionId) : undefined;

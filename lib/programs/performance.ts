@@ -1,6 +1,8 @@
 import {
   ATTENDANCE_DRIFT_REASON_LABEL,
   DRIFT_RULE,
+  recentAttendedShare,
+  recentOnTimeArrivalShare,
   type AttendanceDriftReason,
   type RecentAttendance,
 } from "@/lib/attendance/summary";
@@ -8,11 +10,14 @@ import {
   ASSIGNMENT_DRIFT_RULE,
   DRIFT_REASON_LABEL,
   isMissing,
+  recentCompleteShare,
+  recentOnTimeShare,
   type DriftReason,
   type RecentAssignment,
   type RecentCell,
   type RecentWork,
 } from "@/lib/gradebook/summary";
+import { CATEGORY_META } from "@/lib/course-units";
 import type { CourseUnitCategory } from "@/lib/generated/prisma/enums";
 import { handedIn } from "@/lib/status";
 import { lateness } from "@/lib/submissions/hand-in";
@@ -29,15 +34,17 @@ import { lateness } from "@/lib/submissions/hand-in";
  * learning a different rule for each column.
  *
  * **Term figures and recent windows are both read, which is why one cell is enough to decide.**
- * The two term-long shares — how much of the work was handed in by its deadline, and how many
- * mornings they were here — say whether a fellow has been doing what the school asks. The recent
- * windows say whether that is still true this fortnight. A fellow at 95 percent attendance who has
- * been late every morning this week is the person to talk to today, and a rule that read only the
- * term would file them under exceeding.
+ * The term-long shares — how much of the work was handed in by its deadline, handed in at all, and
+ * graded complete, and how many mornings they were here — say whether a fellow has been doing what
+ * the school asks. The recent windows say whether that is still true over the window chosen, two
+ * weeks unless the instructor picked a range. A fellow at 95 percent attendance who has been late
+ * every morning this week is the person to talk to today, and a rule that read only the term would
+ * file them under exceeding.
  *
- * **Red on a recent window is the drift rule's own bar**, so the Performance tab and the fellow's
- * Trends section never disagree about who is drifting. Yellow is this tab's addition: it marks the
- * band just under red, so a slip too small to flag is still visible to somebody looking for one.
+ * **Every coloured cell is a share read against one pair of bars**, red under 75 percent and
+ * yellow under 90, so a reader learns one rule. Red on a recent window is the drift rule's own
+ * bar, so the Performance tab and the fellow's Trends section never disagree about who is
+ * drifting.
  *
  * **Too early to say is not a bucket of the three**, deliberately. A fellow with nothing due yet, or
  * with fewer mornings than the attendance drift rule needs before judging anybody, has not given
@@ -62,23 +69,26 @@ import { lateness } from "@/lib/submissions/hand-in";
  */
 export const PERFORMANCE_RULE = {
   /**
-   * The two term shares, read the same way: red under `meeting`, yellow under `exceeding`, and
+   * The four term shares, read the same way: red under `meeting`, yellow under `exceeding`, and
    * green from there. `onTime` is the share of past-due released assignments handed in by their
-   * deadline; `attendance` is `(present + late) / eligible`, the attendance summary's own rate.
+   * deadline and `submitted` the share handed in at all; `completion` is the share of a fellow's
+   * past-due graded work of one kind that was graded complete, see `gradedCompletionByStudent`;
+   * `attendance` is `(present + late) / eligible`, the attendance summary's own rate. One pair of
+   * bars for all four, so a reader learns one rule for every percentage on the screen.
    */
   onTime: { meeting: 0.75, exceeding: 0.9 },
+  submitted: { meeting: 0.75, exceeding: 0.9 },
+  completion: { meeting: 0.75, exceeding: 0.9 },
   attendance: { meeting: 0.75, exceeding: 0.9 },
   /**
-   * The four recent windows, as counts of what went wrong: yellow from `yellowAt`, red from
-   * `redAt`. Each red bar is the drift rule's own, named rather than copied, so a change there
-   * reaches here.
+   * The four recent windows, as shares of what went right over the window: mornings attended,
+   * mornings not arrived at late, deadlines hit, and graded work complete. Each red bar is the
+   * drift rule's own, named rather than copied, so a change there reaches here.
    */
-  absences: { yellowAt: 1, redAt: DRIFT_RULE.missedAtLeast },
-  lateArrivals: { yellowAt: 1, redAt: DRIFT_RULE.lateAtLeast },
-  /** Of a course's last `ASSIGNMENT_DRIFT_RULE.dueOf` deadlines, missed and late together. */
-  slipped: { yellowAt: 2, redAt: ASSIGNMENT_DRIFT_RULE.slippedAtLeast },
-  /** Of a course's last `ASSIGNMENT_DRIFT_RULE.gradedOf` graded assignments. */
-  incomplete: { yellowAt: 1, redAt: ASSIGNMENT_DRIFT_RULE.incompleteAtLeast },
+  absences: { meeting: DRIFT_RULE.attendedAtLeast, exceeding: 0.9 },
+  lateArrivals: { meeting: DRIFT_RULE.onTimeAtLeast, exceeding: 0.9 },
+  recentDeadlines: { meeting: ASSIGNMENT_DRIFT_RULE.onTimeAtLeast, exceeding: 0.9 },
+  recentlyCompleted: { meeting: ASSIGNMENT_DRIFT_RULE.completeAtLeast, exceeding: 0.9 },
   /**
    * Below this many counted mornings, attendance says nothing yet. The same number as
    * `DRIFT_RULE.needsAtLeast`, so a fellow the attendance rule is not yet judging is not judged here
@@ -94,13 +104,6 @@ export type Band = "green" | "yellow" | "red";
 export function shareBand(share: number, rule: { meeting: number; exceeding: number }): Band {
   if (share < rule.meeting) return "red";
   if (share < rule.exceeding) return "yellow";
-  return "green";
-}
-
-/** The band a count of things gone wrong falls in. */
-export function countBand(count: number, rule: { yellowAt: number; redAt: number }): Band {
-  if (count >= rule.redAt) return "red";
-  if (count >= rule.yellowAt) return "yellow";
   return "green";
 }
 
@@ -132,13 +135,18 @@ export const PERFORMANCE_BUCKET_LABEL: Record<PerformanceBucket, string> = {
   "too-early": "Too early to say",
 };
 
-/** How many past-due assignments were handed in by their deadline, of how many came due. */
-export type OnTime = { onTime: number; due: number };
+/**
+ * Of the past-due assignments, how many were handed in by their deadline, how many were handed in
+ * at all, and how many came due.
+ */
+export type OnTime = { onTime: number; submitted: number; due: number };
 
 /** Everything the rule reads about one fellow. */
 export type PerformanceReading = {
   /** Null when nothing has come due in any course. */
   onTime: OnTime | null;
+  /** Graded complete of past-due graded work, by kind, summed over the shown courses. */
+  completion: Partial<Record<CourseUnitCategory, Completion>>;
   /** Null until the fellow has `PERFORMANCE_RULE.needsSessionsAtLeast` counted mornings. */
   attendanceRate: number | null;
   /** Every yellow or red recent window: work once per course and reason, attendance per reason. */
@@ -148,16 +156,23 @@ export type PerformanceReading = {
 /**
  * Which bucket a fellow belongs in: the worst band on the row.
  *
- * Too early first, because nothing else can be read without both term figures. Then the two term
- * shares and every flagged window are read as one list of bands, and the worst of them is the
- * group: any red is needs support, any yellow without a red is meeting, and all green is exceeding.
+ * Too early first, because nothing else can be read without the on-time and attendance figures.
+ * Then every term share and every flagged window are read as one list of bands, and the worst of
+ * them is the group: any red is needs support, any yellow without a red is meeting, and all green
+ * is exceeding. A kind of work with nothing past due and graded yet has no share and no band.
  */
 export function performanceBucket(reading: PerformanceReading): PerformanceBucket {
-  const { onTime, attendanceRate, flags } = reading;
+  const { onTime, completion, attendanceRate, flags } = reading;
   if (onTime === null || attendanceRate === null) return "too-early";
 
   const bands: Band[] = [
     shareBand(onTime.onTime / onTime.due, PERFORMANCE_RULE.onTime),
+    shareBand(onTime.submitted / onTime.due, PERFORMANCE_RULE.submitted),
+    ...Object.values(completion)
+      .filter((figures) => figures.possible > 0)
+      .map((figures) =>
+        shareBand(figures.complete / figures.possible, PERFORMANCE_RULE.completion),
+      ),
     shareBand(attendanceRate, PERFORMANCE_RULE.attendance),
     ...flags.map((flag) => flag.band),
   ];
@@ -178,7 +193,8 @@ export function workFlags(
   if (!recent) return [];
   const flags: PerformanceFlag[] = [];
 
-  const deadlines = countBand(recent.missed + recent.late, PERFORMANCE_RULE.slipped);
+  const onTime = recentOnTimeShare(recent);
+  const deadlines = onTime === null ? "green" : shareBand(onTime, PERFORMANCE_RULE.recentDeadlines);
   if (deadlines !== "green") {
     flags.push({
       kind: "work",
@@ -189,7 +205,9 @@ export function workFlags(
     });
   }
 
-  const fallingShort = countBand(recent.incomplete, PERFORMANCE_RULE.incomplete);
+  const complete = recentCompleteShare(recent);
+  const fallingShort =
+    complete === null ? "green" : shareBand(complete, PERFORMANCE_RULE.recentlyCompleted);
   if (fallingShort !== "green") {
     flags.push({
       kind: "work",
@@ -208,10 +226,12 @@ export function attendanceFlags(recent: RecentAttendance | null): PerformanceFla
   if (!recent) return [];
   const flags: PerformanceFlag[] = [];
 
-  const missing = countBand(recent.missed, PERFORMANCE_RULE.absences);
+  const attended = recentAttendedShare(recent);
+  const missing = attended === null ? "green" : shareBand(attended, PERFORMANCE_RULE.absences);
   if (missing !== "green") flags.push({ kind: "attendance", reason: "missing", band: missing });
 
-  const late = countBand(recent.late, PERFORMANCE_RULE.lateArrivals);
+  const onTime = recentOnTimeArrivalShare(recent);
+  const late = onTime === null ? "green" : shareBand(onTime, PERFORMANCE_RULE.lateArrivals);
   if (late !== "green") flags.push({ kind: "attendance", reason: "late", band: late });
 
   return flags;
@@ -228,7 +248,12 @@ export function performanceFlagLabel(flag: PerformanceFlag): string {
 
 /**
  * Per student: of the released assignments whose deadline has passed, how many they handed in by
- * it.
+ * it, and how many they handed in at all.
+ *
+ * **`submitted` counts a hand-in whenever it arrived**, late or on time, so the Assignments
+ * Submitted column can say how much of the past-due work exists at all, where Deadlines Hit says
+ * how much of it arrived when asked. The two share one denominator, so a reader can subtract one
+ * from the other and get the work handed in late.
  *
  * **On time means handed in by the class deadline or by an agreed extension**, which is `lateness`
  * reading `onTime` or `extended` — the same test the late count and the grading screen's badge run,
@@ -242,8 +267,8 @@ export function performanceFlagLabel(flag: PerformanceFlag): string {
  * nothing in is left out of their own denominator, because their deadline has not passed and
  * `isMissing` says so. Counting it would mark them down for keeping the arrangement they made.
  *
- * Every id asked about gets an entry, `{ onTime: 0, due: 0 }` when nothing has come due, so the
- * caller can tell "nothing due" from "not asked".
+ * Every id asked about gets an entry, `{ onTime: 0, submitted: 0, due: 0 }` when nothing has come
+ * due, so the caller can tell "nothing due" from "not asked".
  */
 export function onTimeByStudent(
   studentIds: readonly string[],
@@ -263,6 +288,7 @@ export function onTimeByStudent(
   return new Map(
     studentIds.map((studentId) => {
       let onTime = 0;
+      let submitted = 0;
       let due = 0;
 
       for (const assignment of pastDue) {
@@ -270,6 +296,7 @@ export function onTimeByStudent(
 
         if (cell && handedIn(cell.status)) {
           due += 1;
+          submitted += 1;
           if (lateness({ ...cell, dueAt: assignment.dueAt }) !== "late") onTime += 1;
           continue;
         }
@@ -278,9 +305,147 @@ export function onTimeByStudent(
         if (isMissing(assignment, cell, at)) due += 1;
       }
 
-      return [studentId, { onTime, due }];
+      return [studentId, { onTime, submitted, due }];
     }),
   );
+}
+
+/**
+ * Per student: of their past-due work that has been graded, how much was graded complete.
+ *
+ * **The denominator is the fellow's own, and it leaves out only work waiting on an instructor.**
+ * A share over everything released would mark a fellow down for work not yet due and for work
+ * sitting in the grading queue, neither of which says anything about them. So an assignment enters
+ * a fellow's denominator once its deadline has passed for them and either their submission has a
+ * verdict or they handed nothing in. Missing work is counted, as incomplete: a fellow who hands
+ * nothing in has not completed it, and leaving it out would let them vanish from their own figure.
+ * A revision handed back for another look has its verdict cleared and waits again.
+ *
+ * **Past due is the same test `onTimeByStudent` runs**, extension included, so the denominators of
+ * the three term shares differ only by the work still waiting on a grade.
+ *
+ * Every id asked about gets an entry, `{ complete: 0, possible: 0 }` when nothing is graded yet.
+ * The gradebook's own Completed column keeps everything released as its denominator, because it
+ * sits beside the cells it counts; this share is for reading a fellow's standing.
+ */
+export function gradedCompletionByStudent(
+  studentIds: readonly string[],
+  work: readonly RecentAssignment[],
+  cells: readonly RecentCell[],
+  at: Date,
+): Map<string, Completion> {
+  const pastDue = work.filter(
+    (assignment) =>
+      assignment.dueAt != null &&
+      assignment.distributedAt != null &&
+      new Date(assignment.dueAt).getTime() < at.getTime(),
+  );
+
+  const cellByKey = new Map(cells.map((cell) => [`${cell.assignmentId}:${cell.studentId}`, cell]));
+
+  return new Map(
+    studentIds.map((studentId) => {
+      let complete = 0;
+      let possible = 0;
+
+      for (const assignment of pastDue) {
+        const cell = cellByKey.get(`${assignment.id}:${studentId}`);
+
+        if (cell && handedIn(cell.status)) {
+          // Handed in and not yet graded: nothing to read, so it is not counted either way.
+          if (cell.isComplete === null) continue;
+          possible += 1;
+          if (cell.isComplete) complete += 1;
+          continue;
+        }
+
+        // Nothing handed in: incomplete once their own deadline has passed as well.
+        if (isMissing(assignment, cell, at)) possible += 1;
+      }
+
+      return [studentId, { complete, possible }];
+    }),
+  );
+}
+
+/** What a Completed column is called, by the kind of work it counts. */
+export function completedTitle(category: CourseUnitCategory): string {
+  return `Graded ${CATEGORY_META[category].tabLabel} Completed`;
+}
+
+/** How many fellows are at or above the bar in one column, of how many have a figure there. */
+export type MeetingShare = { key: string; title: string; meeting: number; counted: number };
+
+/**
+ * For each coloured column, how many fellows are not red in it.
+ *
+ * **The summary at the top of the Performance tab**, one tile per column the rule reads. Each tile
+ * counts only the fellows with a figure in that column: a fellow with too few mornings is in no
+ * attendance tile, and one with nothing due is in no work tile, since a fellow the rule has not
+ * read is neither meeting the bar nor short of it. The bands are the cells' own, so a tile's count
+ * is the number of cells in its column that are yellow or green.
+ *
+ * One Completed tile per kind of work, in the gradebook's order, for the kinds given.
+ */
+export function meetingShares(
+  rows: readonly {
+    attendance: { rate: number | null; recent: RecentAttendance | null };
+    standing: Standing;
+  }[],
+  categories: readonly CourseUnitCategory[],
+): MeetingShare[] {
+  const tally = (
+    key: string,
+    title: string,
+    bandOf: (row: (typeof rows)[number]) => Band | null,
+  ): MeetingShare => {
+    let meeting = 0;
+    let counted = 0;
+    for (const row of rows) {
+      const band = bandOf(row);
+      if (band === null) continue;
+      counted += 1;
+      if (band !== "red") meeting += 1;
+    }
+    return { key, title, meeting, counted };
+  };
+
+  return [
+    tally("attendance", "Attendance Rate", (row) =>
+      row.attendance.rate === null
+        ? null
+        : shareBand(row.attendance.rate, PERFORMANCE_RULE.attendance),
+    ),
+    tally("absence", "Recent Absence", (row) => {
+      const attended = row.attendance.recent ? recentAttendedShare(row.attendance.recent) : null;
+      return attended === null ? null : shareBand(attended, PERFORMANCE_RULE.absences);
+    }),
+    tally("tardiness", "Recent Tardiness", (row) => {
+      const onTime = row.attendance.recent ? recentOnTimeArrivalShare(row.attendance.recent) : null;
+      return onTime === null ? null : shareBand(onTime, PERFORMANCE_RULE.lateArrivals);
+    }),
+    tally("onTime", "Deadlines Hit", (row) =>
+      row.standing.onTime
+        ? shareBand(row.standing.onTime.onTime / row.standing.onTime.due, PERFORMANCE_RULE.onTime)
+        : null,
+    ),
+    tally("submitted", "Assignments Submitted", (row) =>
+      row.standing.onTime
+        ? shareBand(
+            row.standing.onTime.submitted / row.standing.onTime.due,
+            PERFORMANCE_RULE.submitted,
+          )
+        : null,
+    ),
+    ...categories.map((category) =>
+      tally(`completion:${category}`, completedTitle(category), (row) => {
+        const figures = row.standing.completion[category];
+        return figures && figures.possible > 0
+          ? shareBand(figures.complete / figures.possible, PERFORMANCE_RULE.completion)
+          : null;
+      }),
+    ),
+  ];
 }
 
 /** The query string key holding the shown courses, comma separated. Absent means every course. */
@@ -327,7 +492,7 @@ export function shownCourseIds(
   return new Set(courses.filter((course) => asked.has(course.id)).map((course) => course.id));
 }
 
-/** Graded complete, of the released work of one kind. */
+/** Graded complete, of a fellow's past-due graded work of one kind. See `gradedCompletionByStudent`. */
 export type Completion = { complete: number; possible: number };
 
 /** Graded complete, of the fellow's last few graded assignments. */
@@ -337,7 +502,7 @@ export type RecentlyGraded = { complete: number; graded: number };
 export type CourseStanding = {
   /** Of this course's past-due released work: see `onTimeByStudent`. */
   onTime: OnTime;
-  /** By the kind of unit, for each kind this course has released work in. */
+  /** By the kind of unit, for each kind this course has released work in: see `gradedCompletionByStudent`. */
   completion: Partial<Record<CourseUnitCategory, Completion>>;
   /** The two windows the drift rule reads, or null when the course has no released work. */
   recent: RecentWork | null;
@@ -375,6 +540,7 @@ export function standingAcross(
   readings: Readonly<Record<string, CourseStanding>>,
 ): Standing {
   let onTime = 0;
+  let submitted = 0;
   let due = 0;
   const completion: Partial<Record<CourseUnitCategory, Completion>> = {};
   const recentlyGraded: RecentlyGraded = { complete: 0, graded: 0 };
@@ -385,6 +551,7 @@ export function standingAcross(
     if (!reading) continue;
 
     onTime += reading.onTime.onTime;
+    submitted += reading.onTime.submitted;
     due += reading.onTime.due;
 
     for (const [category, figures] of Object.entries(reading.completion) as [
@@ -404,10 +571,15 @@ export function standingAcross(
     flags.push(...workFlags(course, reading.recent));
   }
 
-  const summed = due === 0 ? null : { onTime, due };
+  const summed = due === 0 ? null : { onTime, submitted, due };
 
   return {
-    bucket: performanceBucket({ onTime: summed, attendanceRate: attendance.rate, flags }),
+    bucket: performanceBucket({
+      onTime: summed,
+      completion,
+      attendanceRate: attendance.rate,
+      flags,
+    }),
     onTime: summed,
     completion,
     recentlyGraded,

@@ -1,5 +1,4 @@
 import {
-  ASSIGNMENT_DRIFT_RULE,
   awaitingByStudent,
   completionByAssignment,
   completionByStudent,
@@ -16,6 +15,7 @@ import {
   type RecentWork,
   type SummaryCell,
 } from "@/lib/gradebook/summary";
+import type { RecentWindow } from "@/lib/recent-window";
 
 /**
  * The gradebook's two totals.
@@ -408,17 +408,18 @@ describe("completionLabel", () => {
  * read missing and late through the same two functions the columns above read them through.
  */
 describe("recentWorkByStudent", () => {
-  /** A term of one assignment a day, released the day before it is due. */
+  /** A term of one assignment a day, due at noon UTC so the school day is the calendar day. */
   function day(n: number): string {
-    return `2026-09-${String(n).padStart(2, "0")}T00:00:00.000Z`;
+    return `2026-09-${String(n).padStart(2, "0")}T12:00:00.000Z`;
   }
 
   function dated(n: number) {
     return { id: `a${n}`, dueAt: day(n), distributedAt: day(n - 1) };
   }
 
-  /** Seen from the 20th, when the first nineteen are due and the twentieth is not. */
-  const NOW = new Date("2026-09-20T00:00:00.000Z");
+  /** Seen from noon on the 20th, when the first nineteen are due and the twentieth is not. */
+  const NOW = new Date("2026-09-20T12:00:00.000Z");
+  const SEPTEMBER: RecentWindow = { from: "2026-09-01", to: "2026-09-30" };
 
   function handedIn(
     n: number,
@@ -436,21 +437,22 @@ describe("recentWorkByStudent", () => {
     };
   }
 
-  it("measures deadlines over the last ten that have come due, and nothing before them", () => {
+  it("measures deadlines over the window's due work, and nothing outside it", () => {
     // Twenty assignments; nineteen are due. The fellow handed in none of the first nine and all
-    // of the last ten on time, so the window — the tenth through the nineteenth — is clean.
+    // of the tenth through the nineteenth on time, and the window holds exactly those ten.
     const work = Array.from({ length: 20 }, (_, i) => dated(i + 1));
-    const cells = work.slice(9, 19).map((assignment, i) => handedIn(i + 10, "s1", day(i + 9)));
+    const cells = work.slice(9, 19).map((_, i) => handedIn(i + 10, "s1", day(i + 10)));
+    const window: RecentWindow = { from: "2026-09-10", to: "2026-09-19" };
 
-    const recent = recentWorkByStudent(["s1"], work, cells, NOW).get("s1");
+    const recent = recentWorkByStudent(["s1"], work, cells, window, NOW).get("s1");
 
-    expect(recent).toMatchObject({ missed: 0, late: 0, due: ASSIGNMENT_DRIFT_RULE.dueOf });
+    expect(recent).toMatchObject({ missed: 0, late: 0, due: 10 });
   });
 
   it("counts missing and late separately, through the same tests the columns use", () => {
     const work = [dated(1), dated(2), dated(3), dated(4)];
     const cells: RecentCell[] = [
-      handedIn(1, "s1", day(1)), // on time: due at midnight, handed in at midnight
+      handedIn(1, "s1", day(1)), // on time: due at noon, handed in at noon
       handedIn(2, "s1", day(3)), // late
       // a3 never started: no cell, which is the central missing case
       {
@@ -464,67 +466,64 @@ describe("recentWorkByStudent", () => {
       },
     ];
 
-    const recent = recentWorkByStudent(["s1"], work, cells, NOW).get("s1");
+    const recent = recentWorkByStudent(["s1"], work, cells, SEPTEMBER, NOW).get("s1");
 
     expect(recent).toMatchObject({ missed: 1, late: 1, due: 4 });
   });
 
-  it("leaves undated work and drafts out of the deadline window", () => {
+  it("leaves undated work and drafts out of the window", () => {
     const work = [
       dated(1),
       { id: "undated", dueAt: null, distributedAt: day(1) },
       { id: "draft", dueAt: day(2), distributedAt: null },
     ];
+    const cells = [{ ...handedIn(1, "s1", day(1), false), assignmentId: "undated" }];
 
-    const recent = recentWorkByStudent(["s1"], work, [], NOW).get("s1");
+    const recent = recentWorkByStudent(["s1"], work, cells, SEPTEMBER, NOW).get("s1");
 
-    expect(recent).toMatchObject({ missed: 1, due: 1 });
+    expect(recent).toMatchObject({ missed: 1, due: 1, graded: 1 });
   });
 
-  it("does not count an assignment whose deadline is still ahead", () => {
-    const recent = recentWorkByStudent(["s1"], [dated(25)], [], NOW).get("s1");
+  it("does not count an assignment whose deadline is still ahead, even inside the window", () => {
+    const recent = recentWorkByStudent(["s1"], [dated(25)], [], SEPTEMBER, NOW).get("s1");
 
-    expect(recent).toMatchObject({ missed: 0, due: 0 });
+    expect(recent).toMatchObject({ missed: 0, due: 0, graded: 0 });
   });
 
-  it("measures verdicts over the fellow's last five that have one, skipping ungraded work", () => {
+  it("reads verdicts over the window's due work, counting the missing and skipping the ungraded", () => {
     const work = Array.from({ length: 8 }, (_, i) => dated(i + 1));
     const cells = [
-      handedIn(1, "s1", day(1), false), // outside the window of five
+      handedIn(1, "s1", day(1), false),
       handedIn(2, "s1", day(2), false),
       handedIn(3, "s1", day(3), true),
-      handedIn(4, "s1", day(4), null), // handed in, not graded: not a verdict
+      handedIn(4, "s1", day(4), null), // handed in, not graded: in neither figure
       handedIn(5, "s1", day(5), true),
       handedIn(6, "s1", day(6), false),
       handedIn(7, "s1", day(7), true),
-      // a8 never started
+      // a8 never started: graded incomplete, by the same reading the term share gives it
     ];
 
-    const recent = recentWorkByStudent(["s1"], work, cells, NOW).get("s1");
+    const recent = recentWorkByStudent(["s1"], work, cells, SEPTEMBER, NOW).get("s1");
 
-    expect(recent).toMatchObject({ incomplete: 2, graded: ASSIGNMENT_DRIFT_RULE.gradedOf });
-  });
-
-  // Undated work can still be graded, so it has a place in the verdict window, ordered by release.
-  it("counts a verdict on undated work", () => {
-    const work = [{ id: "u", dueAt: null, distributedAt: day(1) }];
-    const cells = [{ ...handedIn(1, "s1", day(1), false), assignmentId: "u" }];
-
-    const recent = recentWorkByStudent(["s1"], work, cells, NOW).get("s1");
-
-    expect(recent).toMatchObject({ incomplete: 1, graded: 1, due: 0 });
+    expect(recent).toMatchObject({ missed: 1, due: 8, incomplete: 4, graded: 7 });
   });
 
   it("gives every student an entry, including one with nothing at all", () => {
-    const recents = recentWorkByStudent(["s1", "s2"], [dated(1)], [handedIn(1, "s1", day(1))], NOW);
+    const recents = recentWorkByStudent(
+      ["s1", "s2"],
+      [dated(1)],
+      [handedIn(1, "s1", day(1))],
+      SEPTEMBER,
+      NOW,
+    );
 
     expect(recents.get("s2")).toEqual({
       studentId: "s2",
       missed: 1,
       late: 0,
       due: 1,
-      incomplete: 0,
-      graded: 0,
+      incomplete: 1,
+      graded: 1,
     });
   });
 });
@@ -534,12 +533,12 @@ describe("driftReasons", () => {
     return { studentId: "s1", missed: 0, late: 0, due: 10, incomplete: 0, graded: 5, ...over };
   }
 
-  it("names deadlines once missed and late together reach the threshold", () => {
-    expect(driftReasons(recent({ missed: 2, late: 2 }))).toEqual(["deadlines"]);
-    expect(driftReasons(recent({ missed: 2, late: 1 }))).toEqual([]);
+  it("names deadlines once under three quarters were hit, missed and late together", () => {
+    expect(driftReasons(recent({ missed: 2, late: 1 }))).toEqual(["deadlines"]);
+    expect(driftReasons(recent({ missed: 1, late: 1 }))).toEqual([]);
   });
 
-  it("names falling short once enough recent verdicts are incomplete", () => {
+  it("names falling short once under three quarters of the graded work was complete", () => {
     expect(driftReasons(recent({ incomplete: 2 }))).toEqual(["falling-short"]);
     expect(driftReasons(recent({ incomplete: 1 }))).toEqual([]);
   });
@@ -550,6 +549,10 @@ describe("driftReasons", () => {
       "falling-short",
     ]);
   });
+
+  it("trips nothing over an empty window", () => {
+    expect(driftReasons(recent({ due: 0, graded: 0 }))).toEqual([]);
+  });
 });
 
 describe("recentWorkSentence", () => {
@@ -557,27 +560,21 @@ describe("recentWorkSentence", () => {
     return { studentId: "s1", missed: 0, late: 0, due: 10, incomplete: 0, graded: 5, ...over };
   }
 
-  it("names both windows", () => {
+  it("names both figures", () => {
     expect(recentWorkSentence(recent({ missed: 2, late: 1, incomplete: 1 }))).toBe(
-      "2 missed, 1 late of the last 10 due · 1 of the last 5 graded fell short",
+      "2 missed, 1 late of the 10 due in the last two weeks · 1 of the 5 graded fell short",
     );
   });
 
   it("says so when nothing slipped, rather than going blank", () => {
     expect(recentWorkSentence(recent({}))).toBe(
-      "none of the last 10 due missed or late · 0 of the last 5 graded fell short",
+      "none of the 10 due in the last two weeks missed or late · 0 of the 5 graded fell short",
     );
   });
 
-  it("says how much there is to judge while the windows are still filling", () => {
-    expect(recentWorkSentence(recent({ late: 1, due: 3, graded: 2 }))).toBe(
-      "1 late of the 3 due so far · 0 of the 2 graded so far fell short",
-    );
-  });
-
-  it("says when there is nothing in a window at all", () => {
+  it("says when there is nothing in the window at all", () => {
     expect(recentWorkSentence(recent({ due: 0, graded: 0 }))).toBe(
-      "nothing has come due yet · nothing graded yet",
+      "nothing came due in the last two weeks · nothing graded yet",
     );
   });
 });
