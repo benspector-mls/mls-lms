@@ -57,6 +57,12 @@ import { lateness } from "@/lib/submissions/hand-in";
  * shown courses alone, so the same roster can be sorted by how it is doing in this month's courses,
  * or in one course, or in all of them. `standingAcross` is that computation, and it is the only one.
  *
+ * **Read against the measures chosen, too.** A measure is a family of coloured columns that count
+ * the same thing: attendance, deadlines, submissions, or completion. The Performance tab can leave
+ * measures out, and the rule then reads only the chosen ones, so an instructor can ask who needs
+ * support for attendance and deadlines and get a group that holds nobody who is there for
+ * completion alone. Every measure is read when none is chosen.
+ *
  * **Browser-safe and pure**, and its inputs are figures other modules already compute: the recent
  * windows are `recentWorkByStudent`'s and `recentAttendance`'s, and the rate is `summarize`'s. What
  * this module adds is the on-time figure, the bands, and the rule that combines them. The server
@@ -136,6 +142,32 @@ export const PERFORMANCE_BUCKET_LABEL: Record<PerformanceBucket, string> = {
 };
 
 /**
+ * What a coloured column measures. The measure filter chooses among these and the rule reads only
+ * the chosen ones. Attendance is the attendance rate and the two recent attendance windows;
+ * deadlines is Deadlines Hit and each course's recent deadlines; submissions is Assignments
+ * Submitted; completion is each Graded … Completed share and each course's recent graded work.
+ */
+export type Measure = "attendance" | "deadlines" | "submissions" | "completion";
+
+/** Every measure, in the order the grid draws their columns. */
+export const MEASURES: readonly Measure[] = ["attendance", "deadlines", "submissions", "completion"];
+
+export const MEASURE_LABEL: Record<Measure, string> = {
+  attendance: "Attendance",
+  deadlines: "Deadlines",
+  submissions: "Submissions",
+  completion: "Completion",
+};
+
+const EVERY_MEASURE: ReadonlySet<Measure> = new Set(MEASURES);
+
+/** Which measure a flagged window belongs to, so the filter leaves it out along with its columns. */
+export function measureOf(flag: PerformanceFlag): Measure {
+  if (flag.kind === "attendance") return "attendance";
+  return flag.reason === "deadlines" ? "deadlines" : "completion";
+}
+
+/**
  * Of the past-due assignments, how many were handed in by their deadline, how many were handed in
  * at all, and how many came due.
  */
@@ -154,29 +186,53 @@ export type PerformanceReading = {
 };
 
 /**
- * Which bucket a fellow belongs in: the worst band on the row.
+ * Which bucket a fellow belongs in: the worst band on the row, among the measures chosen.
  *
- * Too early first, because nothing else can be read without the on-time and attendance figures.
- * Then every term share and every flagged window are read as one list of bands, and the worst of
- * them is the group: any red is needs support, any yellow without a red is meeting, and all green
- * is exceeding. A kind of work with nothing past due and graded yet has no share and no band.
+ * **Too early first.** A chosen measure with nothing to read yet makes the fellow too early,
+ * because placing them by whatever can be read would start every new roster in exceeding under a
+ * single measure. Attendance has nothing to read until `attendanceRate` is set, and the three work
+ * measures have nothing until work has come due. Completion counts as readable whenever work has
+ * come due, so a fellow whose past-due work is all waiting on a grade is still placed by the other
+ * chosen measures.
+ *
+ * **Then the worst band.** Every chosen term share and every flagged window of a chosen measure are
+ * read as one list of bands: any red is needs support, any yellow without a red is meeting, and all
+ * green is exceeding. A kind of work with nothing past due and graded yet has no share and no
+ * band. An empty list, which completion alone produces while nothing graded exists, is too early
+ * rather than exceeding, since silence is not a pass.
  */
-export function performanceBucket(reading: PerformanceReading): PerformanceBucket {
+export function performanceBucket(
+  reading: PerformanceReading,
+  measures: ReadonlySet<Measure> = EVERY_MEASURE,
+): PerformanceBucket {
   const { onTime, completion, attendanceRate, flags } = reading;
-  if (onTime === null || attendanceRate === null) return "too-early";
+  const readsWork =
+    measures.has("deadlines") || measures.has("submissions") || measures.has("completion");
+  if (measures.has("attendance") && attendanceRate === null) return "too-early";
+  if (readsWork && onTime === null) return "too-early";
 
-  const bands: Band[] = [
-    shareBand(onTime.onTime / onTime.due, PERFORMANCE_RULE.onTime),
-    shareBand(onTime.submitted / onTime.due, PERFORMANCE_RULE.submitted),
-    ...Object.values(completion)
-      .filter((figures) => figures.possible > 0)
-      .map((figures) =>
-        shareBand(figures.complete / figures.possible, PERFORMANCE_RULE.completion),
-      ),
-    shareBand(attendanceRate, PERFORMANCE_RULE.attendance),
-    ...flags.map((flag) => flag.band),
-  ];
+  const bands: Band[] = [];
+  if (measures.has("deadlines") && onTime) {
+    bands.push(shareBand(onTime.onTime / onTime.due, PERFORMANCE_RULE.onTime));
+  }
+  if (measures.has("submissions") && onTime) {
+    bands.push(shareBand(onTime.submitted / onTime.due, PERFORMANCE_RULE.submitted));
+  }
+  if (measures.has("completion")) {
+    for (const figures of Object.values(completion)) {
+      if (figures.possible > 0) {
+        bands.push(shareBand(figures.complete / figures.possible, PERFORMANCE_RULE.completion));
+      }
+    }
+  }
+  if (measures.has("attendance") && attendanceRate !== null) {
+    bands.push(shareBand(attendanceRate, PERFORMANCE_RULE.attendance));
+  }
+  for (const flag of flags) {
+    if (measures.has(measureOf(flag))) bands.push(flag.band);
+  }
 
+  if (bands.length === 0) return "too-early";
   if (bands.includes("red")) return "needs-support";
   if (bands.includes("yellow")) return "meeting";
   return "exceeding";
@@ -374,7 +430,13 @@ export function completedTitle(category: CourseUnitCategory): string {
 }
 
 /** How many fellows are at or above the bar in one column, of how many have a figure there. */
-export type MeetingShare = { key: string; title: string; meeting: number; counted: number };
+export type MeetingShare = {
+  key: string;
+  measure: Measure;
+  title: string;
+  meeting: number;
+  counted: number;
+};
 
 /**
  * For each coloured column, how many fellows are not red in it.
@@ -385,7 +447,8 @@ export type MeetingShare = { key: string; title: string; meeting: number; counte
  * read is neither meeting the bar nor short of it. The bands are the cells' own, so a tile's count
  * is the number of cells in its column that are yellow or green.
  *
- * One Completed tile per kind of work, in the gradebook's order, for the kinds given.
+ * One Completed tile per kind of work, in the gradebook's order, for the kinds given. Only the
+ * chosen measures' columns are listed, since a column the rule is not reading has no bar to be at.
  */
 export function meetingShares(
   rows: readonly {
@@ -393,9 +456,11 @@ export function meetingShares(
     standing: Standing;
   }[],
   categories: readonly CourseUnitCategory[],
+  measures: ReadonlySet<Measure> = EVERY_MEASURE,
 ): MeetingShare[] {
   const tally = (
     key: string,
+    measure: Measure,
     title: string,
     bandOf: (row: (typeof rows)[number]) => Band | null,
   ): MeetingShare => {
@@ -407,29 +472,29 @@ export function meetingShares(
       counted += 1;
       if (band !== "red") meeting += 1;
     }
-    return { key, title, meeting, counted };
+    return { key, measure, title, meeting, counted };
   };
 
-  return [
-    tally("attendance", "Attendance Rate", (row) =>
+  const shares: MeetingShare[] = [
+    tally("attendance", "attendance", "Attendance Rate", (row) =>
       row.attendance.rate === null
         ? null
         : shareBand(row.attendance.rate, PERFORMANCE_RULE.attendance),
     ),
-    tally("absence", "Recent Absence", (row) => {
+    tally("absence", "attendance", "Recent Absence", (row) => {
       const attended = row.attendance.recent ? recentAttendedShare(row.attendance.recent) : null;
       return attended === null ? null : shareBand(attended, PERFORMANCE_RULE.absences);
     }),
-    tally("tardiness", "Recent Tardiness", (row) => {
+    tally("tardiness", "attendance", "Recent Tardiness", (row) => {
       const onTime = row.attendance.recent ? recentOnTimeArrivalShare(row.attendance.recent) : null;
       return onTime === null ? null : shareBand(onTime, PERFORMANCE_RULE.lateArrivals);
     }),
-    tally("onTime", "Deadlines Hit", (row) =>
+    tally("onTime", "deadlines", "Deadlines Hit", (row) =>
       row.standing.onTime
         ? shareBand(row.standing.onTime.onTime / row.standing.onTime.due, PERFORMANCE_RULE.onTime)
         : null,
     ),
-    tally("submitted", "Assignments Submitted", (row) =>
+    tally("submitted", "submissions", "Assignments Submitted", (row) =>
       row.standing.onTime
         ? shareBand(
             row.standing.onTime.submitted / row.standing.onTime.due,
@@ -438,7 +503,7 @@ export function meetingShares(
         : null,
     ),
     ...categories.map((category) =>
-      tally(`completion:${category}`, completedTitle(category), (row) => {
+      tally(`completion:${category}`, "completion", completedTitle(category), (row) => {
         const figures = row.standing.completion[category];
         return figures && figures.possible > 0
           ? shareBand(figures.complete / figures.possible, PERFORMANCE_RULE.completion)
@@ -446,10 +511,30 @@ export function meetingShares(
       }),
     ),
   ];
+
+  return shares.filter((share) => measures.has(share.measure));
 }
 
 /** The query string key holding the shown courses, comma separated. Absent means every course. */
 export const COURSES_PARAM = "courses";
+
+/** The query string key holding the chosen measures, comma separated. Absent means every measure. */
+export const MEASURES_PARAM = "measures";
+
+/**
+ * Which measures the address asks the rule to read.
+ *
+ * **Absent means every measure**, so the plain address is the tab as it has always been. A name
+ * that is no measure is ignored rather than refused. A parameter naming no measure at all also
+ * means every measure: a rule reading nothing would file every fellow under too early to say,
+ * which answers no question, and the filter never writes such an address.
+ */
+export function chosenMeasures(param: string | null): Set<Measure> {
+  if (param === null) return new Set(MEASURES);
+  const asked = new Set(param.split(","));
+  const chosen = MEASURES.filter((measure) => asked.has(measure));
+  return new Set(chosen.length === 0 ? MEASURES : chosen);
+}
 
 /**
  * Which courses the Performance tab reads when nobody has chosen.
@@ -517,7 +602,7 @@ export type Standing = {
   completion: Partial<Record<CourseUnitCategory, Completion>>;
   /** The shown courses' graded windows added together, as a figure to look at rather than a rule. */
   recentlyGraded: RecentlyGraded;
-  /** Every yellow or red window: attendance first, then each shown course in order. */
+  /** Every yellow or red window of a chosen measure: attendance first, then each shown course in order. */
   flags: PerformanceFlag[];
 };
 
@@ -533,11 +618,16 @@ export type Standing = {
  * in each of two courses is one small slip twice, and a sum that read it as four would flag a
  * fellow no single course is worried about. The graded windows are added up for the All courses
  * band to print, and that figure is not read by the rule.
+ *
+ * **Only the chosen measures' flags are kept.** The grid's worst-first order counts flags by
+ * colour, so a flag from a measure left out would push a fellow up a group they are not in for
+ * that reason.
  */
 export function standingAcross(
   attendance: { rate: number | null; recent: RecentAttendance | null },
   courses: readonly { id: string; name: string }[],
   readings: Readonly<Record<string, CourseStanding>>,
+  measures: ReadonlySet<Measure> = EVERY_MEASURE,
 ): Standing {
   let onTime = 0;
   let submitted = 0;
@@ -572,17 +662,16 @@ export function standingAcross(
   }
 
   const summed = due === 0 ? null : { onTime, submitted, due };
+  const chosen = flags.filter((flag) => measures.has(measureOf(flag)));
 
   return {
-    bucket: performanceBucket({
-      onTime: summed,
-      completion,
-      attendanceRate: attendance.rate,
-      flags,
-    }),
+    bucket: performanceBucket(
+      { onTime: summed, completion, attendanceRate: attendance.rate, flags: chosen },
+      measures,
+    ),
     onTime: summed,
     completion,
     recentlyGraded,
-    flags,
+    flags: chosen,
   };
 }

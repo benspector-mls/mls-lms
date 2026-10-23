@@ -1,5 +1,6 @@
 import {
   attendanceFlags,
+  chosenMeasures,
   gradedCompletionByStudent,
   meetingShares,
   onTimeByStudent,
@@ -8,6 +9,8 @@ import {
   shownCourseIds,
   standingAcross,
   type CourseStanding,
+  type Measure,
+  measureOf,
   performanceBucket,
   performanceFlagLabel,
   PERFORMANCE_RULE,
@@ -164,6 +167,101 @@ describe("performanceBucket", () => {
 
   it("too early wins over a flag, because there is nothing yet to weigh it against", () => {
     expect(performanceBucket(reading({ onTime: null, flags: [workFlag] }))).toBe("too-early");
+  });
+});
+
+describe("performanceBucket, reading only some measures", () => {
+  /*
+    What these protect: a measure left out is not read at all, neither its term share, its flagged
+    windows, nor its missing figure, so an instructor who asks who needs support for attendance
+    and deadlines gets a group that holds nobody who is there for anything else.
+  */
+  const only = (...measures: Measure[]) => new Set(measures);
+  const fallingShort: PerformanceFlag = { ...workFlag, reason: "falling-short" };
+
+  it("a red attendance rate is ignored when attendance is left out", () => {
+    const red = reading({ attendanceRate: 0.5 });
+    expect(performanceBucket(red)).toBe("needs-support");
+    expect(performanceBucket(red, only("deadlines", "submissions", "completion"))).toBe(
+      "exceeding",
+    );
+  });
+
+  it("under deadlines alone, a red submitted share and a red completion share are ignored", () => {
+    const red = reading({
+      onTime: { onTime: 10, submitted: 7, due: 10 },
+      completion: { MODULE: { complete: 0, possible: 4 } },
+    });
+    expect(performanceBucket(red)).toBe("needs-support");
+    expect(performanceBucket(red, only("deadlines"))).toBe("exceeding");
+    expect(performanceBucket(red, only("submissions"))).toBe("needs-support");
+    expect(performanceBucket(red, only("completion"))).toBe("needs-support");
+  });
+
+  it("a flag belongs to its measure and is ignored with it", () => {
+    expect(performanceBucket(reading({ flags: [attendanceFlag] }), only("deadlines"))).toBe(
+      "exceeding",
+    );
+    expect(performanceBucket(reading({ flags: [workFlag] }), only("attendance"))).toBe(
+      "exceeding",
+    );
+    expect(performanceBucket(reading({ flags: [workFlag] }), only("deadlines"))).toBe(
+      "needs-support",
+    );
+    expect(performanceBucket(reading({ flags: [fallingShort] }), only("deadlines"))).toBe(
+      "exceeding",
+    );
+    expect(performanceBucket(reading({ flags: [fallingShort] }), only("completion"))).toBe(
+      "needs-support",
+    );
+  });
+
+  it("too early only when a chosen measure has nothing to read", () => {
+    // Too few mornings: too early for attendance, placed under the work measures.
+    const noMornings = reading({ attendanceRate: null });
+    expect(performanceBucket(noMornings, only("attendance"))).toBe("too-early");
+    expect(performanceBucket(noMornings, only("deadlines"))).toBe("exceeding");
+    // Nothing due: too early for every work measure, placed under attendance.
+    const nothingDue = reading({ onTime: null });
+    expect(performanceBucket(nothingDue, only("completion"))).toBe("too-early");
+    expect(performanceBucket(nothingDue, only("attendance"))).toBe("exceeding");
+  });
+
+  it("completion alone with nothing graded yet is too early, not exceeding", () => {
+    expect(performanceBucket(reading({ completion: {} }), only("completion"))).toBe("too-early");
+    // The same fellow is placed once another measure is read beside it.
+    expect(performanceBucket(reading({ completion: {} }), only("completion", "deadlines"))).toBe(
+      "exceeding",
+    );
+  });
+});
+
+describe("measureOf", () => {
+  it("files attendance flags under attendance and work flags by their reason", () => {
+    expect(measureOf(attendanceFlag)).toBe("attendance");
+    expect(measureOf(workFlag)).toBe("deadlines");
+    expect(measureOf({ ...workFlag, reason: "falling-short" })).toBe("completion");
+  });
+});
+
+describe("chosenMeasures", () => {
+  it("reads every measure when the address names none", () => {
+    expect(chosenMeasures(null)).toEqual(
+      new Set(["attendance", "deadlines", "submissions", "completion"]),
+    );
+  });
+
+  it("reads the measures the address names", () => {
+    expect(chosenMeasures("attendance,deadlines")).toEqual(new Set(["attendance", "deadlines"]));
+  });
+
+  it("ignores a name that is no measure", () => {
+    expect(chosenMeasures("attendance,grades")).toEqual(new Set(["attendance"]));
+  });
+
+  it("reads every measure when the address names nothing valid, rather than none", () => {
+    expect(chosenMeasures("")).toEqual(chosenMeasures(null));
+    expect(chosenMeasures("grades")).toEqual(chosenMeasures(null));
   });
 });
 
@@ -454,6 +552,16 @@ describe("meetingShares", () => {
       "completion:PROJECT",
     ]);
   });
+
+  it("lists only the chosen measures' columns, in the same order", () => {
+    const chosen = new Set<Measure>(["attendance", "completion"]);
+    expect(meetingShares(rows, ["MODULE"], chosen).map((s) => s.key)).toEqual([
+      "attendance",
+      "absence",
+      "tardiness",
+      "completion:MODULE",
+    ]);
+  });
 });
 
 describe("defaultCourseIds", () => {
@@ -584,5 +692,34 @@ describe("standingAcross", () => {
     const standing = standingAcross(here, [], readings);
     expect(standing.onTime).toBeNull();
     expect(standing.bucket).toBe("too-early");
+  });
+
+  /*
+    The worst-first order counts flags by colour, so a flag of a measure left out is dropped with
+    its colour rather than carried along to push the fellow up a group.
+  */
+  it("keeps only the chosen measures' flags, and places the fellow by them", () => {
+    const late = { rate: 1, recent: { ...quiet, late: 3 } };
+    const standing = standingAcross(
+      late,
+      [prework, fundamentals],
+      readings,
+      new Set<Measure>(["attendance", "completion"]),
+    );
+    expect(standing.flags).toEqual([
+      { kind: "attendance", reason: "late", band: "red" },
+      {
+        kind: "work",
+        courseId: "prework",
+        courseName: "Prework",
+        reason: "falling-short",
+        band: "yellow",
+      },
+    ]);
+    // Prework's red term shares are deadlines and submissions, and neither is read.
+    expect(
+      standingAcross(here, [prework, fundamentals], readings, new Set<Measure>(["attendance"]))
+        .bucket,
+    ).toBe("exceeding");
   });
 });

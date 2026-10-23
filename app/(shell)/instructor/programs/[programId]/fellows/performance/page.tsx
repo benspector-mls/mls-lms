@@ -2,6 +2,7 @@ import { Suspense } from "react";
 
 import { CourseFilter } from "@/components/instructor/course-filter";
 import { FellowsPage } from "@/components/instructor/fellows-page";
+import { MeasureFilter } from "@/components/instructor/measure-filter";
 import { ProgramPerformance } from "@/components/instructor/performance";
 import { WindowFilter } from "@/components/instructor/window-filter";
 import { PageFallback } from "@/components/list-states";
@@ -17,10 +18,11 @@ import { getQueryClient, trpc } from "@/trpc/server";
  * to talk to. It sorts every fellow into a group by the attendance and work rules, and draws each
  * one's attendance and per-course work so the reader sees why.
  *
- * **It carries a course filter and a window filter of its own.** The course filter narrows the
- * course bands drawn and the courses the groups read; see `CourseFilter`. The window filter picks
- * the days the recent columns count over, two weeks ending today unless chosen; see
- * `WindowFilter`. The cohort picker is the frame's, shared with every tab.
+ * **It carries three filters of its own.** The course filter narrows the course bands drawn and
+ * the courses the groups read; see `CourseFilter`. The measure filter chooses which families of
+ * coloured columns the groups read, leaving the others drawn and uncoloured; see `MeasureFilter`.
+ * The window filter picks the days the recent columns count over, two weeks ending today unless
+ * chosen; see `WindowFilter`. The cohort picker is the frame's, shared with every tab.
  *
  * The rule is `performanceBucket` in lib/programs/performance.ts, and the figures come from
  * `programs.performance`.
@@ -82,7 +84,10 @@ async function Performance({
     >
       <div className="flex flex-wrap items-center justify-between gap-2">
         <WindowFilter window={data.window} today={schoolDayOf(new Date())} />
-        <CourseFilter courses={data.courses} programArchived={data.programArchived} />
+        <div className="flex flex-wrap items-center gap-2">
+          <MeasureFilter />
+          <CourseFilter courses={data.courses} programArchived={data.programArchived} />
+        </div>
       </div>
       <ProgramPerformance programId={programId} data={data} cohortName={cohortName} />
     </FellowsPage>

@@ -27,8 +27,12 @@ import { recentCompleteShare, recentOnTimeShare } from "@/lib/gradebook/summary"
 import { programStudentHref } from "@/lib/links";
 import { initials } from "@/lib/people";
 import {
+  chosenMeasures,
   completedTitle,
   COURSES_PARAM,
+  MEASURE_LABEL,
+  MEASURES,
+  MEASURES_PARAM,
   meetingShares,
   PERFORMANCE_BUCKET_LABEL,
   PERFORMANCE_BUCKETS,
@@ -37,6 +41,7 @@ import {
   shownCourseIds,
   standingAcross,
   type Band as CellBand,
+  type Measure,
   type MeetingShare,
   type PerformanceBucket,
   type Standing,
@@ -61,6 +66,11 @@ type Course = Payload["courses"][number];
  * the bands all follow the course filter, so the roster can be sorted by how it is doing in one
  * course, in this month's, or in all of them. Attendance belongs to the program and counts
  * whichever are shown. `standingAcross` in lib/programs/performance.ts is the computation.
+ *
+ * **And against the measures chosen there.** The measure filter leaves out families of coloured
+ * columns: attendance, deadlines, submissions, or completion. A column of a measure left out stays
+ * on the grid with its figure and is never coloured, and the groups, the worst-first order and the
+ * summary read only the chosen measures, so a row shows only the reasons that placed the fellow.
  *
  * **A grid for the whole roster**, the fellow's Trends section turned on its side. Attendance
  * comes first, then the program-wide figures — deadlines hit across the term, work submitted,
@@ -108,19 +118,24 @@ export function ProgramPerformance({
     bands drawn, the All courses figures, and each fellow's group. The payload holds every course's
     reading, so a change of selection is arithmetic here rather than a request.
   */
-  const param = useSearchParams().get(COURSES_PARAM);
+  const searchParams = useSearchParams();
+  const param = searchParams.get(COURSES_PARAM);
   const courses = React.useMemo(() => {
     const shown = shownCourseIds(param, data.courses, data.programArchived);
     return data.courses.filter((course) => shown.has(course.id));
   }, [param, data.courses, data.programArchived]);
 
+  // The measure filter in the page header, read the same way: arithmetic here, not a request.
+  const measuresParam = searchParams.get(MEASURES_PARAM);
+  const measures = React.useMemo(() => chosenMeasures(measuresParam), [measuresParam]);
+
   const fellows = React.useMemo(
     () =>
       data.fellows.map((fellow): Fellow => ({
         ...fellow,
-        standing: standingAcross(fellow.attendance, courses, fellow.courses),
+        standing: standingAcross(fellow.attendance, courses, fellow.courses, measures),
       })),
-    [data.fellows, courses],
+    [data.fellows, courses, measures],
   );
 
   // The kinds of unit any shown course has released work in, in the gradebook's order.
@@ -131,8 +146,14 @@ export function ProgramPerformance({
       ),
     [courses],
   );
-  const columns = React.useMemo(() => columnsFor(courses, categories), [courses, categories]);
-  const shares = React.useMemo(() => meetingShares(fellows, categories), [fellows, categories]);
+  const columns = React.useMemo(
+    () => columnsFor(courses, categories, measures),
+    [courses, categories, measures],
+  );
+  const shares = React.useMemo(
+    () => meetingShares(fellows, categories, measures),
+    [fellows, categories, measures],
+  );
 
   if (fellows.length === 0) {
     return (
@@ -160,7 +181,7 @@ export function ProgramPerformance({
   return (
     <div className="flex flex-col gap-6">
       <MeetingSummary shares={shares} />
-      <BucketingHelp window={formatRecentWindow(data.window)} />
+      <BucketingHelp window={formatRecentWindow(data.window)} measures={measures} />
 
       {PERFORMANCE_BUCKETS.map((bucket) => {
         const rows = byBucket.get(bucket)!;
@@ -209,8 +230,15 @@ const BUCKET_DESCRIPTION: Record<PerformanceBucket, string> = {
  * so each entry says only what is divided by what. The groups come first and the columns follow,
  * band by band, in the order the grid draws them.
  */
-function BucketingHelp({ window }: { window: string }) {
+function BucketingHelp({
+  window,
+  measures,
+}: {
+  window: string;
+  measures: ReadonlySet<Measure>;
+}) {
   const bars = PERFORMANCE_RULE.onTime;
+  const narrowed = measures.size < MEASURES.length;
 
   return (
     <Popover>
@@ -246,6 +274,15 @@ function BucketingHelp({ window }: { window: string }) {
           <p className="text-muted-foreground">
             Never coloured: Recently Completed, a course’s own Completed, Understanding.
           </p>
+          {narrowed && (
+            <p className="text-muted-foreground">
+              Reading{" "}
+              {MEASURES.filter((measure) => measures.has(measure))
+                .map((measure) => MEASURE_LABEL[measure])
+                .join(", ")}{" "}
+              only. Columns of the other measures are drawn and never coloured.
+            </p>
+          )}
         </HelpSection>
 
         <HelpSection title="Attendance">
@@ -323,6 +360,8 @@ type Column = {
   key: string;
   /** The band heading this column sits under; consecutive columns with the same band share it. */
   band: Band;
+  /** What a coloured column measures; absent on a column that is never coloured. */
+  measure?: Measure;
   title: string;
   sortValue: (fellow: Fellow) => SortValue;
   render: (fellow: Fellow) => CellContent;
@@ -377,7 +416,11 @@ function fraction(done: number, of: number): SortValue {
   return of === 0 ? null : done / of;
 }
 
-function columnsFor(courses: Course[], categories: CourseUnitCategory[]): Column[] {
+function columnsFor(
+  courses: Course[],
+  categories: CourseUnitCategory[],
+  measures: ReadonlySet<Measure>,
+): Column[] {
   const attendance = { key: "attendance", label: "Attendance" };
   const allCourses = { key: "all", label: "All courses" };
 
@@ -385,6 +428,7 @@ function columnsFor(courses: Course[], categories: CourseUnitCategory[]): Column
     {
       key: "rate",
       band: attendance,
+      measure: "attendance",
       title: "Attendance Rate",
       sortValue: (f) => fraction(f.attendance.attended, f.attendance.eligible),
       /*
@@ -415,6 +459,7 @@ function columnsFor(courses: Course[], categories: CourseUnitCategory[]): Column
     {
       key: "absence",
       band: attendance,
+      measure: "attendance",
       title: "Recent Absence",
       sortValue: (f) => f.attendance.recent?.missed ?? null,
       render: (f) => {
@@ -436,6 +481,7 @@ function columnsFor(courses: Course[], categories: CourseUnitCategory[]): Column
     {
       key: "tardiness",
       band: attendance,
+      measure: "attendance",
       title: "Recent Tardiness",
       sortValue: (f) => f.attendance.recent?.late ?? null,
       /*
@@ -461,6 +507,7 @@ function columnsFor(courses: Course[], categories: CourseUnitCategory[]): Column
     {
       key: "onTime",
       band: allCourses,
+      measure: "deadlines",
       title: "Deadlines Hit",
       sortValue: (f) =>
         f.standing.onTime ? f.standing.onTime.onTime / f.standing.onTime.due : null,
@@ -486,6 +533,7 @@ function columnsFor(courses: Course[], categories: CourseUnitCategory[]): Column
     {
       key: "submitted",
       band: allCourses,
+      measure: "submissions",
       title: "Assignments Submitted",
       sortValue: (f) =>
         f.standing.onTime ? f.standing.onTime.submitted / f.standing.onTime.due : null,
@@ -519,6 +567,7 @@ function columnsFor(courses: Course[], categories: CourseUnitCategory[]): Column
     ...categories.map((category): Column => ({
       key: `all:${category}`,
       band: allCourses,
+      measure: "completion",
       title: completedTitle(category),
       sortValue: (f) => {
         const completion = f.standing.completion[category];
@@ -561,6 +610,7 @@ function columnsFor(courses: Course[], categories: CourseUnitCategory[]): Column
       columns.push({
         key: `course:${course.id}:deadlines`,
         band,
+        measure: "deadlines",
         title: "Recent Deadlines Hit",
         sortValue: (f) => {
           const recent = reading(f).recent;
@@ -590,6 +640,7 @@ function columnsFor(courses: Course[], categories: CourseUnitCategory[]): Column
       columns.push({
         key: `course:${course.id}:graded`,
         band,
+        measure: "completion",
         title: "Recently Completed",
         sortValue: (f) => {
           const recent = reading(f).recent;
@@ -648,7 +699,21 @@ function columnsFor(courses: Course[], categories: CourseUnitCategory[]): Column
     }
   });
 
-  return columns;
+  /*
+    A coloured column of a measure left out keeps its figure and loses its colour, so a row shows
+    only the reasons that placed the fellow. The rule text goes with the colour, since the rule was
+    not read.
+  */
+  return columns.map((column) => {
+    if (!column.measure || measures.has(column.measure)) return column;
+    return {
+      ...column,
+      render: (fellow) => {
+        const { value, detail, title } = column.render(fellow);
+        return { value, detail, title };
+      },
+    };
+  });
 }
 
 function completionCell(
