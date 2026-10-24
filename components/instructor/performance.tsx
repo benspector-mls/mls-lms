@@ -230,13 +230,7 @@ const BUCKET_DESCRIPTION: Record<PerformanceBucket, string> = {
  * so each entry says only what is divided by what. The groups come first and the columns follow,
  * band by band, in the order the grid draws them.
  */
-function BucketingHelp({
-  window,
-  measures,
-}: {
-  window: string;
-  measures: ReadonlySet<Measure>;
-}) {
+function BucketingHelp({ window, measures }: { window: string; measures: ReadonlySet<Measure> }) {
   const bars = PERFORMANCE_RULE.onTime;
   const narrowed = measures.size < MEASURES.length;
 
@@ -743,10 +737,10 @@ function MeetingSummary({ shares }: { shares: MeetingShare[] }) {
       <div className="flex flex-col gap-0.5">
         <h2 className="text-sm font-medium">Performance Summary</h2>
       </div>
-      <div className="w-fit max-w-full rounded-lg border border-border">
+      <div className="w-fit max-w-full overflow-hidden rounded-lg border border-border">
         <Table>
           <TableHeader>
-            <TableRow className="bg-table-sticky">
+            <TableRow className="bg-muted/50 hover:bg-muted/50">
               <TableHead>Column</TableHead>
               <TableHead className="text-right">Meeting or higher</TableHead>
               <TableHead className="text-right">Fellows</TableHead>
@@ -879,7 +873,7 @@ function PerformanceGrid({
   return (
     // As wide as the grid and no wider, so a program with one course is not a narrow table inside
     // a page-wide border; the table scrolls sideways inside it once it outgrows the page.
-    <div className="w-fit max-w-full rounded-lg border border-border">
+    <div className="w-fit max-w-full overflow-hidden rounded-lg border border-border">
       <Table
         className="table-fixed"
         style={{ width: `${FELLOW_REM + columns.length * FIGURE_REM}rem` }}
