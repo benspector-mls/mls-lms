@@ -260,7 +260,7 @@ function BucketingHelp({ window, measures }: { window: string; measures: Readonl
           </HelpRule>
         </HelpSection>
 
-        <HelpSection title="Colours">
+        <HelpSection title="Colors">
           <p className="text-muted-foreground">Red: under {percent(bars.meeting)}</p>
           <p className="text-muted-foreground">Yellow: under {percent(bars.exceeding)}</p>
           <p className="text-muted-foreground">Green: {percent(bars.exceeding)} and over</p>
@@ -268,9 +268,6 @@ function BucketingHelp({ window, measures }: { window: string; measures: Readonl
             No Color: under {PERFORMANCE_RULE.needsAtLeast} counted, or not considered for bucketing
           </p>
           <p className="text-muted-foreground">Hover a cell for its rule.</p>
-          <p className="text-muted-foreground">
-            Recent covers to the last two weeks ({window}). Change the window with the dates above.
-          </p>
 
           {narrowed && (
             <p className="text-muted-foreground">
@@ -281,6 +278,13 @@ function BucketingHelp({ window, measures }: { window: string; measures: Readonl
               only. Columns of the other measures are drawn and never coloured.
             </p>
           )}
+        </HelpSection>
+
+        <HelpSection title="Recent Window">
+          <p className="text-muted-foreground">
+            Recent covers dates ({window}). Change the window with the dates above. Defaults to the
+            last two weeks.
+          </p>
         </HelpSection>
 
         <HelpSection title="Attendance">
