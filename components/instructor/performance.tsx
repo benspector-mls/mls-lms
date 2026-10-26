@@ -40,6 +40,7 @@ import {
   shareBand,
   shownCourseIds,
   standingAcross,
+  termShare,
   type Band as CellBand,
   type Measure,
   type MeetingShare,
@@ -77,9 +78,10 @@ type Course = Payload["courses"][number];
  * recent graded work, and the share of assignments, projects and assessments completed — then a
  * band of columns per course: the recent deadlines hit, the recent graded work, the work of each
  * kind completed, and the average understanding level on the last few checks. A cell is filled
- * red or yellow by its own band, and the group is the worst band on the row, so the reason a
- * fellow is where they are is on the row rather than a click away. Recently Completed, a course's
- * own Completed, and Understanding are figures to look at and never coloured.
+ * green, yellow or red by its own band, and the group is the worst band on the row, so the reason
+ * a fellow is where they are is on the row rather than a click away. Understanding is a figure to
+ * look at and never coloured, and a share with fewer than `PERFORMANCE_RULE.needsAtLeast` behind
+ * it is printed in grey, since one miss of one is not a pattern.
  *
  * **A table above the grid says how much of the roster is at or above the bar** in each coloured
  * column, so the question "how is the cohort doing" has an answer before the question "who".
@@ -91,7 +93,8 @@ type Course = Payload["courses"][number];
  *
  * **Counted by what was done rather than what was not.** A column says how many deadlines were
  * hit and how much work was completed, so a row reads as what a fellow has achieved; the rules
- * underneath count what went wrong, and a cell turns red or yellow where one trips.
+ * underneath count what went wrong, and a cell turns red or yellow where one trips and green
+ * where none does.
  *
  * **One table per group, at the same column widths**, so each group can be read on its own and the
  * four still line up as one grid down the page.
@@ -258,16 +261,17 @@ function BucketingHelp({ window, measures }: { window: string; measures: Readonl
         </HelpSection>
 
         <HelpSection title="Colours">
+          <p className="text-muted-foreground">Red: under {percent(bars.meeting)}</p>
+          <p className="text-muted-foreground">Yellow: under {percent(bars.exceeding)}</p>
+          <p className="text-muted-foreground">Green: {percent(bars.exceeding)} and over</p>
           <p className="text-muted-foreground">
-            Every coloured cell is a percentage. Red under {percent(bars.meeting)} · yellow under{" "}
-            {percent(bars.exceeding)} · green from there. Hover a cell for its rule.
+            No Color: under {PERFORMANCE_RULE.needsAtLeast} counted, or not considered for bucketing
           </p>
+          <p className="text-muted-foreground">Hover a cell for its rule.</p>
           <p className="text-muted-foreground">
-            Recent = {window}. Change it with the dates above.
+            Recent covers to the last two weeks ({window}). Change the window with the dates above.
           </p>
-          <p className="text-muted-foreground">
-            Never coloured: Recently Completed, a course’s own Completed, Understanding.
-          </p>
+
           {narrowed && (
             <p className="text-muted-foreground">
               Reading{" "}
@@ -371,26 +375,27 @@ type Band = { key: string; label: React.ReactNode; archived?: boolean };
  * What a cell holds: a figure, the line under it, and why it is coloured.
  *
  * `band` is the cell's colour and `reason` names the rule that gave it, for a screen reader and
- * the tooltip. A green cell has neither, since green is nothing to say.
+ * the tooltip. A cell with too little behind it to be read has neither.
  */
 type CellContent = {
   value: string;
   detail: string;
-  band?: "yellow" | "red";
+  band?: CellBand;
   reason?: string;
   title?: string;
 };
 
 const EMPTY = (detail: string): CellContent => ({ value: "—", detail });
 
-/** The colour of a term share, with the bar it fell under in words. */
+/** The colour of a share, with the bar it fell under in words. Nothing for a share too small to read. */
 function byShare(
-  share: number,
+  share: number | null,
   rule: { meeting: number; exceeding: number },
   describe: (under: number) => string,
 ): Pick<CellContent, "band" | "reason"> {
   const band = shareBand(share, rule);
-  if (band === "green") return {};
+  if (band === null) return {};
+  if (band === "green") return { band, reason: `${percent(rule.exceeding)} or over` };
   return { band, reason: describe(band === "red" ? rule.meeting : rule.exceeding) };
 }
 
@@ -440,13 +445,11 @@ function columnsFor(
             excused > 0
               ? `${attended} of ${eligible} · ${excused} excused`
               : `${attended} of ${eligible}`,
-          ...(rate === null
-            ? {}
-            : byShare(
-                rate,
-                PERFORMANCE_RULE.attendance,
-                (under) => `Attendance under ${percent(under)}`,
-              )),
+          ...byShare(
+            rate,
+            PERFORMANCE_RULE.attendance,
+            (under) => `Attendance under ${percent(under)}`,
+          ),
         };
       },
     },
@@ -459,13 +462,12 @@ function columnsFor(
       render: (f) => {
         const recent = f.attendance.recent;
         if (!recent) return EMPTY("too few yet");
-        const attended = recentAttendedShare(recent);
-        if (attended === null) return EMPTY("no mornings in the window");
+        if (recent.missedOf === 0) return EMPTY("no mornings in the window");
         return {
           value: `${recent.missed} of ${recent.missedOf}`,
           detail: recent.excused > 0 ? `${recent.excused} excused` : "recent mornings",
           ...byShare(
-            attended,
+            recentAttendedShare(recent),
             PERFORMANCE_RULE.absences,
             (under) => `Under ${percent(under)} of recent mornings attended`,
           ),
@@ -485,13 +487,12 @@ function columnsFor(
       render: (f) => {
         const recent = f.attendance.recent;
         if (!recent) return EMPTY("too few yet");
-        const onTime = recentOnTimeArrivalShare(recent);
-        if (onTime === null) return EMPTY("no mornings in the window");
+        if (recent.lateOf === 0) return EMPTY("no mornings in the window");
         return {
           value: `${recent.late} of ${recent.lateOf}`,
           detail: "recent mornings",
           ...byShare(
-            onTime,
+            recentOnTimeArrivalShare(recent),
             PERFORMANCE_RULE.lateArrivals,
             (under) => `Late on more than ${percent(1 - under)} of recent mornings`,
           ),
@@ -512,7 +513,7 @@ function columnsFor(
           value: formatPercent(onTime.onTime / onTime.due),
           detail: `${onTime.onTime} of ${onTime.due}`,
           ...byShare(
-            onTime.onTime / onTime.due,
+            termShare(onTime.onTime, onTime.due),
             PERFORMANCE_RULE.onTime,
             (under) => `Under ${percent(under)} of deadlines hit`,
           ),
@@ -538,26 +539,37 @@ function columnsFor(
           value: formatPercent(onTime.submitted / onTime.due),
           detail: `${onTime.submitted} of ${onTime.due}`,
           ...byShare(
-            onTime.submitted / onTime.due,
+            termShare(onTime.submitted, onTime.due),
             PERFORMANCE_RULE.submitted,
             (under) => `Under ${percent(under)} of assignments submitted`,
           ),
         };
       },
     },
+    /*
+      The courses' graded windows added up, and coloured, because a single course's window will
+      often hold fewer than the minimum and the pooled figure is where enough graded work exists to
+      be judged.
+    */
     {
       key: "recentlyGraded",
       band: allCourses,
+      measure: "completion",
       title: "Recently Completed",
       sortValue: (f) =>
         fraction(f.standing.recentlyGraded.complete, f.standing.recentlyGraded.graded),
-      render: (f) => recentlyGradedCell(f.standing.recentlyGraded, "across the shown courses"),
+      render: (f) => {
+        const { recentlyGraded } = f.standing;
+        return {
+          ...recentlyGradedCell(recentlyGraded, "across the shown courses"),
+          ...byShare(
+            termShare(recentlyGraded.complete, recentlyGraded.graded),
+            PERFORMANCE_RULE.recentlyCompleted,
+            (under) => `Under ${percent(under)} of recent graded work complete`,
+          ),
+        };
+      },
     },
-    /*
-      Coloured here and not in a course's band: the group reads the term shares across the shown
-      courses, as it does Deadlines Hit, and a course's own Completed is a part of this figure to
-      look at rather than a second rule over fewer assignments.
-    */
     ...categories.map((category): Column => ({
       key: `all:${category}`,
       band: allCourses,
@@ -574,7 +586,7 @@ function columnsFor(
         return {
           ...cell,
           ...byShare(
-            completion.complete / completion.possible,
+            termShare(completion.complete, completion.possible),
             PERFORMANCE_RULE.completion,
             (under) => `Under ${percent(under)} of ${completedTitle(category).toLowerCase()}`,
           ),
@@ -612,13 +624,12 @@ function columnsFor(
         },
         render: (f) => {
           const { recent } = reading(f);
-          const onTime = recent ? recentOnTimeShare(recent) : null;
-          if (!recent || onTime === null) return EMPTY("nothing due in the window");
+          if (!recent || recent.due === 0) return EMPTY("nothing due in the window");
           return {
             value: `${recent.due - recent.missed - recent.late} of ${recent.due}`,
             detail: `${recent.late} late, ${recent.missed} missing`,
             ...byShare(
-              onTime,
+              recentOnTimeShare(recent),
               PERFORMANCE_RULE.recentDeadlines,
               (under) => `Under ${percent(under)} of recent deadlines hit`,
             ),
@@ -628,8 +639,8 @@ function columnsFor(
 
       /*
         The graded window has a column of its own, because the rule reads the window's graded
-        assignments in the course whatever kind of unit they sit in, and a colour on one of the
-        Completed columns would read as a judgement on that kind of work alone.
+        assignments in the course whatever kind of unit they sit in, where each Completed column
+        below is one kind of work over the whole term.
       */
       columns.push({
         key: `course:${course.id}:graded`,
@@ -642,15 +653,14 @@ function columnsFor(
         },
         render: (f) => {
           const { recent } = reading(f);
-          const complete = recent ? recentCompleteShare(recent) : null;
-          if (!recent || complete === null) return EMPTY("nothing graded yet");
+          if (!recent || recent.graded === 0) return EMPTY("nothing graded yet");
           return {
             ...recentlyGradedCell(
               { complete: recent.graded - recent.incomplete, graded: recent.graded },
               "graded or never handed in",
             ),
             ...byShare(
-              complete,
+              recentCompleteShare(recent),
               PERFORMANCE_RULE.recentlyCompleted,
               (under) => `Under ${percent(under)} of recent graded work complete`,
             ),
@@ -659,16 +669,33 @@ function columnsFor(
       });
     }
 
+    /*
+      Coloured per course as well as pooled under All courses, because a kind of work a fellow is
+      failing in one course can hide inside a pooled share the other courses hold up.
+    */
     course.categories.forEach((category) => {
       columns.push({
         key: `course:${course.id}:${category}`,
         band,
+        measure: "completion",
         title: completedTitle(category),
         sortValue: (f) => {
           const completion = reading(f).completion[category];
           return completion ? fraction(completion.complete, completion.possible) : null;
         },
-        render: (f) => completionCell(reading(f).completion[category]),
+        render: (f) => {
+          const completion = reading(f).completion[category];
+          const cell = completionCell(completion);
+          if (!completion || completion.possible === 0) return cell;
+          return {
+            ...cell,
+            ...byShare(
+              termShare(completion.complete, completion.possible),
+              PERFORMANCE_RULE.completion,
+              (under) => `Under ${percent(under)} of ${completedTitle(category).toLowerCase()}`,
+            ),
+          };
+        },
       });
     });
 
@@ -1004,7 +1031,7 @@ function SortButton({
 }
 
 /**
- * One figure in the grid, with its cell filled red or yellow by its band.
+ * One figure in the grid, with its cell filled green, yellow or red by its band.
  *
  * **No rule text on the screen**, so a row of coloured cells stays as compact as a row of plain
  * ones and the figure is what the eye lands on. The rule is still in the cell for a screen reader,
@@ -1020,6 +1047,7 @@ function Cell({ edge, content }: { edge: string | null; content: CellContent }) 
         edge,
         band === "red" && "bg-destructive/10 text-destructive",
         band === "yellow" && "bg-amber-500/15 text-amber-800 dark:text-amber-200",
+        band === "green" && "bg-emerald-500/10 text-emerald-800 dark:text-emerald-200",
       )}
       title={title ?? reason}
     >
@@ -1028,6 +1056,7 @@ function Cell({ edge, content }: { edge: string | null; content: CellContent }) 
         <span className="truncate text-xs opacity-70">{detail}</span>
         {band === "red" && <span className="sr-only">Red: {reason}</span>}
         {band === "yellow" && <span className="sr-only">Yellow: {reason}</span>}
+        {band === "green" && <span className="sr-only">Green: {reason}</span>}
       </div>
     </TableCell>
   );

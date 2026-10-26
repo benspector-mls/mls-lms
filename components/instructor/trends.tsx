@@ -178,7 +178,8 @@ export function AttendanceTrend({
           <>
             Flagged when under {percentOf(DRIFT_RULE.attendedAtLeast)} of the sessions in the last
             two weeks were attended, or under {percentOf(DRIFT_RULE.onTimeAtLeast)} were arrived at
-            on time. Arrival averages count only sessions they checked in.
+            on time, once the window holds at least {DRIFT_RULE.windowNeedsAtLeast} sessions.
+            Arrival averages count only sessions they checked in.
           </>
         }
         flags={attendanceFlags}
@@ -199,8 +200,9 @@ export function WorkRuleHelp() {
       A course is flagged when under {percentOf(ASSIGNMENT_DRIFT_RULE.onTimeAtLeast)} of its
       assignments due in the last two weeks were handed in on time, or under{" "}
       {percentOf(ASSIGNMENT_DRIFT_RULE.completeAtLeast)} of those with a grade were graded complete.
-      Work never handed in counts as incomplete; work waiting on a grade is not counted. The same
-      rule as the gradebook&apos;s own list.
+      Work never handed in counts as incomplete; work waiting on a grade is not counted. Neither is
+      read over fewer than {ASSIGNMENT_DRIFT_RULE.needsAtLeast} assignments. The same rule as the
+      gradebook&apos;s own list.
     </>
   );
 }

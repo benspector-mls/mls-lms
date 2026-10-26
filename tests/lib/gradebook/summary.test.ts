@@ -550,8 +550,14 @@ describe("driftReasons", () => {
     ]);
   });
 
-  it("trips nothing over an empty window", () => {
+  it("trips nothing over an empty window, or one under the minimum", () => {
     expect(driftReasons(recent({ due: 0, graded: 0 }))).toEqual([]);
+    // Three missed of three due and three incomplete of three graded is not yet a pattern.
+    expect(driftReasons(recent({ missed: 3, due: 3, incomplete: 3, graded: 3 }))).toEqual([]);
+    expect(driftReasons(recent({ missed: 4, due: 4, incomplete: 4, graded: 4 }))).toEqual([
+      "deadlines",
+      "falling-short",
+    ]);
   });
 });
 

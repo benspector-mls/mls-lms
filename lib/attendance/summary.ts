@@ -222,14 +222,16 @@ export function recentAttendance(
   };
 }
 
-/** Of the window's mornings, the share attended. Null when the window holds none. */
+/** Of the window's mornings, the share attended. Null under the rule's minimum. */
 export function recentAttendedShare(recent: RecentAttendance): number | null {
-  return recent.missedOf === 0 ? null : (recent.missedOf - recent.missed) / recent.missedOf;
+  if (recent.missedOf < DRIFT_RULE.windowNeedsAtLeast) return null;
+  return (recent.missedOf - recent.missed) / recent.missedOf;
 }
 
-/** Of the window's mornings, the share not arrived at late. Null when the window holds none. */
+/** Of the window's mornings, the share not arrived at late. Null under the rule's minimum. */
 export function recentOnTimeArrivalShare(recent: RecentAttendance): number | null {
-  return recent.lateOf === 0 ? null : (recent.lateOf - recent.late) / recent.lateOf;
+  if (recent.lateOf < DRIFT_RULE.windowNeedsAtLeast) return null;
+  return (recent.lateOf - recent.late) / recent.lateOf;
 }
 
 /**
@@ -269,6 +271,8 @@ export const DRIFT_RULE = {
   onTimeAtLeast: 0.75,
   /** Below this many settled sessions in the term, a fellow is too new to be judged by either clause. */
   needsAtLeast: 5,
+  /** Below this many settled sessions in the window, neither clause is read: one miss of one is not a pattern. */
+  windowNeedsAtLeast: 4,
 } as const;
 
 /** Which clause of the attendance drift rule a fellow trips. */

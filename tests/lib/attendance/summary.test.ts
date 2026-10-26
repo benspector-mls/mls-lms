@@ -452,8 +452,10 @@ describe("recentAttendance", () => {
     expect(attendanceDriftReason(recent(2, 3))).toBe("late");
     expect(attendanceDriftReason(recent(3, 3))).toBe("missing");
     expect(attendanceDriftReason(recent(2, 2))).toBeNull();
-    // An empty window trips nothing.
+    // An empty window trips nothing, and neither does one under the minimum.
     expect(attendanceDriftReason({ ...recent(0, 0), missedOf: 0, lateOf: 0 })).toBeNull();
+    expect(attendanceDriftReason({ ...recent(3, 3), missedOf: 3, lateOf: 3 })).toBeNull();
+    expect(attendanceDriftReason({ ...recent(4, 4), missedOf: 4, lateOf: 4 })).toBe("missing");
   });
 });
 

@@ -1,6 +1,7 @@
 import {
   attendanceFlags,
   chosenMeasures,
+  completionFlags,
   gradedCompletionByStudent,
   meetingShares,
   onTimeByStudent,
@@ -8,6 +9,7 @@ import {
   shareBand,
   shownCourseIds,
   standingAcross,
+  termShare,
   type CourseStanding,
   type Measure,
   measureOf,
@@ -39,6 +41,7 @@ function reading(overrides: Partial<PerformanceReading> = {}): PerformanceReadin
   return {
     onTime: { onTime: 10, submitted: 10, due: 10 },
     completion: {},
+    recentlyGraded: { complete: 5, graded: 5 },
     attendanceRate: 0.95,
     flags: [],
     ...overrides,
@@ -53,6 +56,13 @@ const workFlag: PerformanceFlag = {
   band: "red",
 };
 const attendanceFlag: PerformanceFlag = { kind: "attendance", reason: "late", band: "red" };
+const completionFlag: PerformanceFlag = {
+  kind: "completion",
+  courseId: "c1",
+  courseName: "Web Fundamentals",
+  category: "PROJECT",
+  band: "red",
+};
 const yellowFlag: PerformanceFlag = { ...workFlag, band: "yellow" };
 
 const quiet: RecentAttendance = { missed: 0, missedOf: 10, late: 0, lateOf: 10, excused: 0 };
@@ -72,6 +82,18 @@ describe("shareBand", () => {
     expect(shareBand(0.75, rule)).toBe("yellow");
     expect(shareBand(0.89, rule)).toBe("yellow");
     expect(shareBand(0.9, rule)).toBe("green");
+  });
+
+  it("a share too small to read has no band", () => {
+    expect(shareBand(null, { meeting: 0.75, exceeding: 0.9 })).toBeNull();
+  });
+});
+
+describe("termShare", () => {
+  it("is a share from the minimum up, and null under it", () => {
+    expect(termShare(3, PERFORMANCE_RULE.needsAtLeast)).toBe(3 / PERFORMANCE_RULE.needsAtLeast);
+    expect(termShare(0, PERFORMANCE_RULE.needsAtLeast - 1)).toBeNull();
+    expect(termShare(0, 0)).toBeNull();
   });
 });
 
@@ -128,12 +150,33 @@ describe("performanceBucket", () => {
       performanceBucket(reading({ completion: { MODULE: { complete: 8, possible: 10 } } })),
     ).toBe("meeting");
     expect(
-      performanceBucket(reading({ completion: { PROJECT: { complete: 0, possible: 1 } } })),
+      performanceBucket(reading({ completion: { PROJECT: { complete: 0, possible: 4 } } })),
     ).toBe("needs-support");
-    // Nothing past due and graded of a kind is no share, and no band.
+    // Under the minimum, a kind of work has no share and no band: none of three is not a pattern.
+    expect(
+      performanceBucket(reading({ completion: { PROJECT: { complete: 0, possible: 3 } } })),
+    ).toBe("exceeding");
     expect(
       performanceBucket(reading({ completion: { PROJECT: { complete: 0, possible: 0 } } })),
     ).toBe("exceeding");
+  });
+
+  it("reads the pooled recent graded work against the recent bars", () => {
+    expect(performanceBucket(reading({ recentlyGraded: { complete: 2, graded: 4 } }))).toBe(
+      "needs-support",
+    );
+    expect(performanceBucket(reading({ recentlyGraded: { complete: 4, graded: 5 } }))).toBe(
+      "meeting",
+    );
+    expect(performanceBucket(reading({ recentlyGraded: { complete: 0, graded: 3 } }))).toBe(
+      "exceeding",
+    );
+  });
+
+  it("a term share under the minimum is not read", () => {
+    expect(performanceBucket(reading({ onTime: { onTime: 0, submitted: 0, due: 3 } }))).toBe(
+      "exceeding",
+    );
   });
 
   /*
@@ -202,9 +245,7 @@ describe("performanceBucket, reading only some measures", () => {
     expect(performanceBucket(reading({ flags: [attendanceFlag] }), only("deadlines"))).toBe(
       "exceeding",
     );
-    expect(performanceBucket(reading({ flags: [workFlag] }), only("attendance"))).toBe(
-      "exceeding",
-    );
+    expect(performanceBucket(reading({ flags: [workFlag] }), only("attendance"))).toBe("exceeding");
     expect(performanceBucket(reading({ flags: [workFlag] }), only("deadlines"))).toBe(
       "needs-support",
     );
@@ -228,11 +269,10 @@ describe("performanceBucket, reading only some measures", () => {
   });
 
   it("completion alone with nothing graded yet is too early, not exceeding", () => {
-    expect(performanceBucket(reading({ completion: {} }), only("completion"))).toBe("too-early");
+    const unread = reading({ completion: {}, recentlyGraded: { complete: 0, graded: 0 } });
+    expect(performanceBucket(unread, only("completion"))).toBe("too-early");
     // The same fellow is placed once another measure is read beside it.
-    expect(performanceBucket(reading({ completion: {} }), only("completion", "deadlines"))).toBe(
-      "exceeding",
-    );
+    expect(performanceBucket(unread, only("completion", "deadlines"))).toBe("exceeding");
   });
 });
 
@@ -241,6 +281,7 @@ describe("measureOf", () => {
     expect(measureOf(attendanceFlag)).toBe("attendance");
     expect(measureOf(workFlag)).toBe("deadlines");
     expect(measureOf({ ...workFlag, reason: "falling-short" })).toBe("completion");
+    expect(measureOf(completionFlag)).toBe("completion");
   });
 });
 
@@ -272,6 +313,7 @@ describe("performanceFlagLabel", () => {
 
   it("uses the attendance screen's own words for an attendance flag", () => {
     expect(performanceFlagLabel(attendanceFlag)).toBe("Arriving late");
+    expect(performanceFlagLabel(completionFlag)).toBe("Incomplete projects · Web Fundamentals");
   });
 });
 
@@ -298,6 +340,30 @@ describe("workFlags", () => {
     ]);
     expect(workFlags(course, { ...steady, incomplete: 2 })).toEqual([fallingShort]);
   });
+
+  it("says nothing about a window under the minimum", () => {
+    expect(workFlags(course, { ...steady, missed: 3, due: 3, incomplete: 3, graded: 3 })).toEqual(
+      [],
+    );
+  });
+});
+
+describe("completionFlags", () => {
+  const course = { id: "c1", name: "Web Fundamentals" };
+
+  it("flags each kind of work under the bars, in the gradebook's order, and skips kinds under the minimum", () => {
+    expect(
+      completionFlags(course, {
+        PROJECT: { complete: 2, possible: 4 },
+        MODULE: { complete: 8, possible: 10 },
+        ASSESSMENT: { complete: 0, possible: 3 },
+      }),
+    ).toEqual([
+      { ...completionFlag, category: "MODULE", band: "yellow" },
+      { ...completionFlag, category: "PROJECT", band: "red" },
+    ]);
+    expect(completionFlags(course, { MODULE: { complete: 10, possible: 10 } })).toEqual([]);
+  });
 });
 
 describe("attendanceFlags", () => {
@@ -319,8 +385,9 @@ describe("attendanceFlags", () => {
     expect(attendanceFlags({ ...quiet, late: 3 })).toEqual([attendanceFlag]);
   });
 
-  it("says nothing over an empty window", () => {
+  it("says nothing over an empty window, or one under the minimum", () => {
     expect(attendanceFlags({ missed: 0, missedOf: 0, late: 0, lateOf: 0, excused: 0 })).toEqual([]);
+    expect(attendanceFlags({ missed: 3, missedOf: 3, late: 3, lateOf: 3, excused: 0 })).toEqual([]);
   });
 
   // An excused morning is still a missed one; the count beside it is for the reader, not the rule.
@@ -548,6 +615,7 @@ describe("meetingShares", () => {
       "tardiness",
       "onTime",
       "submitted",
+      "recentlyGraded",
       "completion:MODULE",
       "completion:PROJECT",
     ]);
@@ -559,6 +627,7 @@ describe("meetingShares", () => {
       "attendance",
       "absence",
       "tardiness",
+      "recentlyGraded",
       "completion:MODULE",
     ]);
   });
@@ -638,7 +707,8 @@ describe("standingAcross", () => {
     expect(standing.recentlyGraded).toEqual({ complete: 8, graded: 9 });
   });
 
-  it("carries each course's windows as flags, named by course", () => {
+  // Fundamentals' one project of one is under the minimum, so it raises no flag.
+  it("carries each course's windows and term completion as flags, named by course", () => {
     expect(standingAcross(here, [prework, fundamentals], readings).flags).toEqual([
       {
         kind: "work",
@@ -653,6 +723,13 @@ describe("standingAcross", () => {
         courseName: "Prework",
         reason: "falling-short",
         band: "yellow",
+      },
+      {
+        kind: "completion",
+        courseId: "prework",
+        courseName: "Prework",
+        category: "MODULE",
+        band: "red",
       },
     ]);
   });
@@ -714,6 +791,13 @@ describe("standingAcross", () => {
         courseName: "Prework",
         reason: "falling-short",
         band: "yellow",
+      },
+      {
+        kind: "completion",
+        courseId: "prework",
+        courseName: "Prework",
+        category: "MODULE",
+        band: "red",
       },
     ]);
     // Prework's red term shares are deadlines and submissions, and neither is read.

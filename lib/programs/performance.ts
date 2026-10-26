@@ -17,7 +17,7 @@ import {
   type RecentCell,
   type RecentWork,
 } from "@/lib/gradebook/summary";
-import { CATEGORY_META } from "@/lib/course-units";
+import { CATEGORY_META, UNIT_CATEGORIES } from "@/lib/course-units";
 import type { CourseUnitCategory } from "@/lib/generated/prisma/enums";
 import { handedIn } from "@/lib/status";
 import { lateness } from "@/lib/submissions/hand-in";
@@ -96,6 +96,12 @@ export const PERFORMANCE_RULE = {
   recentDeadlines: { meeting: ASSIGNMENT_DRIFT_RULE.onTimeAtLeast, exceeding: 0.9 },
   recentlyCompleted: { meeting: ASSIGNMENT_DRIFT_RULE.completeAtLeast, exceeding: 0.9 },
   /**
+   * Below this many assignments behind a term share, the share is printed and never coloured: one
+   * miss of one due is not a pattern. The drift rule's own minimum, so a figure needs the same
+   * amount behind it whether it is a term share or a window.
+   */
+  needsAtLeast: ASSIGNMENT_DRIFT_RULE.needsAtLeast,
+  /**
    * Below this many counted mornings, attendance says nothing yet. The same number as
    * `DRIFT_RULE.needsAtLeast`, so a fellow the attendance rule is not yet judging is not judged here
    * either.
@@ -106,20 +112,42 @@ export const PERFORMANCE_RULE = {
 /** The colour of one cell: green is nothing to say, yellow is short of exceeding, red is a reason to need support. */
 export type Band = "green" | "yellow" | "red";
 
-/** The band a term share falls in. */
-export function shareBand(share: number, rule: { meeting: number; exceeding: number }): Band {
+/** The band a share falls in, or null for a share with too little behind it to be read. */
+export function shareBand(
+  share: number | null,
+  rule: { meeting: number; exceeding: number },
+): Band | null {
+  if (share === null) return null;
   if (share < rule.meeting) return "red";
   if (share < rule.exceeding) return "yellow";
   return "green";
 }
 
-/** A recent window that is yellow or red, and why. A red one is what the fellow's Trends prints. */
+/**
+ * A term figure as a share, or null under `PERFORMANCE_RULE.needsAtLeast`. The recent share
+ * functions apply the same minimum to their windows, so three of three is grey in every column.
+ */
+export function termShare(done: number, of: number): number | null {
+  return of < PERFORMANCE_RULE.needsAtLeast ? null : done / of;
+}
+
+/**
+ * A cell of one course that is yellow or red, and why: a recent window, or one kind of work's term
+ * completion. A red one is what the fellow's Trends prints.
+ */
 export type PerformanceFlag =
   | {
       kind: "work";
       courseId: string;
       courseName: string;
       reason: DriftReason;
+      band: "yellow" | "red";
+    }
+  | {
+      kind: "completion";
+      courseId: string;
+      courseName: string;
+      category: CourseUnitCategory;
       band: "yellow" | "red";
     }
   | { kind: "attendance"; reason: AttendanceDriftReason; band: "yellow" | "red" };
@@ -145,12 +173,18 @@ export const PERFORMANCE_BUCKET_LABEL: Record<PerformanceBucket, string> = {
  * What a coloured column measures. The measure filter chooses among these and the rule reads only
  * the chosen ones. Attendance is the attendance rate and the two recent attendance windows;
  * deadlines is Deadlines Hit and each course's recent deadlines; submissions is Assignments
- * Submitted; completion is each Graded … Completed share and each course's recent graded work.
+ * Submitted; completion is every Graded … Completed share, pooled and per course, and the recent
+ * graded work, pooled and per course.
  */
 export type Measure = "attendance" | "deadlines" | "submissions" | "completion";
 
 /** Every measure, in the order the grid draws their columns. */
-export const MEASURES: readonly Measure[] = ["attendance", "deadlines", "submissions", "completion"];
+export const MEASURES: readonly Measure[] = [
+  "attendance",
+  "deadlines",
+  "submissions",
+  "completion",
+];
 
 export const MEASURE_LABEL: Record<Measure, string> = {
   attendance: "Attendance",
@@ -164,6 +198,7 @@ const EVERY_MEASURE: ReadonlySet<Measure> = new Set(MEASURES);
 /** Which measure a flagged window belongs to, so the filter leaves it out along with its columns. */
 export function measureOf(flag: PerformanceFlag): Measure {
   if (flag.kind === "attendance") return "attendance";
+  if (flag.kind === "completion") return "completion";
   return flag.reason === "deadlines" ? "deadlines" : "completion";
 }
 
@@ -179,9 +214,11 @@ export type PerformanceReading = {
   onTime: OnTime | null;
   /** Graded complete of past-due graded work, by kind, summed over the shown courses. */
   completion: Partial<Record<CourseUnitCategory, Completion>>;
+  /** The shown courses' graded windows added together; see `standingAcross`. */
+  recentlyGraded: RecentlyGraded;
   /** Null until the fellow has `PERFORMANCE_RULE.needsSessionsAtLeast` counted mornings. */
   attendanceRate: number | null;
-  /** Every yellow or red recent window: work once per course and reason, attendance per reason. */
+  /** Every yellow or red course cell: windows once per course and reason, completion per course and kind, attendance per reason. */
   flags: readonly PerformanceFlag[];
 };
 
@@ -195,9 +232,10 @@ export type PerformanceReading = {
  * come due, so a fellow whose past-due work is all waiting on a grade is still placed by the other
  * chosen measures.
  *
- * **Then the worst band.** Every chosen term share and every flagged window of a chosen measure are
- * read as one list of bands: any red is needs support, any yellow without a red is meeting, and all
- * green is exceeding. A kind of work with nothing past due and graded yet has no share and no
+ * **Then the worst band.** Every chosen term share, the pooled recent graded work, and every flagged
+ * course cell of a chosen measure are read as one list of bands: any red is needs support, any
+ * yellow without a red is meeting, and all green is exceeding. A share with fewer than
+ * `PERFORMANCE_RULE.needsAtLeast` behind it has no band, so a kind of work with little past due and graded yet has no share and no
  * band. An empty list, which completion alone produces while nothing graded exists, is too early
  * rather than exceeding, since silence is not a pass.
  */
@@ -205,33 +243,40 @@ export function performanceBucket(
   reading: PerformanceReading,
   measures: ReadonlySet<Measure> = EVERY_MEASURE,
 ): PerformanceBucket {
-  const { onTime, completion, attendanceRate, flags } = reading;
+  const { onTime, completion, recentlyGraded, attendanceRate, flags } = reading;
   const readsWork =
     measures.has("deadlines") || measures.has("submissions") || measures.has("completion");
   if (measures.has("attendance") && attendanceRate === null) return "too-early";
   if (readsWork && onTime === null) return "too-early";
 
-  const bands: Band[] = [];
+  const read: (Band | null)[] = [];
   if (measures.has("deadlines") && onTime) {
-    bands.push(shareBand(onTime.onTime / onTime.due, PERFORMANCE_RULE.onTime));
+    read.push(shareBand(termShare(onTime.onTime, onTime.due), PERFORMANCE_RULE.onTime));
   }
   if (measures.has("submissions") && onTime) {
-    bands.push(shareBand(onTime.submitted / onTime.due, PERFORMANCE_RULE.submitted));
+    read.push(shareBand(termShare(onTime.submitted, onTime.due), PERFORMANCE_RULE.submitted));
   }
   if (measures.has("completion")) {
     for (const figures of Object.values(completion)) {
-      if (figures.possible > 0) {
-        bands.push(shareBand(figures.complete / figures.possible, PERFORMANCE_RULE.completion));
-      }
+      read.push(
+        shareBand(termShare(figures.complete, figures.possible), PERFORMANCE_RULE.completion),
+      );
     }
+    read.push(
+      shareBand(
+        termShare(recentlyGraded.complete, recentlyGraded.graded),
+        PERFORMANCE_RULE.recentlyCompleted,
+      ),
+    );
   }
-  if (measures.has("attendance") && attendanceRate !== null) {
-    bands.push(shareBand(attendanceRate, PERFORMANCE_RULE.attendance));
+  if (measures.has("attendance")) {
+    read.push(shareBand(attendanceRate, PERFORMANCE_RULE.attendance));
   }
   for (const flag of flags) {
-    if (measures.has(measureOf(flag))) bands.push(flag.band);
+    if (measures.has(measureOf(flag))) read.push(flag.band);
   }
 
+  const bands = read.filter((band): band is Band => band !== null);
   if (bands.length === 0) return "too-early";
   if (bands.includes("red")) return "needs-support";
   if (bands.includes("yellow")) return "meeting";
@@ -249,9 +294,8 @@ export function workFlags(
   if (!recent) return [];
   const flags: PerformanceFlag[] = [];
 
-  const onTime = recentOnTimeShare(recent);
-  const deadlines = onTime === null ? "green" : shareBand(onTime, PERFORMANCE_RULE.recentDeadlines);
-  if (deadlines !== "green") {
+  const deadlines = shareBand(recentOnTimeShare(recent), PERFORMANCE_RULE.recentDeadlines);
+  if (deadlines && deadlines !== "green") {
     flags.push({
       kind: "work",
       courseId: course.id,
@@ -261,10 +305,8 @@ export function workFlags(
     });
   }
 
-  const complete = recentCompleteShare(recent);
-  const fallingShort =
-    complete === null ? "green" : shareBand(complete, PERFORMANCE_RULE.recentlyCompleted);
-  if (fallingShort !== "green") {
+  const fallingShort = shareBand(recentCompleteShare(recent), PERFORMANCE_RULE.recentlyCompleted);
+  if (fallingShort && fallingShort !== "green") {
     flags.push({
       kind: "work",
       courseId: course.id,
@@ -277,18 +319,49 @@ export function workFlags(
   return flags;
 }
 
+/**
+ * The yellow and red Graded … Completed shares of one course, one per kind of work it has released,
+ * in the gradebook's order of kinds. Read per course as well as pooled across the shown courses,
+ * because a kind of work a fellow is failing in one course can hide inside a pooled share the
+ * other courses hold up.
+ */
+export function completionFlags(
+  course: { id: string; name: string },
+  completion: Partial<Record<CourseUnitCategory, Completion>>,
+): PerformanceFlag[] {
+  const flags: PerformanceFlag[] = [];
+  for (const category of UNIT_CATEGORIES) {
+    const figures = completion[category];
+    if (!figures) continue;
+    const band = shareBand(
+      termShare(figures.complete, figures.possible),
+      PERFORMANCE_RULE.completion,
+    );
+    if (band && band !== "green") {
+      flags.push({
+        kind: "completion",
+        courseId: course.id,
+        courseName: course.name,
+        category,
+        band,
+      });
+    }
+  }
+  return flags;
+}
+
 /** The yellow and red attendance windows: absence first, then lateness, as the grid draws them. */
 export function attendanceFlags(recent: RecentAttendance | null): PerformanceFlag[] {
   if (!recent) return [];
   const flags: PerformanceFlag[] = [];
 
-  const attended = recentAttendedShare(recent);
-  const missing = attended === null ? "green" : shareBand(attended, PERFORMANCE_RULE.absences);
-  if (missing !== "green") flags.push({ kind: "attendance", reason: "missing", band: missing });
+  const missing = shareBand(recentAttendedShare(recent), PERFORMANCE_RULE.absences);
+  if (missing && missing !== "green") {
+    flags.push({ kind: "attendance", reason: "missing", band: missing });
+  }
 
-  const onTime = recentOnTimeArrivalShare(recent);
-  const late = onTime === null ? "green" : shareBand(onTime, PERFORMANCE_RULE.lateArrivals);
-  if (late !== "green") flags.push({ kind: "attendance", reason: "late", band: late });
+  const late = shareBand(recentOnTimeArrivalShare(recent), PERFORMANCE_RULE.lateArrivals);
+  if (late && late !== "green") flags.push({ kind: "attendance", reason: "late", band: late });
 
   return flags;
 }
@@ -299,6 +372,9 @@ export function attendanceFlags(recent: RecentAttendance | null): PerformanceFla
  */
 export function performanceFlagLabel(flag: PerformanceFlag): string {
   if (flag.kind === "attendance") return ATTENDANCE_DRIFT_REASON_LABEL[flag.reason];
+  if (flag.kind === "completion") {
+    return `Incomplete ${CATEGORY_META[flag.category].tabLabel.toLowerCase()} · ${flag.courseName}`;
+  }
   return `${DRIFT_REASON_LABEL[flag.reason]} · ${flag.courseName}`;
 }
 
@@ -477,37 +553,47 @@ export function meetingShares(
 
   const shares: MeetingShare[] = [
     tally("attendance", "attendance", "Attendance Rate", (row) =>
-      row.attendance.rate === null
-        ? null
-        : shareBand(row.attendance.rate, PERFORMANCE_RULE.attendance),
+      shareBand(row.attendance.rate, PERFORMANCE_RULE.attendance),
     ),
-    tally("absence", "attendance", "Recent Absence", (row) => {
-      const attended = row.attendance.recent ? recentAttendedShare(row.attendance.recent) : null;
-      return attended === null ? null : shareBand(attended, PERFORMANCE_RULE.absences);
-    }),
-    tally("tardiness", "attendance", "Recent Tardiness", (row) => {
-      const onTime = row.attendance.recent ? recentOnTimeArrivalShare(row.attendance.recent) : null;
-      return onTime === null ? null : shareBand(onTime, PERFORMANCE_RULE.lateArrivals);
-    }),
+    tally("absence", "attendance", "Recent Absence", (row) =>
+      shareBand(
+        row.attendance.recent ? recentAttendedShare(row.attendance.recent) : null,
+        PERFORMANCE_RULE.absences,
+      ),
+    ),
+    tally("tardiness", "attendance", "Recent Tardiness", (row) =>
+      shareBand(
+        row.attendance.recent ? recentOnTimeArrivalShare(row.attendance.recent) : null,
+        PERFORMANCE_RULE.lateArrivals,
+      ),
+    ),
     tally("onTime", "deadlines", "Deadlines Hit", (row) =>
-      row.standing.onTime
-        ? shareBand(row.standing.onTime.onTime / row.standing.onTime.due, PERFORMANCE_RULE.onTime)
-        : null,
+      shareBand(
+        row.standing.onTime ? termShare(row.standing.onTime.onTime, row.standing.onTime.due) : null,
+        PERFORMANCE_RULE.onTime,
+      ),
     ),
     tally("submitted", "submissions", "Assignments Submitted", (row) =>
-      row.standing.onTime
-        ? shareBand(
-            row.standing.onTime.submitted / row.standing.onTime.due,
-            PERFORMANCE_RULE.submitted,
-          )
-        : null,
+      shareBand(
+        row.standing.onTime
+          ? termShare(row.standing.onTime.submitted, row.standing.onTime.due)
+          : null,
+        PERFORMANCE_RULE.submitted,
+      ),
+    ),
+    tally("recentlyGraded", "completion", "Recently Completed", (row) =>
+      shareBand(
+        termShare(row.standing.recentlyGraded.complete, row.standing.recentlyGraded.graded),
+        PERFORMANCE_RULE.recentlyCompleted,
+      ),
     ),
     ...categories.map((category) =>
       tally(`completion:${category}`, "completion", completedTitle(category), (row) => {
         const figures = row.standing.completion[category];
-        return figures && figures.possible > 0
-          ? shareBand(figures.complete / figures.possible, PERFORMANCE_RULE.completion)
-          : null;
+        return shareBand(
+          figures ? termShare(figures.complete, figures.possible) : null,
+          PERFORMANCE_RULE.completion,
+        );
       }),
     ),
   ];
@@ -600,7 +686,7 @@ export type Standing = {
   onTime: OnTime | null;
   /** Summed over the shown courses, for each kind of unit any of them has released work in. */
   completion: Partial<Record<CourseUnitCategory, Completion>>;
-  /** The shown courses' graded windows added together, as a figure to look at rather than a rule. */
+  /** The shown courses' graded windows added together, read against the recent bars. */
   recentlyGraded: RecentlyGraded;
   /** Every yellow or red window of a chosen measure: attendance first, then each shown course in order. */
   flags: PerformanceFlag[];
@@ -614,10 +700,13 @@ export type Standing = {
  * the three courses' counts added, and so is completion. Attendance belongs to the program rather
  * than to any course, so it counts whichever courses are shown.
  *
- * **The recent windows are banded per course and never summed into a rule.** Two deadlines slipped
- * in each of two courses is one small slip twice, and a sum that read it as four would flag a
- * fellow no single course is worried about. The graded windows are added up for the All courses
- * band to print, and that figure is not read by the rule.
+ * **The deadline windows are banded per course and never summed into a rule.** Two deadlines
+ * slipped in each of two courses is one small slip twice, and a sum that read it as four would
+ * flag a fellow no single course is worried about. The graded windows are banded per course and
+ * read pooled as well: a window of three graded in one course is under the minimum and says
+ * nothing on its own, and the pooled figure is where enough graded work exists to be judged.
+ * Completion is read per course and kind as well as pooled, for the opposite reason: a kind of
+ * work a fellow is failing in one course can hide inside a pooled share the other courses hold up.
  *
  * **Only the chosen measures' flags are kept.** The grid's worst-first order counts flags by
  * colour, so a flag from a measure left out would push a fellow up a group they are not in for
@@ -658,7 +747,10 @@ export function standingAcross(
       recentlyGraded.graded += reading.recent.graded;
     }
 
-    flags.push(...workFlags(course, reading.recent));
+    flags.push(
+      ...workFlags(course, reading.recent),
+      ...completionFlags(course, reading.completion),
+    );
   }
 
   const summed = due === 0 ? null : { onTime, submitted, due };
@@ -666,7 +758,13 @@ export function standingAcross(
 
   return {
     bucket: performanceBucket(
-      { onTime: summed, completion, attendanceRate: attendance.rate, flags: chosen },
+      {
+        onTime: summed,
+        completion,
+        recentlyGraded,
+        attendanceRate: attendance.rate,
+        flags: chosen,
+      },
       measures,
     ),
     onTime: summed,

@@ -332,6 +332,11 @@ export const ASSIGNMENT_DRIFT_RULE = {
   onTimeAtLeast: 0.75,
   /** Flagged as falling short below this share of the window's graded work graded complete. */
   completeAtLeast: 0.75,
+  /**
+   * Below this many assignments behind a share, the share says nothing: one miss of one due is
+   * not a pattern. The same minimum the Performance tab's term shares read.
+   */
+  needsAtLeast: 4,
 } as const;
 
 /** The parts of an assignment the recent window reads. Released work only; see `recentWorkByStudent`. */
@@ -418,14 +423,16 @@ export function recentWorkByStudent(
   );
 }
 
-/** Of the window's deadlines, the share handed in on time. Null when the window holds none. */
+/** Of the window's deadlines, the share handed in on time. Null under the rule's minimum due. */
 export function recentOnTimeShare(recent: RecentWork): number | null {
-  return recent.due === 0 ? null : (recent.due - recent.missed - recent.late) / recent.due;
+  if (recent.due < ASSIGNMENT_DRIFT_RULE.needsAtLeast) return null;
+  return (recent.due - recent.missed - recent.late) / recent.due;
 }
 
-/** Of the window's graded work, the share graded complete. Null when nothing is graded yet. */
+/** Of the window's graded work, the share graded complete. Null under the rule's minimum graded. */
 export function recentCompleteShare(recent: RecentWork): number | null {
-  return recent.graded === 0 ? null : (recent.graded - recent.incomplete) / recent.graded;
+  if (recent.graded < ASSIGNMENT_DRIFT_RULE.needsAtLeast) return null;
+  return (recent.graded - recent.incomplete) / recent.graded;
 }
 
 export type DriftReason = "deadlines" | "falling-short";
