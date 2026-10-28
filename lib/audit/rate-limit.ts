@@ -38,13 +38,31 @@ export type RateLimit = {
 };
 
 /**
- * Generating a grading draft: a model call over a whole repository.
+ * Generating a grading draft: a model call over a whole repository. Two ceilings, because a loop
+ * and a working instructor differ in one specific way — a loop hits the same submission again and
+ * again, where an instructor touches each submission once or a few times — and a count per person
+ * cannot tell them apart. A per-person ceiling has to sit above the largest honest session, which
+ * is a number that has to be raised every time the roster grows.
  *
- * One hundred an hour is comfortably above a real grading session — an instructor can generate
- * drafts for a whole cohort of twenty-five, and then regenerate several, within one hour, and
- * generation takes tens of seconds each — and far below what a loop would reach in a minute.
+ * **Per submission.** The worst honest hour on one submission is about five attempts: the first
+ * generation; a second after running the tests the first was refused for lacking; a third after a
+ * model or sandbox error; a fourth after editing the rubric; a fifth after the fellow pushes a new
+ * commit; and a double-click, whose second press `claimRun` refuses but which was already recorded.
+ * Ten sits above that with room to spare, and a loop is caught either way, because a stuck screen
+ * hits one submission dozens of times. This ceiling grows with the work by itself, because the
+ * work is what it counts: a cohort of 25 allows 250 honest generations an hour and a cohort of 200
+ * allows 2,000, with no number to raise.
  */
-export const DRAFT_GENERATION_LIMIT: RateLimit = { max: 100, windowMinutes: 60 };
+export const DRAFT_GENERATION_PER_SUBMISSION_LIMIT: RateLimit = { max: 10, windowMinutes: 60 };
+
+/**
+ * **Per person**, as a statement about money rather than about work. Ten per submission stops a
+ * runaway at ten times the cohort, which for a cohort of 200 is 2,000 reports, or about $300 at the
+ * measured cost of a report. Five hundred an hour caps that at about $75 whatever the cohort, and
+ * no honest session reaches it: that would be a hundred submissions generated five times each in
+ * one hour. The only reason to move this number is a change in how much a runaway may spend.
+ */
+export const DRAFT_GENERATION_LIMIT: RateLimit = { max: 500, windowMinutes: 60 };
 
 /**
  * Running an assignment's tests in a sandbox.
@@ -90,6 +108,12 @@ export async function assertWithinRate(
     actorId: string | null;
     action: AuditAction;
     limit: RateLimit;
+    /**
+     * Count only this actor's attempts on one subject, for a ceiling that grows with the work: a
+     * loop hits the same subject again and again, where honest work touches each one a few times.
+     * The noun is for the refusal: "this submission".
+     */
+    subject?: { id: string; noun: string };
     /** What they were doing, for the refusal: "generate another draft". */
     whatTheyDid: string;
   },
@@ -104,17 +128,19 @@ export async function assertWithinRate(
     where: {
       actorId: params.actorId,
       action: params.action,
+      ...(params.subject ? { subjectId: params.subject.id } : {}),
       occurredAt: { gte: since },
     },
   });
 
   if (recent < params.limit.max) return;
 
+  const on = params.subject ? ` on ${params.subject.noun}` : "";
   throw new TRPCError({
     code: "TOO_MANY_REQUESTS",
     message:
-      `That is ${recent} times in the last ${params.limit.windowMinutes} minutes, which is the ` +
-      `limit. This is here to stop a stuck screen or a loop spending money rather than to stop ` +
+      `That is ${recent} times${on} in the last ${params.limit.windowMinutes} minutes, which is ` +
+      `the limit. This is here to stop a stuck screen or a loop spending money rather than to stop ` +
       `you working — wait a few minutes and ${params.whatTheyDid} again, or ask an admin if you ` +
       `genuinely need a higher ceiling.`,
   });

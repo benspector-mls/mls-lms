@@ -41,6 +41,10 @@ import { db } from "@/lib/prisma";
 import { approveDraft, ApprovalError } from "@/lib/grade/approve";
 import { composeReport } from "@/lib/grade/report-text";
 import { claimRun, CLAIM_EXPIRY_MS, ReportGenerationError } from "@/lib/grade/generate-report";
+import {
+  DRAFT_GENERATION_LIMIT,
+  DRAFT_GENERATION_PER_SUBMISSION_LIMIT,
+} from "@/lib/audit/rate-limit";
 import { createCallerFactory } from "@/trpc/init";
 import { appRouter } from "@/trpc/routers/_app";
 
@@ -915,6 +919,87 @@ describe("two attempts to grade one submission", () => {
 
     const afterExpiry = await claimRun(tx(), submissionId, HEAD_SHA);
     expect(afterExpiry.status).toBe("GENERATING");
+  });
+});
+
+/**
+ * The ceiling on generating one submission, which is what lets the limit grow with the roster.
+ *
+ * Reached through the procedure rather than by calling the limiter directly, because what is being
+ * checked is that the procedure counts against the submission and not only against the person.
+ * Nothing is generated: a submission with no pull request is refused by `generateReportForSubmission`
+ * before any sandbox or model call, so `PRECONDITION_FAILED` is what "the limiter let it through"
+ * looks like here, and `TOO_MANY_REQUESTS` is what it looks like when it did not.
+ */
+describe("generating one submission too many times in an hour", () => {
+  const tx = withRollback();
+  let world: World;
+  let submissionId: string;
+  let otherSubmissionId: string;
+
+  const generate = (id: string) =>
+    refusal(() =>
+      createCaller(tx(), world.instructorId).gradingDrafts.generate({ submissionId: id }),
+    );
+
+  /** Earlier attempts, as the procedure records them: one event per attempt, on the submission. */
+  const alreadyGenerated = (subjectId: string | null, times: number) =>
+    tx().auditEvent.createMany({
+      data: Array.from({ length: times }, () => ({
+        action: "DRAFT_GENERATED" as const,
+        actorId: world.instructorId,
+        actorLabel: "instructor",
+        subjectId,
+      })),
+    });
+
+  beforeAll(async () => {
+    world = await makeWorld(tx());
+    const [one, other] = await Promise.all(
+      [1, 2].map(async () => {
+        const assignment = await makeAssignment(tx(), {
+          courseId: world.courseId,
+          courseUnitId: world.unitId,
+        });
+        return makeSubmission(tx(), {
+          assignmentId: assignment.id,
+          studentId: world.student.studentId,
+          status: "SUBMITTED",
+        });
+      }),
+    );
+    submissionId = one.id;
+    otherSubmissionId = other.id;
+  });
+
+  it("attempts on another submission do not count against this one", async () => {
+    await alreadyGenerated(otherSubmissionId, DRAFT_GENERATION_PER_SUBMISSION_LIMIT.max);
+    expect(await generate(submissionId)).toBe("PRECONDITION_FAILED");
+  });
+
+  it("...and the attempt just made on this one is refused once it reaches the ceiling", async () => {
+    const already = await tx().auditEvent.count({
+      where: { action: "DRAFT_GENERATED", actorId: world.instructorId, subjectId: submissionId },
+    });
+    expect(already).toBe(1);
+    await alreadyGenerated(submissionId, DRAFT_GENERATION_PER_SUBMISSION_LIMIT.max - already);
+    expect(await generate(submissionId)).toBe("TOO_MANY_REQUESTS");
+  });
+
+  // The per-person ceiling is about money, so it counts every submission: a fresh one is refused
+  // once the person's total for the hour is reached, however few times that one was tried.
+  it("the per-person ceiling counts attempts on every submission", async () => {
+    const assignment = await makeAssignment(tx(), {
+      courseId: world.courseId,
+      courseUnitId: world.unitId,
+    });
+    const fresh = await makeSubmission(tx(), {
+      assignmentId: assignment.id,
+      studentId: world.student.studentId,
+      status: "SUBMITTED",
+    });
+    await alreadyGenerated(null, DRAFT_GENERATION_LIMIT.max);
+    expect(await generate(fresh.id)).toBe("TOO_MANY_REQUESTS");
   });
 });
 

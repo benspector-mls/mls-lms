@@ -826,7 +826,7 @@ Measured on `claude-sonnet-5`, the deployed default, one section per run, at $2.
 
 ### A ceiling on what a mistake can spend
 
-- **Generating a draft and running the tests are the only two things that cost per use**, and each is capped per person per hour — twenty drafts, sixty test runs — by `lib/audit/rate-limit.ts`.
+- **Generating a draft and running the tests are the only two things that cost per use**, and each is capped by `lib/audit/rate-limit.ts`. A draft is capped at ten generations of one submission an hour, a ceiling that grows with the roster by itself because the roster is what it counts, and at five hundred per person an hour as a ceiling on what a runaway can spend. Test runs are capped at sixty per person an hour.
 - **What this defends against is a loop, not a stranger.** Both procedures are instructor-only, so the procedure builders keep strangers out. A batch screen retried in a tight loop, a script left running, a button pressed forty times: none malicious, all expensive. The refusal says when the caller can continue, because the person reading it is in the middle of grading.
 - **Counted out of `audit_events` rather than a counter of its own.** That table is append-only, already carries `actor_id` and `occurred_at`, and already has the index this query wants. It also means the limit and the record cannot disagree.
 - **Attempts are counted, not successes**, and the event is written before the call. Every attempt spends the model call, and a run that throws after the tokens are gone cost exactly as much as one that returned.

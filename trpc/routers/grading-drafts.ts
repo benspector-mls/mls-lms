@@ -2,7 +2,11 @@ import { TRPCError } from "@trpc/server";
 import { z } from "zod";
 
 import { blankSections, inDeclaredOrder, isManualOnly } from "@/lib/assignments/spec";
-import { assertWithinRate, DRAFT_GENERATION_LIMIT } from "@/lib/audit/rate-limit";
+import {
+  assertWithinRate,
+  DRAFT_GENERATION_LIMIT,
+  DRAFT_GENERATION_PER_SUBMISSION_LIMIT,
+} from "@/lib/audit/rate-limit";
 import { auditActor, recordEvent } from "@/lib/audit/record";
 import { Prisma } from "@/lib/generated/prisma/client";
 import {
@@ -147,6 +151,18 @@ export const gradingDraftsRouter = createTRPCRouter({
 
       const actor = auditActor(ctx);
 
+      /*
+        The ceiling on this one submission is checked first, because its refusal names the mistake
+        — "ten times on this submission" points at the stuck screen — where the per-person ceiling
+        can only report a total. Both are explained beside their constants.
+      */
+      await assertWithinRate(ctx.db, {
+        actorId: actor.id,
+        action: "DRAFT_GENERATED",
+        limit: DRAFT_GENERATION_PER_SUBMISSION_LIMIT,
+        subject: { id: submission.id, noun: "this submission" },
+        whatTheyDid: "generate another draft",
+      });
       await assertWithinRate(ctx.db, {
         actorId: actor.id,
         action: "DRAFT_GENERATED",
