@@ -26,6 +26,13 @@ const FAKE_NUMBER = 999_002;
 /** Five closed mornings, early in September, well behind any clock this suite runs against. */
 const DAYS = ["2026-09-01", "2026-09-02", "2026-09-03", "2026-09-04", "2026-09-07"];
 
+/**
+ * The window the recent figures are read over. The procedure defaults it to the fourteen school
+ * days ending today, which would leave every morning and due date above outside it, so the test
+ * names a window that holds them rather than dating the fixtures from today's clock.
+ */
+const WINDOW = { from: "2026-09-01", to: "2026-09-11" };
+
 describe("sorting a roster into the Performance groups", () => {
   const tx = withRollback();
 
@@ -69,18 +76,29 @@ describe("sorting a roster into the Performance groups", () => {
     cohortId = cohort.id;
     await tx().enrollment.update({ where: { id: clean!.id }, data: { cohortId } });
 
-    // One assignment, past due. Everybody but the missing fellow and the newcomer hands it in.
-    const assignment = await makeAssignment(tx(), {
-      courseId: world.courseId,
-      courseUnitId: world.unitId,
-      dueAt: new Date("2026-09-10T23:00:00Z"),
-    });
-    for (const studentId of [ids.clean, ids.lateLately, ids.test]) {
-      await makeSubmission(tx(), {
-        assignmentId: assignment.id,
-        studentId,
-        submittedAt: new Date("2026-09-09T12:00:00Z"),
+    /*
+      Four assignments, all past due: the fewest due items the rule reads a band from, so a fellow
+      who handed in none of them is red rather than unread. Everybody but the missing fellow and the
+      newcomer hands each one in on time. One of the clean fellow's is graded, as incomplete, so the
+      completion figure has something to count; the rest wait on a grade and are left out of it.
+    */
+    for (const index of [0, 1, 2, 3]) {
+      const assignment = await makeAssignment(tx(), {
+        courseId: world.courseId,
+        courseUnitId: world.unitId,
+        dueAt: new Date("2026-09-10T23:00:00Z"),
       });
+      for (const studentId of [ids.clean, ids.lateLately, ids.test]) {
+        await makeSubmission(tx(), {
+          assignmentId: assignment.id,
+          studentId,
+          submittedAt: new Date("2026-09-09T12:00:00Z"),
+          graded:
+            index === 0 && studentId === ids.clean
+              ? { score: 2, possible: 10, isComplete: false }
+              : undefined,
+        });
+      }
     }
 
     /*
@@ -124,7 +142,8 @@ describe("sorting a roster into the Performance groups", () => {
   });
 
   const read = async (cohort = "all") =>
-    (await asInstructor().programs.performance({ programId: world.programId, cohort })).fellows;
+    (await asInstructor().programs.performance({ programId: world.programId, cohort, ...WINDOW }))
+      .fellows;
   /**
    * One fellow, with their standing across every course, as the screen computes it with no course
    * filter chosen. The procedure sends per-course readings; `standingAcross` is what combines them.
@@ -133,6 +152,7 @@ describe("sorting a roster into the Performance groups", () => {
     const data = await asInstructor().programs.performance({
       programId: world.programId,
       cohort: "all",
+      ...WINDOW,
     });
     const row = data.fellows.find((candidate) => candidate.student.id === studentId);
     return row && { ...row, standing: standingAcross(row.attendance, data.courses, row.courses) };
@@ -141,7 +161,7 @@ describe("sorting a roster into the Performance groups", () => {
   it("a fellow on time and here every morning exceeds", async () => {
     const row = await fellow(ids.clean);
     expect(row?.standing.bucket).toBe("exceeding");
-    expect(row?.standing.onTime).toEqual({ onTime: 1, due: 1 });
+    expect(row?.standing.onTime).toEqual({ onTime: 4, submitted: 4, due: 4 });
     expect(row?.attendance.rate).toBe(1);
   });
 
@@ -178,10 +198,10 @@ describe("sorting a roster into the Performance groups", () => {
 
   it("each fellow carries that course's on-time count", async () => {
     const row = await fellow(ids.missing);
-    expect(row?.courses[world.courseId]?.onTime).toEqual({ onTime: 0, due: 1 });
+    expect(row?.courses[world.courseId]?.onTime).toEqual({ onTime: 0, submitted: 0, due: 4 });
   });
 
-  it("completion counts only work graded complete", async () => {
+  it("completion counts graded work only, and leaves out work waiting on a grade", async () => {
     const row = await fellow(ids.clean);
     expect(row?.standing.completion.MODULE).toEqual({ complete: 0, possible: 1 });
   });
@@ -195,7 +215,7 @@ describe("sorting a roster into the Performance groups", () => {
 
   it("each fellow carries that course's recent work", async () => {
     const row = await fellow(ids.missing);
-    expect(row?.courses[world.courseId]?.recent).toMatchObject({ missed: 1, late: 0, due: 1 });
+    expect(row?.courses[world.courseId]?.recent).toMatchObject({ missed: 4, late: 0, due: 4 });
   });
 
   it("and the attendance windows the grid prints", async () => {
@@ -207,7 +227,7 @@ describe("sorting a roster into the Performance groups", () => {
   it("a fellow who never handed in the work needs support", async () => {
     const row = await fellow(ids.missing);
     expect(row?.standing.bucket).toBe("needs-support");
-    expect(row?.standing.onTime).toEqual({ onTime: 0, due: 1 });
+    expect(row?.standing.onTime).toEqual({ onTime: 0, submitted: 0, due: 4 });
   });
 
   it("a fellow late three mornings running needs support, at full attendance", async () => {
