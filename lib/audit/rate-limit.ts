@@ -40,11 +40,11 @@ export type RateLimit = {
 /**
  * Generating a grading draft: a model call over a whole repository.
  *
- * Twenty an hour is comfortably above a real grading session — an instructor works through a
- * cohort of twenty-five over an afternoon, and generation takes tens of seconds each — and far
- * below what a loop would reach in a minute.
+ * One hundred an hour is comfortably above a real grading session — an instructor can generate
+ * drafts for a whole cohort of twenty-five, and then regenerate several, within one hour, and
+ * generation takes tens of seconds each — and far below what a loop would reach in a minute.
  */
-export const DRAFT_GENERATION_LIMIT: RateLimit = { max: 20, windowMinutes: 60 };
+export const DRAFT_GENERATION_LIMIT: RateLimit = { max: 100, windowMinutes: 60 };
 
 /**
  * Running an assignment's tests in a sandbox.
