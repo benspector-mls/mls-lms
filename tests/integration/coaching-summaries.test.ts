@@ -106,6 +106,10 @@ async function completedSession(
       programId: world.programId,
       enrollmentId: world.student.id,
       heldOn: options.endedAt,
+      // The form, as `startSession` would copy it: this suite reads answers, not the layout.
+      layout: { version: 1, sections: [{ id: "session", title: "Session", items: [] }] },
+      templateId: crypto.randomUUID(),
+      templateName: "Coaching session",
       temperature: options.temperature ?? null,
       answers: options.answer
         ? [{ promptId: "additional-notes", prompt: "Anything else?", answer: options.answer }]

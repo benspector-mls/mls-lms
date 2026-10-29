@@ -2981,23 +2981,20 @@ model CoachingSession {
 
   /// The form this session is run through: a copy of the template's layout taken when the session
   /// started, so that editing or deleting the template afterwards changes nothing here — see
-  /// `coachingLayoutSchema` in `lib/coaching.ts`. The database default is the form every session
-  /// had before forms were templates, written out in the database's own canonical JSON text, and
-  /// it exists for the previous release: a draft it starts during a deploy must still have a form.
-  /// The application always copies a template itself. The default is dropped in the release after
-  /// no instance of the previous one is answering.
-  layout Json @default("{\"version\": 1, \"sections\": [{\"id\": \"before\", \"items\": [{\"id\": \"topics\", \"kind\": \"TOPICS\", \"caption\": \"Theirs to keep or remove.\", \"heading\": \"Discussion items\"}, {\"id\": \"preparation\", \"kind\": \"LONG_TEXT\", \"prompt\": \"Pre-session notes\", \"shared\": false, \"caption\": \"Observations, trends, and questions you want to be sure to raise.\", \"overview\": false}], \"title\": \"Before the session\"}, {\"id\": \"check-in\", \"items\": [{\"id\": \"temperature\", \"kind\": \"TEMPERATURE\", \"prompt\": \"Temperature check\", \"caption\": \"On a scale from 1 to 10, how are you feeling at the moment?\"}, {\"id\": \"on-your-mind\", \"kind\": \"LONG_TEXT\", \"prompt\": \"What has been on your mind lately?\", \"shared\": false, \"caption\": \"In their words, roughly.\", \"heading\": \"On their mind\", \"overview\": true}, {\"id\": \"excited\", \"kind\": \"LONG_TEXT\", \"prompt\": \"What are you most excited to work on at the moment?\", \"shared\": false, \"caption\": \"In their words, roughly.\", \"heading\": \"Excited about\", \"overview\": true}, {\"id\": \"challenging\", \"kind\": \"LONG_TEXT\", \"prompt\": \"Has anything been proving particularly challenging recently?\", \"shared\": false, \"caption\": \"In their words, roughly.\", \"heading\": \"Challenging\", \"overview\": true}, {\"id\": \"progress\", \"kind\": \"LONG_TEXT\", \"prompt\": \"Where have you made progress over the past few weeks / where have you felt most successful?\", \"shared\": false, \"caption\": \"In their words, roughly.\", \"heading\": \"Progress\", \"overview\": true}, {\"id\": \"support\", \"kind\": \"LONG_TEXT\", \"prompt\": \"What kind of support or accountability would feel helpful?\", \"shared\": false, \"caption\": \"In their words, roughly.\", \"heading\": \"Support wanted\", \"overview\": true}, {\"id\": \"additional-notes\", \"kind\": \"LONG_TEXT\", \"prompt\": \"Additional notes\", \"shared\": false, \"caption\": \"Anything else from this conversation worth writing down.\", \"overview\": false}], \"title\": \"Fellow check-in\"}, {\"id\": \"goals\", \"items\": [{\"id\": \"goal-progress\", \"kind\": \"LONG_TEXT\", \"prompt\": \"What progress have you made toward the goal you set during your last coaching session?\", \"shared\": false, \"caption\": \"In their words, roughly.\", \"overview\": false}, {\"id\": \"goal-evidence\", \"kind\": \"LONG_TEXT\", \"prompt\": \"What evidence, artifact, or example shows that progress?\", \"shared\": false, \"caption\": \"In their words, roughly.\", \"overview\": false}, {\"id\": \"goal-adjustment\", \"kind\": \"LONG_TEXT\", \"prompt\": \"What helped or got in the way, and what would you adjust moving forward?\", \"shared\": false, \"caption\": \"In their words, roughly.\", \"overview\": false}, {\"id\": \"goals-panel\", \"kind\": \"GOALS\", \"caption\": \"Theirs to edit.\", \"heading\": \"Goals\"}], \"title\": \"Goal setting\"}]}")
+  /// `coachingLayoutSchema` in `lib/coaching.ts`. No default: the application copies a template
+  /// on every start, and an insert that names no form must fail rather than run a session through
+  /// a form nobody chose. The sessions that predate forms hold the fixed form they were run
+  /// through, written onto them when forms became templates.
+  layout Json
 
   /// Which form the layout was copied from, as its id and its name on that day — the name is what
   /// the record's session list and the Fellows screen's Coaching tab print, and the id is what that
   /// tab filters by, so sessions run through different forms are never read as one. Copies rather
   /// than a foreign key, for the reason `layout` is a copy: the form may be renamed or deleted and
-  /// the session must keep saying what it was. The database defaults name the form every session
-  /// was run through before forms were templates, which is the seeded default form, and they exist
-  /// for the previous release's inserts during a deploy; the application always writes both. The
-  /// defaults are dropped with `layout`'s.
-  templateId   String @default(dbgenerated("'c0ac4100-f0a1-4e6e-8d2b-7a3f5e9c1b20'::uuid")) @map("template_id") @db.Uuid
-  templateName String @default("Coaching session") @map("template_name")
+  /// the session must keep saying what it was. No defaults, for `layout`'s reason: the application
+  /// writes both on every start. The sessions that predate forms name the seeded default form.
+  templateId   String @map("template_id") @db.Uuid
+  templateName String @map("template_name")
 
   /// `[{promptId, prompt, answer}]` — see `sessionAnswersSchema` in `lib/coaching.ts`. Each
   /// `promptId` is an item id in `layout`, and the prompt text is copied in server-side at save
