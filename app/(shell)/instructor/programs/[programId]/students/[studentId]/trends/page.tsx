@@ -61,7 +61,7 @@ async function StudentTrends({
       sections={SECTIONS.trends}
     >
       <Trends
-        id="trends"
+        id="last-few-weeks"
         level={2}
         recentAttendance={data.recentAttendance}
         arrivals={data.arrivals}

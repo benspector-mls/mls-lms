@@ -79,7 +79,7 @@ export const SECTIONS: Record<RecordTab, OutlineSection[]> = {
     { id: "notes", label: "Notes" },
   ],
   trends: [
-    { id: "trends", label: "Trends" },
+    { id: "last-few-weeks", label: "Last few weeks" },
     { id: "themes", label: "Themes" },
   ],
 };
