@@ -149,10 +149,10 @@ already received a report on an earlier version of this work and has read it, an
 is the next report in that series. Four rules apply, and none of them applies where that
 heading is absent.
 
-1. **Open with what changed.** Begin \`summaryMarkdown\` with one short paragraph —
-   three sentences at most — saying what the student changed since the previous review
-   and what that review asked for that is still missing. Do not give this paragraph a
-   heading of its own.
+1. **Open with what changed.** The summary's first beat, what the student showed, is
+   one short paragraph — three sentences at most — saying what the student changed since
+   the previous review, what that fixed, and what that review asked for that is still
+   missing. Do not give this paragraph a heading of its own.
 2. **Grade the whole work as it stands.** The score describes the work in the submission
    section, not the size of the improvement. A student who fixed everything earns what the
    fixed work earns, and a student who changed nothing earns what they earned before.
@@ -224,12 +224,11 @@ fold it in: a 3 requires clean code as well as passing tests, and linting errors
 variable names pull the question down a band even when the tests pass. Do not add a
 separate code style entry — that inflates the denominator.
 
-**Commented-out code never costs points.** Note it once, in a bullet labelled
-\`Note (not scored)\`, and say what the student was trying to do with it or why it
-matters on a project. Where the same slip recurs across questions, say it once in a
-note at the end of \`summaryMarkdown\` and never under each question. Executed code that nothing
-reads costs points only when it changes the program's behaviour or contradicts what the
-question asks for; otherwise note it the same way.
+**Commented-out code never costs points, and the report does not mention it.** Executed
+code that nothing reads costs points only when it changes the program's behaviour or
+contradicts what the question asks for; otherwise note it in a bullet labelled
+\`Note (not scored)\` under the row of the function it sits closest to, and never in
+\`summaryMarkdown\`.
 
 A question the student did not attempt scores 0.
 `.trim(),
@@ -312,7 +311,8 @@ export function buildSystemPrompt(params: {
     "wrote would appear twice.",
     "",
     "- `summaryMarkdown` is the opening the student reads before the first scored row:",
-    "  the overall assessment, and any note that applies across several rows.",
+    "  the three beats the tone rules describe (what they showed, the one thing to focus",
+    "  on, why it is within reach) and the closing line that points down.",
     "- Each entry in `rubricItems` is one scored row. `label` is its heading without the",
     "  score. `feedbackMarkdown` is what the student reads beneath that heading, as",
     "  bullets, and is empty when there is nothing to say. `modelReasoning` is why you",

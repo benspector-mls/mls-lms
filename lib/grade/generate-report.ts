@@ -742,8 +742,10 @@ export async function generateReportForSubmission(submissionId: string): Promise
   Bumped when the prompt changes in a way that changes what comes back, so a stored report can be
   traced to the wording that produced it. `2026-10-10.1` asks for a summary and one row per scored
   item, each carrying its own feedback, in place of a whole report written as one block of text.
+  `2026-10-29.1` describes the summary as three beats ending in one focus, and stops the report
+  from mentioning commented-out code.
 */
-const PROMPT_VERSION = "2026-10-10.1";
+const PROMPT_VERSION = "2026-10-29.1";
 
 /** Returns null when the file does not exist, which is an ordinary outcome. */
 async function fetchFile(
