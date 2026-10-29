@@ -7,12 +7,20 @@
  * completed session freezes are the figures the student record shows, because both are
  * `courseFiguresFor` called twice.
  */
-import { parseSnapshot, PREPARATION_PROMPT } from "@/lib/coaching";
+import { parseSnapshot } from "@/lib/coaching";
 import { schoolDayOf } from "@/lib/school-time";
 import { createCallerFactory } from "@/trpc/init";
 import { appRouter } from "@/trpc/routers/_app";
 
-import { makeAccount, makeAssignment, makeSubmission, makeWorld, type World } from "./fixtures";
+import {
+  FIXTURE_LAYOUT,
+  makeAccount,
+  makeAssignment,
+  makeCoachingTemplate,
+  makeSubmission,
+  makeWorld,
+  type World,
+} from "./fixtures";
 import type { StoredObjects } from "./storage-double";
 import { withRollback, type Tx } from "./transaction";
 
@@ -78,6 +86,19 @@ async function seedCompetency(db: Tx) {
   return competency.entries[0]!.id;
 }
 
+/**
+ * A session started from a form of the suite's own, made inside the block's transaction, so no
+ * session here depends on the seeded default form.
+ */
+async function startSession(db: Tx, caller: ReturnType<typeof createCaller>, world: World) {
+  const template = await makeCoachingTemplate(db);
+  return caller.coaching.startSession({
+    programId: world.programId,
+    studentId: world.student.studentId,
+    templateId: template.id,
+  });
+}
+
 /** The seeded indicator's id, set by whichever block created it inside its own transaction. */
 let INDICATOR: string;
 
@@ -120,10 +141,7 @@ describe("who may write about a fellow", () => {
     });
     noteId = note.id;
 
-    const session = await asInstructor().coaching.startSession({
-      programId: world.programId,
-      studentId: world.student.studentId,
-    });
+    const session = await startSession(tx(), asInstructor(), world);
     sessionId = session.id;
   });
 
@@ -203,10 +221,26 @@ describe("a coaching session, drafted and completed", () => {
   const tx = withRollback();
 
   let world: World;
+  let adminId: string;
+  let template: { id: string };
   let sessionId: string;
 
   const asInstructor = () => createCaller(tx(), world.instructorId);
+  const asAdmin = () => createCaller(tx(), adminId);
   const asFellow = () => createCaller(tx(), world.student.studentId);
+
+  /*
+    The answers the session carries through the block. Every save sends the whole set, as the
+    autosave does, so a later save that moved only the date sends them again rather than clearing
+    them.
+  */
+  const ANSWERS = [
+    { promptId: "preparation", answer: "Ask about Mod 2" },
+    { promptId: "win", answer: "Shipped the API." },
+    { promptId: "energy", answer: 3 },
+    { promptId: "focus", answer: "Mod 2" },
+    { promptId: "supports", answer: ["Pairing", "Office hours"] },
+  ];
 
   beforeAll(async () => {
     world = await makeWorld(tx(), { students: 2 });
@@ -230,19 +264,57 @@ describe("a coaching session, drafted and completed", () => {
       dueAt: new Date("2026-01-10T00:00:00Z"),
     });
 
+    adminId = await makeAccount(tx(), { role: "ADMIN" });
+    template = await makeCoachingTemplate(tx(), { name: "The suite's form" });
     const session = await asInstructor().coaching.startSession({
       programId: world.programId,
       studentId: world.student.studentId,
+      templateId: template.id,
     });
     sessionId = session.id;
   });
 
-  it("saving copies the prompt text from the template, not from the client", async () => {
+  /*
+    The promise every admin edit rests on: a session copies the form it starts with, so the form
+    may be reworded, reordered or deleted afterwards and the session keeps asking what it asked.
+  */
+  it("copies the chosen form onto the session, and a later edit to the form changes nothing", async () => {
+    const started = await asInstructor().coaching.session({
+      programId: world.programId,
+      sessionId,
+    });
+    expect(started.layout).toEqual(FIXTURE_LAYOUT);
+
+    const loaded = await asAdmin().coachingTemplates.get({ id: template.id });
+    await asAdmin().coachingTemplates.save({
+      id: template.id,
+      name: "Reworded",
+      updatedAt: loaded.updatedAt,
+      layout: {
+        version: 1,
+        sections: [{ id: "only", title: "Only", items: [] }],
+      },
+    });
+
+    const after = await asInstructor().coaching.session({ programId: world.programId, sessionId });
+    expect(after.layout).toEqual(FIXTURE_LAYOUT);
+
+    // The form's name is copied too, and keeps the name of the day the session started.
+    const record = await asInstructor().coaching.forStudent({
+      programId: world.programId,
+      studentId: world.student.studentId,
+    });
+    expect(record.sessions.find((row) => row.id === sessionId)?.templateName).toBe(
+      "The suite's form",
+    );
+  });
+
+  it("stores an answer of each kind under its question's wording from the form", async () => {
     await asInstructor().coaching.saveSession({
       programId: world.programId,
       sessionId,
       temperature: 7,
-      answers: [{ promptId: "on-your-mind", answer: "Interview prep." }],
+      answers: ANSWERS,
     });
 
     const stored = await tx().coachingSession.findUniqueOrThrow({
@@ -252,48 +324,86 @@ describe("a coaching session, drafted and completed", () => {
 
     expect(stored.temperature).toBe(7);
     expect(stored.answers).toEqual([
-      {
-        promptId: "on-your-mind",
-        prompt: "What has been on your mind lately?",
-        answer: "Interview prep.",
-      },
+      { promptId: "preparation", prompt: "Pre-session notes", answer: "Ask about Mod 2" },
+      { promptId: "win", prompt: "One win this week", answer: "Shipped the API." },
+      { promptId: "energy", prompt: "Energy", answer: 3 },
+      { promptId: "focus", prompt: "Focus area", answer: "Mod 2" },
+      { promptId: "supports", prompt: "Supports", answer: ["Pairing", "Office hours"] },
     ]);
   });
 
-  /*
-    The field at the bottom of the form is an answer like the others, under its own prompt id, so
-    it saves through the same call and comes back with its label copied in the same way.
-  */
-  it("keeps additional notes among the answers, labelled", async () => {
-    await asInstructor().coaching.saveSession({
-      programId: world.programId,
-      sessionId,
-      temperature: null,
-      answers: [{ promptId: "additional-notes", answer: "Follow up on the pairing schedule." }],
-    });
-
-    const session = await asInstructor().coaching.session({
-      programId: world.programId,
-      sessionId,
-    });
-    expect(session.answers).toContainEqual({
-      promptId: "additional-notes",
-      prompt: "Additional notes",
-      answer: "Follow up on the pairing schedule.",
-    });
-  });
-
-  it("refuses an answer to a prompt the template does not have", async () => {
-    expect(
-      await refusal(() =>
+  it("refuses a question not on this session's form, a panel, and a value its question does not take", async () => {
+    const attempt = (promptId: string, answer: string | number | boolean | string[]) =>
+      refusal(() =>
         asInstructor().coaching.saveSession({
           programId: world.programId,
           sessionId,
           temperature: null,
-          answers: [{ promptId: "no-such-prompt", answer: "x" }],
+          answers: [{ promptId, answer }],
+        }),
+      );
+
+    expect(await attempt("no-such-prompt", "x")).toBe("BAD_REQUEST");
+    expect(await attempt("goals-panel", "x")).toBe("BAD_REQUEST");
+    expect(await attempt("energy", "3")).toBe("BAD_REQUEST");
+    expect(await attempt("energy", 9)).toBe("BAD_REQUEST");
+    expect(await attempt("focus", "Mod 3")).toBe("BAD_REQUEST");
+    expect(await attempt("supports", ["Tutoring"])).toBe("BAD_REQUEST");
+
+    // Nothing above was stored: the answers are as the previous test left them.
+    const session = await asInstructor().coaching.session({
+      programId: world.programId,
+      sessionId,
+    });
+    expect(session.answers.map((answer) => answer.promptId)).toEqual([
+      "preparation",
+      "win",
+      "energy",
+      "focus",
+      "supports",
+    ]);
+  });
+
+  /*
+    An old tab during a deploy names no form. It gets the default; and when several forms exist
+    and none is the default there is no honest choice, so it is refused rather than guessed.
+  */
+  it("starts from the default form when none is named, and refuses when no form is the default", async () => {
+    const other = await makeCoachingTemplate(tx(), {
+      name: "The other form",
+      layout: { version: 1, sections: [{ id: "other", title: "Other", items: [] }] },
+    });
+    await asAdmin().coachingTemplates.setDefault({ id: other.id });
+
+    const started = await asInstructor().coaching.startSession({
+      programId: world.programId,
+      studentId: world.student.studentId,
+    });
+    const session = await asInstructor().coaching.session({
+      programId: world.programId,
+      sessionId: started.id,
+    });
+    expect(session.layout?.sections.map((section) => section.id)).toEqual(["other"]);
+
+    await tx().coachingTemplate.updateMany({ data: { isDefault: false } });
+    expect(
+      await refusal(() =>
+        asInstructor().coaching.startSession({
+          programId: world.programId,
+          studentId: world.student.studentId,
         }),
       ),
     ).toBe("BAD_REQUEST");
+
+    expect(
+      await refusal(() =>
+        asInstructor().coaching.startSession({
+          programId: world.programId,
+          studentId: world.student.studentId,
+          templateId: "00000000-0000-4000-8000-000000000000",
+        }),
+      ),
+    ).toBe("NOT_FOUND");
   });
 
   it("is dated today until the instructor moves it, and the lists on both sides follow", async () => {
@@ -303,8 +413,8 @@ describe("a coaching session, drafted and completed", () => {
     await asInstructor().coaching.saveSession({
       programId: world.programId,
       sessionId,
-      temperature: null,
-      answers: [],
+      temperature: 7,
+      answers: ANSWERS,
       heldOn: "2031-03-14",
     });
 
@@ -376,9 +486,27 @@ describe("a coaching session, drafted and completed", () => {
     const mine = await asFellow().coaching.myGoals({ programId: world.programId });
 
     expect(mine.sessions).toHaveLength(1);
-    expect(Object.keys(mine.sessions[0]).sort()).toEqual(["endedAt", "heldOn", "id", "snapshot"]);
+    expect(Object.keys(mine.sessions[0]).sort()).toEqual([
+      "endedAt",
+      "heldOn",
+      "id",
+      "shared",
+      "snapshot",
+    ]);
     expect(mine).not.toHaveProperty("notes");
     expect(JSON.stringify(mine)).not.toContain("temperature");
+
+    /*
+      The shared questions and the coach's answers, in the form's order — and none of the
+      staff-only ones, whose text must not appear anywhere in the payload.
+    */
+    expect(mine.sessions[0].shared.map(({ item, answer }) => [item.id, answer])).toEqual([
+      ["win", "Shipped the API."],
+      ["focus", "Mod 2"],
+    ]);
+    expect(JSON.stringify(mine)).not.toContain("Ask about Mod 2");
+    expect(JSON.stringify(mine)).not.toContain("Pre-session notes");
+    expect(JSON.stringify(mine)).not.toContain("Office hours");
   });
 
   /*
@@ -838,10 +966,7 @@ describe("goal updates: the fellow's progress notes", () => {
     });
     expect(record.goals.find((row) => row.id === goalId)?.updates).toHaveLength(1);
 
-    const started = await asInstructor().coaching.startSession({
-      programId: world.programId,
-      studentId: world.student.studentId,
-    });
+    const started = await startSession(tx(), asInstructor(), world);
     const session = await asInstructor().coaching.session({
       programId: world.programId,
       sessionId: started.id,
@@ -1039,10 +1164,7 @@ describe("discarding a coaching session", () => {
   const asFellow = () => createCaller(tx(), world.student.studentId);
 
   const start = async () => {
-    const session = await asInstructor().coaching.startSession({
-      programId: world.programId,
-      studentId: world.student.studentId,
-    });
+    const session = await startSession(tx(), asInstructor(), world);
     return session.id;
   };
 
@@ -1149,12 +1271,7 @@ describe("preparing for a session", () => {
 
   beforeAll(async () => {
     world = await makeWorld(tx());
-    sessionId = (
-      await asInstructor().coaching.startSession({
-        programId: world.programId,
-        studentId: world.student.studentId,
-      })
-    ).id;
+    sessionId = (await startSession(tx(), asInstructor(), world)).id;
   });
 
   it("is stored among the answers with its label copied in, and reaches no fellow", async () => {
@@ -1162,9 +1279,7 @@ describe("preparing for a session", () => {
       programId: world.programId,
       sessionId,
       temperature: null,
-      answers: [
-        { promptId: PREPARATION_PROMPT.id, answer: "Late three mornings; ask about the commute." },
-      ],
+      answers: [{ promptId: "preparation", answer: "Late three mornings; ask about the commute." }],
     });
 
     const stored = await asInstructor().coaching.session({ programId: world.programId, sessionId });
@@ -1232,10 +1347,7 @@ describe("discussion topics, which are the fellow's", () => {
     });
     expect(record.topics.map((row) => row.id)).toEqual([topicId]);
 
-    const { id: sessionId } = await asInstructor().coaching.startSession({
-      programId: world.programId,
-      studentId: world.student.studentId,
-    });
+    const { id: sessionId } = await startSession(tx(), asInstructor(), world);
     const draft = await asInstructor().coaching.session({ programId: world.programId, sessionId });
     expect(draft.topics.map((row) => row.id)).toEqual([topicId]);
 
@@ -1675,6 +1787,7 @@ describe("the Coaching tab: every fellow's latest session and current goals", ()
   let olderGoalId: string;
   let newerGoalId: string;
   let freeGoalId: string;
+  let midTerm: { id: string };
 
   const asInstructor = () => createCaller(tx(), world.instructorId);
   const asOutsider = () => createCaller(tx(), outsider.instructorId);
@@ -1685,17 +1798,32 @@ describe("the Coaching tab: every fellow's latest session and current goals", ()
     outsider = await makeWorld(tx());
     INDICATOR = await seedCompetency(tx());
 
-    // A completed session, then a draft opened afterwards with a different temperature.
-    const completed = await asInstructor().coaching.startSession({
+    // An older completed session through a second form, which the tab reads only when asked to.
+    midTerm = await makeCoachingTemplate(tx(), { name: "Mid-term" });
+    const earlier = await asInstructor().coaching.startSession({
       programId: world.programId,
       studentId: world.student.studentId,
+      templateId: midTerm.id,
     });
+    await asInstructor().coaching.saveSession({
+      programId: world.programId,
+      sessionId: earlier.id,
+      temperature: 8,
+      answers: [{ promptId: "challenging", answer: "Pointers." }],
+    });
+    await asInstructor().coaching.completeSession({
+      programId: world.programId,
+      sessionId: earlier.id,
+    });
+
+    // A completed session, then a draft opened afterwards with a different temperature.
+    const completed = await startSession(tx(), asInstructor(), world);
     await asInstructor().coaching.saveSession({
       programId: world.programId,
       sessionId: completed.id,
       temperature: 4,
       answers: [
-        { promptId: PREPARATION_PROMPT.id, answer: "Ask about the project deadline." },
+        { promptId: "preparation", answer: "Ask about the project deadline." },
         { promptId: "challenging", answer: "Recursion." },
       ],
     });
@@ -1704,10 +1832,7 @@ describe("the Coaching tab: every fellow's latest session and current goals", ()
       sessionId: completed.id,
     });
 
-    const draft = await asInstructor().coaching.startSession({
-      programId: world.programId,
-      studentId: world.student.studentId,
-    });
+    const draft = await startSession(tx(), asInstructor(), world);
     await asInstructor().coaching.saveSession({
       programId: world.programId,
       sessionId: draft.id,
@@ -1762,11 +1887,49 @@ describe("the Coaching tab: every fellow's latest session and current goals", ()
     expect(fellow.session).toMatchObject({ temperature: 4, daysSince: 0 });
   });
 
-  it("returns the check-in answers and nothing else the session holds", async () => {
+  /*
+    The form marks two questions for the tab; both come back, headed, the unanswered one empty,
+    and nothing else the session holds — the preparation answer stays on the session.
+  */
+  it("returns the answers the form marks for the tab, headed, and nothing else the session holds", async () => {
     const data = await overview();
     const fellow = data.fellows.find((row) => row.student.id === world.student.studentId)!;
 
-    expect(fellow.session!.checkIns.map((answer) => answer.promptId)).toEqual(["challenging"]);
+    expect(fellow.session!.answers).toEqual([
+      {
+        id: "challenging",
+        heading: "Challenging",
+        prompt: "What has been challenging?",
+        answer: "Recursion.",
+      },
+      { id: "focus", heading: "Focus", prompt: "Focus area", answer: "" },
+    ]);
+    expect(JSON.stringify(fellow)).not.toContain("project deadline");
+  });
+
+  /*
+    Two forms were used. Without a choice the tab reads the newest session's form; asked for the
+    other, it reads each fellow's latest session through that one, answers and all.
+  */
+  it("offers every form the sessions used, newest first, and reads one form at a time", async () => {
+    const data = await overview();
+    expect(data.forms.map((form) => form.name)).toEqual([
+      expect.stringMatching(/^Form /),
+      "Mid-term",
+    ]);
+    expect(data.form).toBe(data.forms[0]!.id);
+
+    const chosen = await asInstructor().coaching.overview({
+      programId: world.programId,
+      cohort: "all",
+      form: midTerm.id,
+    });
+    expect(chosen.form).toBe(midTerm.id);
+    const fellow = chosen.fellows.find((row) => row.student.id === world.student.studentId)!;
+    expect(fellow.session).toMatchObject({ temperature: 8 });
+    expect(fellow.session!.answers.find((answer) => answer.id === "challenging")?.answer).toBe(
+      "Pointers.",
+    );
   });
 
   it("a fellow with no completed session is listed, with no session", async () => {

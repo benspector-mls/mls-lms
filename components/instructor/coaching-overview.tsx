@@ -1,13 +1,21 @@
 "use client";
 
 import Link from "next/link";
-import { ArrowDown, ArrowUp, ChevronsUpDown, MessagesSquare } from "lucide-react";
+import { ArrowDown, ArrowUp, ChevronsUpDown, ClipboardList, MessagesSquare } from "lucide-react";
+import { useRouter, useSearchParams } from "next/navigation";
 import * as React from "react";
 
 import { EmptyState } from "@/components/list-states";
 import { GoalMarkerBadge } from "@/components/status-badge";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import {
   stickyColumn,
   Table,
@@ -17,12 +25,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
-import {
-  CHECK_IN_PROMPTS,
-  TEMPERATURE_MAX,
-  temperatureTone,
-  type CheckInPromptId,
-} from "@/lib/coaching";
+import { TEMPERATURE_MAX, temperatureTone } from "@/lib/coaching";
 import { groupIdOfGoal } from "@/lib/competencies";
 import { programStudentHref } from "@/lib/links";
 import { initials } from "@/lib/people";
@@ -34,18 +37,6 @@ type Payload = RouterOutputs["coaching"]["overview"];
 type Fellow = Payload["fellows"][number];
 type Goal = Fellow["goals"][number];
 
-/**
- * The column headings for the five check-in answers. The prompts themselves are full questions,
- * too long to head a column; the cell's popover shows the question as it was asked.
- */
-const CHECK_IN_HEADINGS: Record<CheckInPromptId, string> = {
-  "on-your-mind": "On their mind",
-  excited: "Excited about",
-  challenging: "Challenging",
-  progress: "Progress",
-  support: "Support wanted",
-};
-
 /** The key of the Other Goal column, which no competency group's id can equal. */
 const OTHER = "other";
 
@@ -54,8 +45,20 @@ const OTHER = "other";
  * completed coaching session, one row each.
  *
  * The row reads left to right as the session did: the temperature and how long ago it was taken,
- * the goal the fellow is working on in each competency group, and the start of each check-in
- * answer, which opens in full on a click.
+ * the goal the fellow is working on in each competency group, and the start of each answer the
+ * form marks for this tab, which opens in full on a click.
+ *
+ * **One form at a time, chosen above the table.** Sessions run through different forms ask
+ * different questions, so the rows are each fellow's latest session through the chosen form, and
+ * the picker offers every form a completed session of this program was run through. The choice
+ * lives in the query string, as the cohort does, so a link carries it.
+ *
+ * **The answer columns come from the form.** Each question an admin marks for this tab carries a
+ * short column heading, because a prompt is a full question and too long to head a column; the
+ * cell's popover shows the question as it was asked. The columns are the union of the marked
+ * questions across the rows' sessions, in the order first met down the roster — one form, but a
+ * form edited between two sessions can ask slightly different questions, and a fellow whose
+ * session lacks a question has an empty cell under it, the rule the coaching CSV applies.
  *
  * **One goal per group.** A fellow may hold several goals in a group, and the cell shows the one
  * they last worked on — set most recently, or with the newest progress note — and says how many
@@ -99,6 +102,22 @@ export function CoachingOverview({
   );
 
   /*
+    The answer columns: every marked question any row's session asked, once, in the order first
+    met reading the roster by name — by name rather than by the chosen sort, so the columns stay
+    where they are while a reader sorts the rows.
+  */
+  const answerColumns: { id: string; heading: string }[] = [];
+  for (const fellow of [...data.fellows].sort((a, b) =>
+    fellowName(a).localeCompare(fellowName(b)),
+  )) {
+    for (const answer of fellow.session?.answers ?? []) {
+      if (!answerColumns.some((column) => column.id === answer.id)) {
+        answerColumns.push({ id: answer.id, heading: answer.heading });
+      }
+    }
+  }
+
+  /*
     A goal column sorts by the competency of the goal shown in it, so the fellows working on the
     same competency sit together whichever indicator or pitfall each chose. Fellows tied on the
     sorted figure, and every fellow before a column is chosen, are in name order.
@@ -127,14 +146,16 @@ export function CoachingOverview({
     return order || byName;
   });
 
-  const width = FELLOW_REM + 2 * FIGURE_REM + goalColumns.length * GOAL_REM + 5 * ANSWER_REM;
+  const width =
+    FELLOW_REM + 2 * FIGURE_REM + goalColumns.length * GOAL_REM + answerColumns.length * ANSWER_REM;
 
   return (
     <div className="flex flex-col gap-2">
+      <FormFilter forms={data.forms} form={data.form} />
       <p className="text-xs text-muted-foreground">
-        From each fellow&apos;s most recent completed session. A goal column shows the goal the
-        fellow last set or posted progress on in that group. Click a goal or a check-in answer to
-        read it in full.
+        From each fellow&apos;s most recent completed session through that form. A goal column shows
+        the goal the fellow last set or posted progress on in that group. Click a goal or an answer
+        to read it in full.
       </p>
       {/*
         `overflow-hidden` clips the table to this rounded border. Without it, the fellow column's
@@ -149,8 +170,8 @@ export function CoachingOverview({
             {goalColumns.map((column) => (
               <col key={column.key} style={{ width: `${GOAL_REM}rem` }} />
             ))}
-            {CHECK_IN_PROMPTS.map((prompt) => (
-              <col key={prompt.id} style={{ width: `${ANSWER_REM}rem` }} />
+            {answerColumns.map((column) => (
+              <col key={column.id} style={{ width: `${ANSWER_REM}rem` }} />
             ))}
           </colgroup>
           <TableHeader>
@@ -200,15 +221,15 @@ export function CoachingOverview({
                   />
                 </TableHead>
               ))}
-              {CHECK_IN_PROMPTS.map((prompt, i) => (
+              {answerColumns.map((column, i) => (
                 <TableHead
-                  key={prompt.id}
+                  key={column.id}
                   className={cn(
                     "text-xs font-normal whitespace-normal",
                     i === 0 && "border-l border-border",
                   )}
                 >
-                  {CHECK_IN_HEADINGS[prompt.id]}
+                  {column.heading}
                 </TableHead>
               ))}
             </TableRow>
@@ -277,13 +298,13 @@ export function CoachingOverview({
                     </TableCell>
                   ))}
 
-                  {CHECK_IN_PROMPTS.map((prompt, i) => {
-                    const answer = fellow.session?.checkIns.find(
-                      (checkIn) => checkIn.promptId === prompt.id,
+                  {answerColumns.map((column, i) => {
+                    const answer = fellow.session?.answers.find(
+                      (candidate) => candidate.id === column.id,
                     );
                     return (
                       <TableCell
-                        key={prompt.id}
+                        key={column.id}
                         className={cn("whitespace-normal", i === 0 && "border-l border-border")}
                       >
                         {answer !== undefined && answer.answer.trim() !== "" && (
@@ -298,6 +319,57 @@ export function CoachingOverview({
           </TableBody>
         </Table>
       </div>
+    </div>
+  );
+}
+
+/**
+ * Which form the rows are read from. The choice is written to `?form=`, the way the cohort
+ * picker writes `?cohort=`, so the page reads it on the server and a link carries it. Nothing to
+ * choose between while every session used one form, so the picker is then a label.
+ */
+function FormFilter({
+  forms,
+  form,
+}: {
+  forms: { id: string; name: string }[];
+  form: string | null;
+}) {
+  const router = useRouter();
+  const searchParams = useSearchParams();
+
+  if (forms.length === 0 || form === null) return null;
+
+  const choose = (next: string) => {
+    const params = new URLSearchParams(searchParams.toString());
+    params.set("form", next);
+    router.replace(`?${params.toString()}`, { scroll: false });
+  };
+
+  return (
+    <div className="flex flex-wrap items-center gap-1.5 text-xs text-muted-foreground">
+      <ClipboardList aria-hidden className="size-3.5" />
+      <span>Form</span>
+      {forms.length === 1 ? (
+        <span className="text-foreground">{forms[0]!.name}</span>
+      ) : (
+        <Select
+          value={form}
+          items={Object.fromEntries(forms.map((candidate) => [candidate.id, candidate.name]))}
+          onValueChange={(next) => next && choose(next)}
+        >
+          <SelectTrigger className="h-8 w-56" aria-label="Coaching form">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            {forms.map((candidate) => (
+              <SelectItem key={candidate.id} value={candidate.id}>
+                {candidate.name}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+      )}
     </div>
   );
 }

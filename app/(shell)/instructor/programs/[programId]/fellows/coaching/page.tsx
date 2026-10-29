@@ -22,7 +22,7 @@ export default function FellowsCoachingPage({
   searchParams,
 }: {
   params: Promise<{ programId: string }>;
-  searchParams: Promise<{ cohort?: string }>;
+  searchParams: Promise<{ cohort?: string; form?: string }>;
 }) {
   return (
     <Suspense fallback={<PageFallback rows={8} width="full" />}>
@@ -36,15 +36,21 @@ async function Coaching({
   searchParams,
 }: {
   params: Promise<{ programId: string }>;
-  searchParams: Promise<{ cohort?: string }>;
+  searchParams: Promise<{ cohort?: string; form?: string }>;
 }) {
   const { programId } = await params;
   const query = await searchParams;
   const cohorts = await resolveCohort(programId, query.cohort);
   const queryClient = getQueryClient();
 
+  /*
+    `?form=` names the coaching form the rows are read from, as the picker above the table sets
+    it. An address naming no form, or one no session here used, reads the newest session's form;
+    anything that is not an id at all is treated as no choice rather than refused.
+  */
+  const form = /^[0-9a-f-]{36}$/i.test(query.form ?? "") ? query.form : undefined;
   const coaching = await queryClient.fetchQuery(
-    trpc.coaching.overview.queryOptions({ programId, cohort: cohorts.cohort }),
+    trpc.coaching.overview.queryOptions({ programId, cohort: cohorts.cohort, form }),
   );
 
   const selection = parseCohortSelection(cohorts.cohort);

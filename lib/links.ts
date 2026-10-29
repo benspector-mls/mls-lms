@@ -174,6 +174,21 @@ export function gcfHref(): string {
 }
 
 /**
+ * The coaching forms, which admins write and every program's sessions are run through.
+ *
+ * Under `/admin` beside the competency list and for the same reason: there is one set of forms
+ * for the application, and a session copies the one it starts with. Takes nothing, like `gcfHref`.
+ */
+export function coachingFormsHref(): string {
+  return "/admin/coaching-forms";
+}
+
+/** One coaching form, open in the builder. */
+export function coachingFormHref(templateId: string): string {
+  return `${coachingFormsHref()}/${templateId}`;
+}
+
+/**
  * The competency list, which admins write and every program shares.
  *
  * Under `/admin` rather than under a program, because there is one list for the application: a

@@ -24,6 +24,7 @@ import {
   makeAccount,
   makeCheck,
   makeCheckAttempt,
+  makeCoachingTemplate,
   makeWorld,
   type World,
 } from "./fixtures";
@@ -801,9 +802,11 @@ describe("the Understanding reading, on the record and in a coaching session", (
 
   it("shows the coaching form the same Trends as the record, and keeps them out of the snapshot", async () => {
     const instructor = createCaller(tx(), world.instructorId);
+    const template = await makeCoachingTemplate(tx());
     const started = await instructor.coaching.startSession({
       programId: world.programId,
       studentId: world.student.studentId,
+      templateId: template.id,
     });
     const [session, record] = await Promise.all([
       instructor.coaching.session({ programId: world.programId, sessionId: started.id }),

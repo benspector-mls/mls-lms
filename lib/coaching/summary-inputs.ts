@@ -11,6 +11,8 @@ import { schoolDayFromColumn, schoolDayOf } from "@/lib/school-time";
 
 import {
   MARKER_META,
+  formatAnswer,
+  isBlankAnswer,
   sessionAnswersSchema,
   type SummaryInput,
   type SummaryTheme,
@@ -231,9 +233,10 @@ async function readSessions(db: Tx, enrollment: EnrollmentKey, since: string | n
     const answers = sessionAnswersSchema.safeParse(session.answers);
     return {
       heldOn: schoolDayFromColumn(session.heldOn),
+      // As text, however the question's kind stored it: a scale's number, a choice's options.
       answers: (answers.success ? answers.data : [])
-        .filter((entry) => entry.answer.trim() !== "")
-        .map((entry) => ({ prompt: entry.prompt, answer: entry.answer })),
+        .filter((entry) => !isBlankAnswer(entry.answer))
+        .map((entry) => ({ prompt: entry.prompt, answer: formatAnswer(entry.answer) })),
     };
   });
 

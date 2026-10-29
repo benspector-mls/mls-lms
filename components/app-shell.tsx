@@ -8,6 +8,7 @@ import { PreviewCard as PreviewCardPrimitive } from "@base-ui/react/preview-card
 import {
   BarChart3,
   CalendarCheck,
+  ClipboardList,
   Target,
   ChevronsUpDown,
   GraduationCap,
@@ -79,6 +80,7 @@ import { ViewAsBanner } from "@/components/view-as-banner";
 import { feedbackFormUrl } from "@/lib/feedback-form";
 import {
   attendanceHref,
+  coachingFormsHref,
   competenciesHref,
   curriculumHref,
   courseSettingsHref,
@@ -397,10 +399,17 @@ function useBreadcrumbs(
   }
 
   /*
-    The two screens that belong to the reader rather than to a program: their own account, and the
-    staff list an admin keeps. One step each, because neither sits under anything.
+    The screens that belong to the reader rather than to a program: their own account, and the
+    lists an admin keeps. One step each, because none sits under anything — a coaching form open
+    in the builder is a second step under its list, the one exception.
   */
   if (segments[0] === "profile") return [{ label: "Profile" }];
+  if (segments[0] === "admin" && segments[1] === "coaching-forms") {
+    return segments[2]
+      ? [{ label: "Coaching forms", href: coachingFormsHref() }, { label: "Form" }]
+      : [{ label: "Coaching forms" }];
+  }
+  if (segments[0] === "admin" && segments[1] === "competencies") return [{ label: "Competencies" }];
   if (segments[0] === "admin") return [{ label: "Staff" }];
 
   /*
@@ -1363,6 +1372,16 @@ function AdminGroup({ isAdmin, pathname }: { isAdmin: boolean; pathname: string 
           >
             <ListChecks />
             <span>Competencies</span>
+          </SidebarMenuButton>
+        </SidebarMenuItem>
+        <SidebarMenuItem>
+          <SidebarMenuButton
+            isActive={pathname.startsWith(coachingFormsHref())}
+            tooltip="Coaching forms"
+            render={<Link href={coachingFormsHref()} />}
+          >
+            <ClipboardList />
+            <span>Coaching forms</span>
           </SidebarMenuButton>
         </SidebarMenuItem>
       </SidebarMenu>

@@ -1,4 +1,4 @@
-import { ALL_PROMPTS, PREPARATION_PROMPT, type CoachingSnapshot } from "@/lib/coaching";
+import type { CoachingLayout, CoachingSnapshot } from "@/lib/coaching";
 import {
   coachingCsv,
   coachingCsvFilename,
@@ -9,8 +9,9 @@ import { parseCsv } from "@/lib/csv";
 
 /**
  * One fellow's coaching history as a file. What matters here is that every row has the same
- * columns — answers matched to prompts by id, course figures matched to courses by id — and that
- * a draft leaves the snapshot empty rather than claiming zeros.
+ * columns — answers matched to questions by id across every form the sessions ran through, course
+ * figures matched to courses by id — and that a draft leaves the snapshot empty rather than
+ * claiming zeros.
  */
 
 function snapshot(courses: CoachingSnapshot["courses"] = []): CoachingSnapshot {
@@ -41,6 +42,49 @@ function course(id: string, name: string): CoachingSnapshot["courses"][number] {
   };
 }
 
+/** A form of three questions: a text, a scale, and a multiple choice. */
+function layout(questions: { id: string; prompt: string }[] = DEFAULT_QUESTIONS): CoachingLayout {
+  return {
+    version: 1,
+    sections: [
+      {
+        id: "s",
+        title: "Session",
+        items: questions.map(({ id, prompt }) =>
+          id === "energy"
+            ? {
+                id,
+                kind: "SCALE" as const,
+                prompt,
+                shared: false,
+                overview: false,
+                min: 1,
+                max: 5,
+                lowLabel: "",
+                highLabel: "",
+              }
+            : id === "supports"
+              ? {
+                  id,
+                  kind: "MULTIPLE_CHOICE" as const,
+                  prompt,
+                  shared: false,
+                  overview: false,
+                  options: ["Pairing", "Office hours"],
+                }
+              : { id, kind: "LONG_TEXT" as const, prompt, shared: false, overview: false },
+        ),
+      },
+    ],
+  };
+}
+
+const DEFAULT_QUESTIONS = [
+  { id: "preparation", prompt: "Pre-session notes" },
+  { id: "energy", prompt: "Energy" },
+  { id: "supports", prompt: "Supports" },
+];
+
 function session(overrides: Partial<CoachingCsvSession> = {}): CoachingCsvSession {
   return {
     heldOn: "2026-10-01",
@@ -49,6 +93,8 @@ function session(overrides: Partial<CoachingCsvSession> = {}): CoachingCsvSessio
     endedAt: new Date("2026-10-01T18:30:00Z"),
     author: { displayName: "Coach Carter", email: null, githubUsername: null },
     temperature: 7,
+    templateName: "Coaching session",
+    layout: layout(),
     answers: [],
     snapshot: snapshot([course("c1", "Mod 1")]),
     ...overrides,
@@ -79,14 +125,64 @@ function header(csv: string): string[] {
 }
 
 describe("coachingCsv", () => {
-  it("heads one column per prompt, in the template's order and current wording", () => {
+  it("heads one column per question any session asked, in the order first met", () => {
     const columns = header(coachingCsv(data()));
-    const first = columns.indexOf(ALL_PROMPTS[0].prompt);
+    const first = columns.indexOf("Pre-session notes");
 
     expect(first).toBeGreaterThan(-1);
-    expect(columns.slice(first, first + ALL_PROMPTS.length)).toEqual(
-      ALL_PROMPTS.map((prompt) => prompt.prompt),
+    expect(columns.slice(first, first + 3)).toEqual(["Pre-session notes", "Energy", "Supports"]);
+  });
+
+  /*
+    Two sessions through two forms: the columns are the union, keyed by id, so a question asked
+    in both is one column, and a question asked in one leaves the other's cell empty.
+  */
+  it("unites the questions of every form the sessions ran through, empty where a session lacked one", () => {
+    const csv = coachingCsv(
+      data([
+        session({
+          heldOn: "2026-09-24",
+          layout: layout([{ id: "preparation", prompt: "Pre-session notes" }]),
+          answers: [{ promptId: "preparation", prompt: "Pre-session notes", answer: "Early." }],
+        }),
+        session({
+          heldOn: "2026-10-08",
+          layout: layout([
+            { id: "preparation", prompt: "Pre-session notes" },
+            { id: "mood", prompt: "How are things?" },
+          ]),
+          answers: [{ promptId: "mood", prompt: "How are things?", answer: "Busy." }],
+        }),
+      ]),
     );
+
+    const columns = header(csv);
+    expect(columns.indexOf("Pre-session notes")).toBeLessThan(columns.indexOf("How are things?"));
+    expect(records(csv).map((row) => [row["Pre-session notes"], row["How are things?"]])).toEqual([
+      ["Early.", ""],
+      ["", "Busy."],
+    ]);
+  });
+
+  it("heads a reworded question by its newest wording, and keeps it one column", () => {
+    const csv = coachingCsv(
+      data([
+        session({
+          heldOn: "2026-09-24",
+          layout: layout([{ id: "mood", prompt: "How are things?" }]),
+          answers: [{ promptId: "mood", prompt: "How are things?", answer: "Fine." }],
+        }),
+        session({
+          heldOn: "2026-10-08",
+          layout: layout([{ id: "mood", prompt: "How is it going?" }]),
+          answers: [{ promptId: "mood", prompt: "How is it going?", answer: "Better." }],
+        }),
+      ]),
+    );
+
+    expect(header(csv)).toContain("How is it going?");
+    expect(header(csv)).not.toContain("How are things?");
+    expect(records(csv).map((row) => row["How is it going?"])).toEqual(["Fine.", "Better."]);
   });
 
   it("writes one row per session, oldest first", () => {
@@ -103,28 +199,37 @@ describe("coachingCsv", () => {
     expect(rows.map((row) => row["Temperature"])).toEqual(["4", "9"]);
   });
 
-  it("puts each answer under its own prompt, whatever order the answers were stored in", () => {
+  it("puts each answer under its own question, whatever order the answers were stored in, as text", () => {
     const [row] = records(
       coachingCsv(
         data([
           session({
             answers: [
-              { promptId: "support", prompt: "An older wording", answer: "Pairing" },
-              {
-                promptId: PREPARATION_PROMPT.id,
-                prompt: PREPARATION_PROMPT.prompt,
-                answer: "Ask about Mod 2",
-              },
+              { promptId: "supports", prompt: "Supports", answer: ["Pairing", "Office hours"] },
+              { promptId: "energy", prompt: "Energy", answer: 4 },
+              { promptId: "preparation", prompt: "An older wording", answer: "Ask about Mod 2" },
             ],
           }),
         ]),
       ),
     );
 
-    expect(row![PREPARATION_PROMPT.prompt]).toBe("Ask about Mod 2");
-    expect(row!["What kind of support or accountability would feel helpful?"]).toBe("Pairing");
-    // A prompt nobody answered is an empty cell, not a missing one.
-    expect(row!["What has been on your mind lately?"]).toBe("");
+    expect(row!["Pre-session notes"]).toBe("Ask about Mod 2");
+    expect(row!["Energy"]).toBe("4");
+    expect(row!["Supports"]).toBe("Pairing, Office hours");
+  });
+
+  /* A session whose form cannot be read still names its questions through the stored wording. */
+  it("falls back to the wording stored beside an answer when the form cannot be read", () => {
+    const csv = coachingCsv(
+      data([
+        session({
+          layout: { version: 2 },
+          answers: [{ promptId: "x", prompt: "A question only the answer remembers", answer: "y" }],
+        }),
+      ]),
+    );
+    expect(records(csv)[0]!["A question only the answer remembers"]).toBe("y");
   });
 
   it("marks a draft as in progress and leaves its snapshot empty rather than zero", () => {
@@ -187,6 +292,18 @@ describe("coachingCsv", () => {
     expect(row!["Present"]).toBe("");
   });
 
+  it("names the form each session was run through", () => {
+    const rows = records(
+      coachingCsv(
+        data([
+          session({ heldOn: "2026-09-24", templateName: "First session" }),
+          session({ heldOn: "2026-10-08", templateName: "Mid-term" }),
+        ]),
+      ),
+    );
+    expect(rows.map((row) => row["Form"])).toEqual(["First session", "Mid-term"]);
+  });
+
   it("names a session whose instructor's account has gone the way the record does", () => {
     const [row] = records(coachingCsv(data([session({ author: null })])));
     expect(row!["Led by"]).toBe("A former instructor");
@@ -197,15 +314,17 @@ describe("coachingCsv", () => {
       data([
         session({
           answers: [
-            { promptId: "excited", prompt: "x", answer: '=HYPERLINK("http://evil.example")' },
+            {
+              promptId: "preparation",
+              prompt: "x",
+              answer: '=HYPERLINK("http://evil.example")',
+            },
           ],
         }),
       ]),
     );
 
-    expect(records(csv)[0]!["What are you most excited to work on at the moment?"]).toBe(
-      `'=HYPERLINK("http://evil.example")`,
-    );
+    expect(records(csv)[0]!["Pre-session notes"]).toBe(`'=HYPERLINK("http://evil.example")`);
   });
 
   it("marks a test student in the name, as the screens do", () => {

@@ -20,6 +20,7 @@
  * the profile. Raw SQL because Prisma treats that table as external and will not write it. Building
  * the profile by hand instead would test a path nobody uses and would miss the trigger breaking.
  */
+import type { CoachingLayout } from "@/lib/coaching";
 import type { Prisma } from "@/lib/generated/prisma/client";
 import type { Discipline } from "@/lib/generated/prisma/enums";
 
@@ -398,6 +399,95 @@ export async function makeCheckAttempt(
       submittedAt: options.submittedAt,
       level: options.level ?? "UNISTRUCTURAL",
       explanation: "You named the facts. Connect them next.",
+    },
+    select: { id: true },
+  });
+}
+
+/**
+ * A coaching form with one of every kind of question, for a suite to start sessions from: a
+ * long text, a long text marked for the Fellows Coaching tab, a shared short text, a scale, a
+ * shared single choice also marked for the tab, a multiple choice, the temperature, and a goals
+ * panel. The ids `preparation` and `challenging` are the fixed form's, so a test about those
+ * answers reads as it did when the form was fixed.
+ */
+export const FIXTURE_LAYOUT: CoachingLayout = {
+  version: 1,
+  sections: [
+    {
+      id: "session",
+      title: "Session",
+      items: [
+        { id: "temperature", kind: "TEMPERATURE", prompt: "Temperature check" },
+        {
+          id: "preparation",
+          kind: "LONG_TEXT",
+          prompt: "Pre-session notes",
+          shared: false,
+          overview: false,
+        },
+        {
+          id: "challenging",
+          kind: "LONG_TEXT",
+          prompt: "What has been challenging?",
+          shared: false,
+          overview: true,
+          heading: "Challenging",
+        },
+        {
+          id: "win",
+          kind: "SHORT_TEXT",
+          prompt: "One win this week",
+          shared: true,
+          overview: false,
+        },
+        {
+          id: "energy",
+          kind: "SCALE",
+          prompt: "Energy",
+          shared: false,
+          overview: false,
+          min: 1,
+          max: 5,
+          lowLabel: "Low",
+          highLabel: "High",
+        },
+        {
+          id: "focus",
+          kind: "SINGLE_CHOICE",
+          prompt: "Focus area",
+          shared: true,
+          overview: true,
+          heading: "Focus",
+          options: ["Mod 1", "Mod 2"],
+        },
+        {
+          id: "supports",
+          kind: "MULTIPLE_CHOICE",
+          prompt: "Supports",
+          shared: false,
+          overview: false,
+          options: ["Pairing", "Office hours"],
+        },
+        { id: "goals-panel", kind: "GOALS", heading: "Goals" },
+      ],
+    },
+  ],
+};
+
+/**
+ * A coaching form of the suite's own, so that a session never depends on the seeded default,
+ * which an admin is expected to have edited or replaced on the development database.
+ */
+export async function makeCoachingTemplate(
+  tx: Tx,
+  options: { name?: string; isDefault?: boolean; layout?: CoachingLayout } = {},
+) {
+  return tx.coachingTemplate.create({
+    data: {
+      name: options.name ?? `Form ${unique()}`,
+      isDefault: options.isDefault ?? false,
+      layout: options.layout ?? FIXTURE_LAYOUT,
     },
     select: { id: true },
   });

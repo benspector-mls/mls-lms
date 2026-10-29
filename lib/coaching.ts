@@ -1,18 +1,19 @@
 /**
- * The coaching template, the development markers, and the snapshot: what a coaching session asks,
- * how a fellow's standing on a goal is named, and the shape of the record a completed session
- * stores.
+ * The coaching form's layout, the development markers, and the snapshot: what a coaching session
+ * asks, how a fellow's standing on a goal is named, and the shape of the record a completed
+ * session stores.
  *
  * **Browser-safe and importing nothing but zod and the generated enum**, in the manner of
- * `lib/gcf.ts`: the session form, the fellow's goals page, and the coaching router all read this,
- * and the first two run in the browser.
+ * `lib/gcf.ts`: the session form, the form builder, the fellow's goals page, and the coaching
+ * routers all read this, and the first three run in the browser.
  *
  * **Everything here is written into rows that outlive it**, which is the design constraint on all
- * three parts. A session stores each prompt's id *and its text as asked*, so editing a prompt
- * here never rewrites what a fellow was actually asked. A goal stores a marker the enum types.
- * And a snapshot carries a version, so the shape can grow without making old rows unreadable —
- * `parseSnapshot` is the one reader, and it answers null rather than throwing, because the caller
- * is a screen rendering a row somebody else wrote.
+ * three parts. A template's layout is copied onto a session when the session starts, and each
+ * answer stores its item's id *and the prompt as asked*, so editing or deleting a template never
+ * rewrites what a fellow was actually asked. A goal stores a marker the enum types. And a snapshot
+ * carries a version, so the shape can grow without making old rows unreadable — `parseSnapshot`
+ * and `parseLayout` are the readers, and each answers null rather than throwing, because the
+ * caller is a screen rendering a row somebody else wrote.
  */
 
 import { z } from "zod";
@@ -22,97 +23,361 @@ import type { StatusMeta, StatusTone } from "./status";
 
 export type { DevelopmentMarker };
 
-/**
- * The check-in half of a coaching conversation, in the order it is asked. The temperature check
- * is not here — it is a number with its own column, not a prose answer.
- *
- * Ids are permanent for the reason a competency entry's is: a stored session holds them forever.
- * The prompt text is the current wording, copied onto the row at save time.
- */
-/**
- * What the coach writes before the conversation: what they have noticed, and what they mean to
- * raise. Stored among the answers under its own id, like the additional notes, because it is
- * staff-only prose on a draft session with its label copied in at save — the column already
- * holds exactly that. First in `ALL_PROMPTS`, because it is the first thing the form asks for.
- */
-export const PREPARATION_PROMPT = {
-  id: "preparation",
-  prompt: "Pre-session notes",
-} as const;
+// ---------------------------------------------------------------------------------------------
+// The layout: sections of items, written by an admin and copied onto every session
+// ---------------------------------------------------------------------------------------------
 
-export const CHECK_IN_PROMPTS = [
-  { id: "on-your-mind", prompt: "What has been on your mind lately?" },
-  { id: "excited", prompt: "What are you most excited to work on at the moment?" },
-  { id: "challenging", prompt: "Has anything been proving particularly challenging recently?" },
-  {
-    id: "progress",
-    prompt:
-      "Where have you made progress over the past few weeks / where have you felt most successful?",
-  },
-  { id: "support", prompt: "What kind of support or accountability would feel helpful?" },
+/**
+ * How a question is answered. Each kind decides the control the form draws and the shape of the
+ * value stored under the question's id — see `answerFor`.
+ */
+export const QUESTION_KINDS = [
+  "SHORT_TEXT",
+  "LONG_TEXT",
+  "SCALE",
+  "SINGLE_CHOICE",
+  "MULTIPLE_CHOICE",
+  "YES_NO",
 ] as const;
-
-export type CheckInPromptId = (typeof CHECK_IN_PROMPTS)[number]["id"];
+export type QuestionKind = (typeof QUESTION_KINDS)[number];
 
 /**
- * What the `answers` Json column holds: one entry per answered prompt, the prompt text copied in
+ * The parts of a fellow's record a form can draw beside its questions. A panel records nothing:
+ * it shows the fellow's own writing or figures the record already holds, for the coach to read
+ * during the conversation.
+ */
+export const PANEL_KINDS = ["TOPICS", "GOALS", "GCF", "ATTENDANCE_CALENDAR"] as const;
+export type PanelKind = (typeof PANEL_KINDS)[number];
+
+/**
+ * The temperature check is its own kind rather than a scale question, because it is bound to the
+ * `temperature` column: the record's session list, the Fellows screen's Coaching tab, the CSV
+ * export and Themes all read that column. It is always 1 to 10, a form holds at most one, and it
+ * is never shared with the fellow.
+ */
+export const TEMPERATURE_KIND = "TEMPERATURE";
+
+export type ItemKind = QuestionKind | PanelKind | typeof TEMPERATURE_KIND;
+
+/** What the builder calls each kind, and one sentence saying what it is. */
+export const ITEM_KIND_META: Record<ItemKind, { label: string; describes: string }> = {
+  SHORT_TEXT: { label: "Short text", describes: "One line of text." },
+  LONG_TEXT: { label: "Long text", describes: "A paragraph or more." },
+  SCALE: { label: "Scale", describes: "A number between two named ends." },
+  SINGLE_CHOICE: { label: "Single choice", describes: "One of the options you list." },
+  MULTIPLE_CHOICE: { label: "Multiple choice", describes: "Any of the options you list." },
+  YES_NO: { label: "Yes or no", describes: "One checkbox." },
+  TEMPERATURE: {
+    label: "Temperature check",
+    describes:
+      "Always 1 to 10, coloured by band. The record, the Fellows screen, the CSV and Themes read it.",
+  },
+  TOPICS: {
+    label: "Discussion topics",
+    describes: "What the fellow wants to raise, from their Goals page. Drafts only.",
+  },
+  GOALS: {
+    label: "Goals",
+    describes: "The fellow's goals, their progress notes, and the conversation under each.",
+  },
+  GCF: { label: "GCF history", describes: "Every GCF sitting, real or mock." },
+  ATTENDANCE_CALENDAR: {
+    label: "Attendance calendar",
+    describes: "The term's figures and the calendar the fellow sees, square for square.",
+  },
+};
+
+/** The most points a scale may span, so a question stays a row of squares rather than a slider. */
+export const SCALE_MAX_SPAN = 20;
+
+/** How long the Fellows Coaching tab's column heading for a question may be. */
+export const OVERVIEW_HEADING_MAX_LENGTH = 30;
+
+/**
+ * An item's id: a uuid from the builder, or one of the fixed ids the form carried before it was
+ * a template (`preparation`, `on-your-mind`, …), which the migration's converted layout keeps so
+ * that every answer stored under them still finds its question.
+ */
+const itemId = z.string().trim().min(1).max(64);
+const caption = z.string().trim().max(500).optional();
+
+/**
+ * What every question carries. `shared` is whether the fellow reads the coach's answer once the
+ * session is completed; `overview` is whether the answer is a column on the Fellows screen's
+ * Coaching tab, under `heading`.
+ */
+const questionBase = {
+  id: itemId,
+  prompt: z.string().trim().min(1, "A question needs words in it.").max(500),
+  caption,
+  shared: z.boolean(),
+  overview: z.boolean(),
+  heading: z.string().trim().max(OVERVIEW_HEADING_MAX_LENGTH).optional(),
+};
+
+const plainQuestion = (kind: "SHORT_TEXT" | "LONG_TEXT" | "YES_NO") =>
+  z.object({ kind: z.literal(kind), ...questionBase }).strict();
+
+const scaleQuestion = z
+  .object({
+    kind: z.literal("SCALE"),
+    ...questionBase,
+    min: z.number().int(),
+    max: z.number().int(),
+    lowLabel: z.string().trim().max(60),
+    highLabel: z.string().trim().max(60),
+  })
+  .strict()
+  .refine((item) => item.min < item.max, { message: "The low end must be below the high end." })
+  .refine((item) => item.max - item.min <= SCALE_MAX_SPAN, {
+    message: `A scale spans at most ${SCALE_MAX_SPAN} points.`,
+  });
+
+const choiceQuestion = (kind: "SINGLE_CHOICE" | "MULTIPLE_CHOICE") =>
+  z
+    .object({
+      kind: z.literal(kind),
+      ...questionBase,
+      options: z
+        .array(z.string().trim().min(1).max(200))
+        .min(1, "List at least one option.")
+        .max(20),
+    })
+    .strict()
+    .refine((item) => new Set(item.options).size === item.options.length, {
+      message: "Each option must be different.",
+    });
+
+const temperatureItem = z
+  .object({
+    kind: z.literal(TEMPERATURE_KIND),
+    id: itemId,
+    prompt: z.string().trim().min(1).max(500),
+    caption,
+  })
+  .strict();
+
+const panelItem = z
+  .object({
+    kind: z.enum(PANEL_KINDS),
+    id: itemId,
+    heading: z.string().trim().min(1, "A panel needs a heading.").max(200),
+    caption,
+  })
+  .strict();
+
+export const layoutItemSchema = z.discriminatedUnion("kind", [
+  plainQuestion("SHORT_TEXT"),
+  plainQuestion("LONG_TEXT"),
+  plainQuestion("YES_NO"),
+  scaleQuestion,
+  choiceQuestion("SINGLE_CHOICE"),
+  choiceQuestion("MULTIPLE_CHOICE"),
+  temperatureItem,
+  panelItem,
+]);
+
+export type LayoutItem = z.infer<typeof layoutItemSchema>;
+export type LayoutQuestion = Extract<LayoutItem, { kind: QuestionKind }>;
+export type LayoutPanel = Extract<LayoutItem, { kind: PanelKind }>;
+export type LayoutTemperature = Extract<LayoutItem, { kind: typeof TEMPERATURE_KIND }>;
+
+export const layoutSectionSchema = z
+  .object({
+    id: itemId,
+    title: z.string().trim().min(1, "A section needs a title.").max(200),
+    caption,
+    items: z.array(layoutItemSchema).max(50),
+  })
+  .strict();
+
+export type LayoutSection = z.infer<typeof layoutSectionSchema>;
+
+/**
+ * The whole form, as a template holds it and as a session copies it. Version 1; a reader that
+ * meets a version it does not know shows the form as unreadable rather than guessing.
+ */
+export const coachingLayoutSchema = z
+  .object({
+    version: z.literal(1),
+    sections: z.array(layoutSectionSchema).min(1, "A form needs a section.").max(20),
+  })
+  .strict()
+  .superRefine((layout, ctx) => {
+    const ids = new Set<string>();
+    let temperatures = 0;
+    for (const section of layout.sections) {
+      for (const id of [section.id, ...section.items.map((item) => item.id)]) {
+        if (ids.has(id)) ctx.addIssue({ code: "custom", message: `The id ${id} is used twice.` });
+        ids.add(id);
+      }
+      for (const item of section.items) {
+        if (item.kind === TEMPERATURE_KIND) temperatures += 1;
+        if (isQuestion(item) && item.overview && !item.heading) {
+          ctx.addIssue({
+            code: "custom",
+            message: `"${item.prompt}" needs a column heading to appear on the Fellows Coaching tab.`,
+          });
+        }
+      }
+    }
+    if (temperatures > 1) {
+      ctx.addIssue({ code: "custom", message: "A form holds at most one temperature check." });
+    }
+  });
+
+export type CoachingLayout = z.infer<typeof coachingLayoutSchema>;
+
+export function isQuestion(item: LayoutItem): item is LayoutQuestion {
+  return (QUESTION_KINDS as readonly string[]).includes(item.kind);
+}
+
+export function isPanel(item: LayoutItem): item is LayoutPanel {
+  return (PANEL_KINDS as readonly string[]).includes(item.kind);
+}
+
+/** The one reader of either `layout` column. Null for anything it cannot read, never a throw. */
+export function parseLayout(json: unknown): CoachingLayout | null {
+  const parsed = coachingLayoutSchema.safeParse(json);
+  return parsed.success ? parsed.data : null;
+}
+
+/** Every question of a layout, in the order the form asks them. */
+export function questionsOf(layout: CoachingLayout): LayoutQuestion[] {
+  return layout.sections.flatMap((section) => section.items.filter(isQuestion));
+}
+
+// ---------------------------------------------------------------------------------------------
+// Answers
+// ---------------------------------------------------------------------------------------------
+
+/**
+ * What one answer holds, by its question's kind: text for the two text kinds, a whole number for
+ * a scale, one option or several for the choice kinds, and true or false for yes or no.
+ */
+export const answerValueSchema = z.union([
+  z.string().max(20_000),
+  z.number().int(),
+  z.boolean(),
+  z.array(z.string().max(200)).max(20),
+]);
+
+export type AnswerValue = z.infer<typeof answerValueSchema>;
+
+/**
+ * What the `answers` Json column holds: one entry per answered question, the prompt text copied in
  * beside its answer. Strict, because a key that passes through silently today is a key some
  * reader depends on tomorrow without anything having decided it.
  */
-/**
- * The free-form field that closes the instructor's half of the session form, stored among the
- * answers under its own id rather than in a column of its own.
- *
- * The answers column already holds labelled, staff-only prose on a draft session, autosaved and
- * with the label copied in at save — which is everything this field needs. Kept apart from
- * `CHECK_IN_PROMPTS` so that the check-in list renders unchanged and the form can give this a
- * section of its own, after the check-in and before the goal questions.
- */
-export const ADDITIONAL_NOTES_PROMPT = {
-  id: "additional-notes",
-  prompt: "Additional notes",
-} as const;
-
-/**
- * The half of the session spent on the goals the fellow already set: what moved, what shows it,
- * and what changes next time. Staff-only prose like the check-in, stored the same way, and asked
- * after the instructor's notes because the fellow's goals are listed under it on the form.
- */
-export const REVISITING_GOALS_PROMPTS = [
-  {
-    id: "goal-progress",
-    prompt:
-      "What progress have you made toward the goal you set during your last coaching session?",
-  },
-  { id: "goal-evidence", prompt: "What evidence, artifact, or example shows that progress?" },
-  {
-    id: "goal-adjustment",
-    prompt: "What helped or got in the way, and what would you adjust moving forward?",
-  },
-] as const;
-
-/**
- * Every prompt an answer may be stored under, in the order the form asks them: the preparation,
- * the check-ins, the notes, and the goal questions.
- */
-export const ALL_PROMPTS = [
-  PREPARATION_PROMPT,
-  ...CHECK_IN_PROMPTS,
-  ADDITIONAL_NOTES_PROMPT,
-  ...REVISITING_GOALS_PROMPTS,
-] as const;
-
 export const sessionAnswersSchema = z.array(
   z
     .object({
       promptId: z.string().min(1),
       prompt: z.string().min(1),
-      answer: z.string(),
+      answer: answerValueSchema,
     })
     .strict(),
 );
 
 export type SessionAnswer = z.infer<typeof sessionAnswersSchema>[number];
+
+/**
+ * A value checked against its question: the stored answer, or the sentence that says why it was
+ * refused. The server calls this before it stores, and the form calls it to know what it may send.
+ */
+export function answerFor(
+  item: LayoutQuestion,
+  value: unknown,
+): { ok: true; answer: AnswerValue } | { ok: false; message: string } {
+  switch (item.kind) {
+    case "SHORT_TEXT":
+    case "LONG_TEXT":
+      return typeof value === "string" && value.length <= 20_000
+        ? { ok: true, answer: value }
+        : { ok: false, message: `"${item.prompt}" takes text.` };
+    case "SCALE":
+      return typeof value === "number" &&
+        Number.isInteger(value) &&
+        value >= item.min &&
+        value <= item.max
+        ? { ok: true, answer: value }
+        : {
+            ok: false,
+            message: `"${item.prompt}" takes a number from ${item.min} to ${item.max}.`,
+          };
+    case "SINGLE_CHOICE":
+      return typeof value === "string" && item.options.includes(value)
+        ? { ok: true, answer: value }
+        : { ok: false, message: `"${item.prompt}" takes one of its options.` };
+    case "MULTIPLE_CHOICE":
+      return Array.isArray(value) &&
+        value.every((option) => typeof option === "string" && item.options.includes(option)) &&
+        new Set(value).size === value.length
+        ? { ok: true, answer: value as string[] }
+        : { ok: false, message: `"${item.prompt}" takes any of its options.` };
+    case "YES_NO":
+      return typeof value === "boolean"
+        ? { ok: true, answer: value }
+        : { ok: false, message: `"${item.prompt}" takes yes or no.` };
+  }
+}
+
+/** An answer as text, however it was stored, for the CSV, the Fellows tab and Themes. */
+export function formatAnswer(value: AnswerValue): string {
+  if (typeof value === "string") return value;
+  if (typeof value === "number") return String(value);
+  if (typeof value === "boolean") return value ? "Yes" : "No";
+  return value.join(", ");
+}
+
+/** True when an answer says nothing: empty text, or no option chosen. */
+export function isBlankAnswer(value: AnswerValue): boolean {
+  if (typeof value === "string") return value.trim() === "";
+  if (Array.isArray(value)) return value.length === 0;
+  return false;
+}
+
+/**
+ * One question beside its stored answer, in the words the form asked it with. The prompt is the
+ * layout's, which is what the session was started with; the stored copy says the same.
+ */
+export type AnsweredQuestion = { item: LayoutQuestion; answer: AnswerValue | null };
+
+function answeredQuestionsOf(layout: CoachingLayout, answers: SessionAnswer[]): AnsweredQuestion[] {
+  const byId = new Map(answers.map((answer) => [answer.promptId, answer.answer]));
+  return questionsOf(layout).map((item) => ({ item, answer: byId.get(item.id) ?? null }));
+}
+
+/**
+ * What the fellow reads of a completed session's answers: the questions marked shared, in the
+ * form's order, each with the coach's answer or null where none was written. Everything the fellow
+ * sees of the form passes through here, so one function decides it and one test holds it.
+ */
+export function sharedAnswersOf(
+  layout: CoachingLayout,
+  answers: SessionAnswer[],
+): AnsweredQuestion[] {
+  return answeredQuestionsOf(layout, answers).filter(({ item }) => item.shared);
+}
+
+/**
+ * The Fellows Coaching tab's cells for one session: the questions marked for it, in the form's
+ * order, each with its column heading and its answer as text. A question nobody answered is
+ * returned with an empty answer, so the tab still knows the column exists.
+ */
+export function overviewAnswersOf(
+  layout: CoachingLayout,
+  answers: SessionAnswer[],
+): { id: string; heading: string; prompt: string; answer: string }[] {
+  return answeredQuestionsOf(layout, answers)
+    .filter(({ item }) => item.overview)
+    .map(({ item, answer }) => ({
+      id: item.id,
+      heading: item.heading ?? item.prompt,
+      prompt: item.prompt,
+      answer: answer === null ? "" : formatAnswer(answer),
+    }));
+}
 
 /**
  * How long a discussion topic may be: a line or a paragraph the fellow wants to raise, never a

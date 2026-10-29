@@ -3,6 +3,7 @@
 import { ChevronDown, ChevronRight, Target } from "lucide-react";
 import * as React from "react";
 
+import { AnswerReadout } from "@/components/coaching/question-field";
 import { CoachingSnapshotPanel } from "@/components/coaching-snapshot-panel";
 import { CoachingTopics } from "@/components/coaching-topics";
 import { GoalComments } from "@/components/goal-comments";
@@ -75,10 +76,7 @@ export function GoalsRecord({
       <div className="flex flex-col gap-6">
         {topics}
         <div className="flex flex-col gap-4">
-          <EmptyState
-            icon={<Target />}
-            title="No goals yet"
-          />
+          <EmptyState icon={<Target />} title="No goals yet" />
           <AddGoal programId={data.program.id} groups={groups} />
         </div>
       </div>
@@ -118,8 +116,8 @@ export function GoalsRecord({
           <div className="flex flex-col gap-0.5">
             <h2 className="text-sm font-medium">Coaching history · {data.sessions.length}</h2>
             <p className="text-xs text-muted-foreground">
-              Where things stood at the end of each coaching session. The figures are from that
-              day.
+              Where things stood at the end of each coaching session, and what your coach chose to
+              share with you. The figures are from that day.
             </p>
           </div>
 
@@ -140,6 +138,24 @@ export function GoalsRecord({
                     </p>
                   ) : (
                     <CoachingSnapshotPanel snapshot={snapshot} />
+                  )}
+                  {/*
+                    The questions the form marked as shared, with what the coach wrote: the one
+                    part of a session's answers a fellow reads, chosen by the server through
+                    `sharedAnswersOf` and nothing else.
+                  */}
+                  {session.shared.length > 0 && (
+                    <div className="flex flex-col gap-3 border-t border-border pt-3">
+                      <h3 className="text-xs font-medium text-muted-foreground">
+                        From this session
+                      </h3>
+                      {session.shared.map(({ item, answer }) => (
+                        <div key={item.id} className="flex flex-col gap-1">
+                          <span className="text-sm font-medium">{item.prompt}</span>
+                          <AnswerReadout item={item} value={answer} />
+                        </div>
+                      ))}
+                    </div>
                   )}
                 </li>
               );

@@ -6,10 +6,10 @@ import { useRouter } from "next/navigation";
 import * as React from "react";
 import { toast } from "sonner";
 
+import { DataPanel } from "@/components/coaching/data-panel";
+import { QuestionField } from "@/components/coaching/question-field";
 import { CoachingSnapshotPanel } from "@/components/coaching-snapshot-panel";
-import { CoachingTopics } from "@/components/coaching-topics";
 import { Trends } from "@/components/instructor/trends";
-import { FellowGoals } from "@/components/instructor/fellow-goals";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import {
@@ -22,24 +22,19 @@ import {
 } from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import { Textarea } from "@/components/ui/textarea";
 import { useServerMutation } from "@/hooks/use-server-mutation";
 import {
-  ADDITIONAL_NOTES_PROMPT,
-  ALL_PROMPTS,
-  CHECK_IN_PROMPTS,
-  PREPARATION_PROMPT,
-  REVISITING_GOALS_PROMPTS,
-  TEMPERATURE_MAX,
-  TEMPERATURE_MIN,
+  isBlankAnswer,
+  isPanel,
   parseSnapshot,
+  questionsOf,
+  type AnswerValue,
 } from "@/lib/coaching";
 import { programStudentHref } from "@/lib/links";
 import { displayNameOf } from "@/lib/people";
 import { formatSchoolDay, type SchoolDay } from "@/lib/school-time";
 import { formatDateTime } from "@/lib/status";
 import { useTRPC } from "@/trpc/client";
-import { cn } from "@/lib/utils";
 import type { RouterOutputs } from "@/trpc/types";
 
 type SessionData = RouterOutputs["coaching"]["session"];
@@ -49,39 +44,54 @@ const SAVE_DEBOUNCE_MS = 2500;
 /** The staff-only half of the form, as the autosave holds it between a keystroke and a write. */
 type PendingSave = {
   temperature: number | null;
-  answers: Record<string, string>;
+  answers: Record<string, AnswerValue>;
   heldOn: SchoolDay;
 };
 
+/** The outline entry for the fixed head of every form: the last few weeks and the snapshot. */
+export const SESSION_HEAD = { id: "head", label: "Where things stand" } as const;
+
 /**
- * One coaching conversation, in three parts read in order. Before the session: the last few weeks,
- * the data snapshot that completing will record, what the fellow wants to raise, and the coach's
- * own notes. The fellow check-in: the temperature check and the staff-only questions. Goal
- * setting: the fellow's own goals to talk through.
+ * One coaching conversation, drawn from the form it was started with.
  *
- * **The visibility labels are the design.** Every section says who reads it — the temperature and
- * the check-in answers are marked staff-only, the goals are marked as the fellow's — because the
+ * **Two fixed parts, then the form.** Every session opens the same way: the day it is held, the
+ * last few weeks — the same card as the fellow's record, for the coach only — and the data
+ * snapshot that completing will record. Everything after that is the session's own `layout`, a
+ * copy of the template taken when the session started: its sections in order, each holding the
+ * questions and the data panels an admin placed there. The form draws what the layout says and
+ * decides nothing itself, which is what lets an admin change the form without a deploy.
+ *
+ * **The visibility labels are the design.** Every question says who reads its answer — staff
+ * only, or shared with the fellow on completion — and every panel says whose it is, because the
  * form is on screen during a shared conversation and the person typing should never have to
  * remember which half is which, or which half is even theirs to write.
  *
  * **Nothing here edits a goal.** They belong to the fellow, who sets and edits them on their own
- * screen; this form shows them so a session can be spent guiding somebody to set one or to move
- * where they say they stand. What an instructor writes on a goal is a comment beneath it, which
- * the fellow reads on their own screen and can answer.
+ * screen; the goals panel shows them so a session can be spent guiding somebody to set one or to
+ * move where they say they stand. What an instructor writes on a goal is a comment beneath it.
  *
  * **Autosaved, the draft-editor way.** A coaching conversation is half an hour of prose, and an
- * unpressed Save button is how it gets lost: edits debounce for a moment and then save, blur
- * flushes, and a quiet "Saved" line says when. The save mutation deliberately skips
- * `useServerMutation` — refreshing every server component on a rhythm of keystrokes buys nothing,
- * since what was saved is exactly what is on screen. Completing, which changes what other screens
- * show, does the full refresh.
+ * unpressed Save button is how it gets lost: text answers debounce for a moment and then save,
+ * blur flushes, a chosen point or option saves at once, and a quiet "Saved" line says when. The
+ * save mutation deliberately skips `useServerMutation` — refreshing every server component on a
+ * rhythm of keystrokes buys nothing, since what was saved is exactly what is on screen.
+ * Completing, which changes what other screens show, does the full refresh.
  *
- * A completed session renders the same layout as a record: the answers as text and the stored
- * figures as its data snapshot. Nothing on it is editable, which is the whole of what completing means —
- * and Discard is gone with the rest, because throwing away an empty form and taking back a
- * snapshot somebody has already read are different acts.
+ * A completed session renders the same layout as a record: the answers as recorded and the stored
+ * figures as its data snapshot. Nothing on it is editable, which is the whole of what completing
+ * means — and Discard is gone with the rest, because throwing away an empty form and taking back
+ * a snapshot somebody has already read are different acts.
  */
-export function CoachingSessionForm({ programId, data }: { programId: string; data: SessionData }) {
+export function CoachingSessionForm({
+  programId,
+  data,
+  today,
+}: {
+  programId: string;
+  data: SessionData;
+  /** Read once by the page and handed down, so the server and the browser agree which square is today. */
+  today: SchoolDay;
+}) {
   const trpc = useTRPC();
   const completed = data.endedAt !== null;
   const fellowName = displayNameOf(data.student, "the fellow");
@@ -90,7 +100,7 @@ export function CoachingSessionForm({ programId, data }: { programId: string; da
 
   const [temperature, setTemperature] = React.useState<number | null>(data.temperature);
   const [heldOn, setHeldOn] = React.useState<SchoolDay>(data.heldOn);
-  const [answers, setAnswers] = React.useState<Record<string, string>>(() =>
+  const [answers, setAnswers] = React.useState<Record<string, AnswerValue>>(() =>
     Object.fromEntries(data.answers.map((answer) => [answer.promptId, answer.answer])),
   );
   const [savedAt, setSavedAt] = React.useState<Date | null>(null);
@@ -123,10 +133,10 @@ export function CoachingSessionForm({ programId, data }: { programId: string; da
       sessionId: data.id,
       temperature: held.temperature,
       heldOn: held.heldOn,
-      answers: ALL_PROMPTS.flatMap((prompt) => {
-        const answer = held.answers[prompt.id] ?? "";
-        return answer.trim() === "" ? [] : [{ promptId: prompt.id, answer }];
-      }),
+      // A blank answer is not sent: an unanswered question is ordinary, not a stored empty.
+      answers: Object.entries(held.answers).flatMap(([promptId, answer]) =>
+        isBlankAnswer(answer) ? [] : [{ promptId, answer }],
+      ),
     });
     // eslint-disable-next-line react-hooks/exhaustive-deps -- save.mutate is stable
   }, [programId, data.id]);
@@ -164,16 +174,20 @@ export function CoachingSessionForm({ programId, data }: { programId: string; da
     flush();
   };
 
-  const storedNotes = data.answers.find((answer) => answer.promptId === ADDITIONAL_NOTES_PROMPT.id);
-  const storedPreparation = data.answers.find(
-    (answer) => answer.promptId === PREPARATION_PROMPT.id,
-  );
-
-  const editAnswer = (promptId: string, value: string) => {
+  /** Text waits for the typing to pause; a chosen point or option is one act and saves at once. */
+  const editAnswer = (promptId: string, value: AnswerValue, atOnce: boolean) => {
     const next = { ...answers, [promptId]: value };
     setAnswers(next);
-    queue({ temperature, answers: next, heldOn });
+    pending.current = { temperature, answers: next, heldOn };
+    if (atOnce) flush();
+    else queue(pending.current);
   };
+
+  /** What was recorded, for a completed session: the stored answers by question id. */
+  const stored = React.useMemo(
+    () => new Map(data.answers.map((answer) => [answer.promptId, answer.answer])),
+    [data.answers],
+  );
 
   // ---- Completing. -----------------------------------------------------------------------------
 
@@ -211,39 +225,14 @@ export function CoachingSessionForm({ programId, data }: { programId: string; da
 
   const strip = completed ? parseSnapshot(data.snapshot) : data.figures;
 
-  /*
-    One labelled prose answer, drawn the same way wherever it is asked — the check-in and the goal
-    questions differ only in which list they come from.
-  */
-  const promptField = (prompt: { id: string; prompt: string }) => {
-    const stored = data.answers.find((answer) => answer.promptId === prompt.id);
-    return (
-      <div key={prompt.id} className="flex flex-col gap-1.5">
-        {/*
-          A completed session shows the prompt as it was asked — the stored copy — where a draft
-          shows the template's current wording, which is what saving will copy.
-        */}
-        <Label htmlFor={`coaching-${prompt.id}`} className="text-sm font-medium">
-          {completed && stored ? stored.prompt : prompt.prompt}
-        </Label>
-        {completed ? (
-          <p className={cn("text-sm", !stored && "text-muted-foreground")}>
-            {stored?.answer || "Not discussed."}
-          </p>
-        ) : (
-          <Textarea
-            id={`coaching-${prompt.id}`}
-            value={answers[prompt.id] ?? ""}
-            onChange={(event) => editAnswer(prompt.id, event.target.value)}
-            onBlur={flush}
-            rows={2}
-            maxLength={20_000}
-            placeholder="In their words, roughly."
-          />
-        )}
-      </div>
-    );
-  };
+  /* How many answers the fellow will see, for the completion dialog to name. */
+  const sharedCount =
+    data.layout === null
+      ? 0
+      : questionsOf(data.layout).filter((question) => {
+          const answer = answers[question.id];
+          return question.shared && answer !== undefined && !isBlankAnswer(answer);
+        }).length;
 
   return (
     <div className="flex flex-col gap-16">
@@ -271,7 +260,7 @@ export function CoachingSessionForm({ programId, data }: { programId: string; da
         )}
       </section>
 
-      <Part id="before" title="Before the session">
+      <Part id={SESSION_HEAD.id} title={SESSION_HEAD.label}>
         {/*
           Where the conversation starts: the last few weeks, live, the same component and the same
           figures as the fellow's record. Above the data snapshot, and labelled apart from it,
@@ -309,137 +298,61 @@ export function CoachingSessionForm({ programId, data }: { programId: string; da
             )}
           </div>
         </section>
-
-        {/*
-          What the fellow wants to raise, in their words and theirs to keep or remove, then what the
-          coach means to raise. The topics are shown on a draft only — a completed session is the
-          record of one conversation, and the fellow's current list is not part of it.
-        */}
-        {!completed && (
-          <section className="flex flex-col gap-3">
-            <div className="flex flex-wrap items-center gap-2">
-              <h3 className="text-sm font-medium">
-                {fellowName}&apos;s discussion items · {data.topics.length}
-              </h3>
-              <Badge variant="outline" className="font-normal text-muted-foreground">
-                Theirs
-              </Badge>
-            </div>
-            <CoachingTopics
-              topics={data.topics}
-              programId={programId}
-              editable={false}
-              empty="They have not added anything for this session."
-            />
-          </section>
-        )}
-
-        {/*
-          Stored among the answers under its own prompt id, like the additional notes, so it saves,
-          copies its label, and stays staff-only exactly as the check-in does.
-        */}
-        <section className="flex flex-col gap-3">
-          <SectionHeading title="Pre-session notes" audience="staff" />
-          {completed ? (
-            <p className={cn("text-sm", !storedPreparation && "text-muted-foreground")}>
-              {storedPreparation?.answer || "Nothing was written beforehand."}
-            </p>
-          ) : (
-            <Textarea
-              id={`coaching-${PREPARATION_PROMPT.id}`}
-              aria-label="Pre-session notes"
-              value={answers[PREPARATION_PROMPT.id] ?? ""}
-              onChange={(event) => editAnswer(PREPARATION_PROMPT.id, event.target.value)}
-              onBlur={flush}
-              rows={3}
-              maxLength={20_000}
-              placeholder="Observations, trends, and questions you want to be sure to raise."
-            />
-          )}
-        </section>
-      </Part>
-
-      <Part id="check-in" title="Fellow check-in">
-        <section className="flex flex-col gap-3">
-          <SectionHeading title="Temperature check" audience="staff" />
-          {completed && data.temperature === null ? (
-            <p className="text-sm text-muted-foreground">Not asked.</p>
-          ) : (
-            <TemperatureScale
-              value={completed ? data.temperature : temperature}
-              disabled={completed}
-              onChange={editTemperature}
-            />
-          )}
-        </section>
-
-        <section className="flex flex-col gap-3">
-          <SectionHeading title="Check-in questions" audience="staff" />
-          <div className="flex flex-col gap-4">
-            {CHECK_IN_PROMPTS.map((prompt) => promptField(prompt))}
-          </div>
-        </section>
-
-        {/*
-          After the check-in questions and before the goal questions: anything from the conversation
-          that no prompt asked for. Stored among the answers under its own prompt id — see
-          `ADDITIONAL_NOTES_PROMPT` — so it saves, copies its label, and stays staff-only exactly as
-          the check-in does.
-        */}
-        <section className="flex flex-col gap-3">
-          <SectionHeading title="Additional notes" audience="staff" />
-          {completed ? (
-            <p className={cn("text-sm", !storedNotes && "text-muted-foreground")}>
-              {storedNotes?.answer || "Nothing further was noted."}
-            </p>
-          ) : (
-            <Textarea
-              id={`coaching-${ADDITIONAL_NOTES_PROMPT.id}`}
-              aria-label="Additional notes"
-              value={answers[ADDITIONAL_NOTES_PROMPT.id] ?? ""}
-              onChange={(event) => editAnswer(ADDITIONAL_NOTES_PROMPT.id, event.target.value)}
-              onBlur={flush}
-              rows={3}
-              maxLength={20_000}
-              placeholder="Anything else from this conversation worth writing down."
-            />
-          )}
-        </section>
       </Part>
 
       {/*
-        The goals the fellow already set, and the three questions asked about them. The questions
-        are answered in the instructor's words and stay staff-only; the goals underneath are the
-        fellow's own, which is why each heading carries its own audience.
+        The form itself: the layout this session was started with, section by section. A layout
+        this code cannot read is said so rather than drawn wrongly; the date and the snapshot above
+        still work, and completing still records.
       */}
-      <Part id="goals" title="Goal setting">
-        <section className="flex flex-col gap-3">
-          <SectionHeading title="Revisiting goals" audience="staff" />
-          <div className="flex flex-col gap-4">
-            {REVISITING_GOALS_PROMPTS.map((prompt) => promptField(prompt))}
-          </div>
-
-          <div className="flex flex-wrap items-center gap-2 pt-1">
-            <h3 className="text-sm font-medium">
-              {fellowName}&apos;s goals · {data.goals.length}
-            </h3>
-            <Badge variant="outline" className="font-normal text-muted-foreground">
-              Theirs to edit
-            </Badge>
-          </div>
-          {/*
-            The badge says whose they are: the goals are the fellow's own. A session is where they
-            are talked through — guiding somebody to set one, or to move where they say they stand
-            — and they do the typing on their own screen, during the conversation or after it. The
-            one thing an instructor writes here is a comment under a goal.
-          */}
-          <FellowGoals
-            goals={data.goals}
-            programId={programId}
-            empty="They have not set any goals yet."
-          />
-        </section>
-      </Part>
+      {data.layout === null ? (
+        <p className="rounded-lg bg-muted/40 px-3 py-6 text-center text-sm text-muted-foreground">
+          This session&apos;s form cannot be read, so its questions cannot be shown.
+        </p>
+      ) : (
+        data.layout.sections.map((section) => (
+          <Part key={section.id} id={section.id} title={section.title} caption={section.caption}>
+            {section.items.map((item) =>
+              isPanel(item) ? (
+                <DataPanel
+                  key={item.id}
+                  item={item}
+                  data={data}
+                  programId={programId}
+                  completed={completed}
+                  today={today}
+                />
+              ) : item.kind === "TEMPERATURE" ? (
+                <QuestionField
+                  key={item.id}
+                  item={item}
+                  value={completed ? data.temperature : temperature}
+                  completed={completed}
+                  fellowName={fellowName}
+                  onChange={(value) => editTemperature(value as number)}
+                  onBlur={flush}
+                />
+              ) : (
+                <QuestionField
+                  key={item.id}
+                  item={item}
+                  value={completed ? (stored.get(item.id) ?? null) : (answers[item.id] ?? null)}
+                  completed={completed}
+                  fellowName={fellowName}
+                  onChange={(value) =>
+                    editAnswer(
+                      item.id,
+                      value,
+                      item.kind !== "SHORT_TEXT" && item.kind !== "LONG_TEXT",
+                    )
+                  }
+                  onBlur={flush}
+                />
+              ),
+            )}
+          </Part>
+        ))
+      )}
 
       {!completed && (
         <div className="flex items-center gap-3 border-t border-border pt-4">
@@ -501,8 +414,10 @@ export function CoachingSessionForm({ programId, data }: { programId: string; da
           <DialogHeader>
             <DialogTitle>Complete this session?</DialogTitle>
             <DialogDescription>
-              {fellowName} will see the performance figures above, recorded now and dated{" "}
-              {formatSchoolDay(heldOn)}. The temperature check and check-in answers stay staff-only.
+              {fellowName} will see the performance figures above
+              {sharedCount > 0 &&
+                ` and your ${sharedCount === 1 ? "answer to the shared question" : `answers to the ${sharedCount} shared questions`}`}
+              , recorded now and dated {formatSchoolDay(heldOn)}. Everything else stays staff-only.
               Nothing can be edited afterwards, including the date.
             </DialogDescription>
           </DialogHeader>
@@ -528,94 +443,30 @@ export function CoachingSessionForm({ programId, data }: { programId: string; da
   );
 }
 
-/** The ten points, built once from the bounds the column and the schema already agree on. */
-const TEMPERATURE_POINTS = Array.from(
-  { length: TEMPERATURE_MAX - TEMPERATURE_MIN + 1 },
-  (_, index) => TEMPERATURE_MIN + index,
-);
-
 /**
- * The temperature check: ten points with the ends named.
- *
- * **A scale rather than a number box**, because the answer is a position between two named ends
- * and the anchors are what give a 4 its meaning. A number field asks the fellow to make that
- * translation themselves, and it accepts 0, 11, and -3 — which is why choosing a point can only
- * produce a number the column already allows, and the clamping the old input needed is gone.
- *
- * **Native radios sharing one name**, so the arrow keys move along the scale, Tab reaches the
- * group once, and a screen reader reads it as one question with ten answers — all of it the
- * platform's, none of it ours. The input is `sr-only` rather than hidden so it keeps every one of
- * those behaviours; the square beside it is what a pointer sees, and `peer-focus-visible` puts the
- * focus ring on that square when a keyboard moves the selection.
- *
- * A completed session renders the same scale, disabled: a bare "7" would drop the two anchors the
- * number was chosen against, which is most of what it meant.
- */
-function TemperatureScale({
-  value,
-  disabled,
-  onChange,
-}: {
-  value: number | null;
-  disabled: boolean;
-  onChange: (value: number) => void;
-}) {
-  return (
-    <fieldset disabled={disabled} className="flex flex-col gap-1.5">
-      <legend className="pb-1.5 text-sm text-muted-foreground">
-        On a scale from {TEMPERATURE_MIN} to {TEMPERATURE_MAX}, how are you feeling at the moment?
-      </legend>
-      <div className="w-max flex flex-col gap-1.5">
-        <div className="flex flex-wrap gap-1.5">
-          {TEMPERATURE_POINTS.map((point) => (
-            <label key={point} className={cn(!disabled && "cursor-pointer")}>
-              <input
-                type="radio"
-                name="coaching-temperature"
-                value={point}
-                checked={value === point}
-                onChange={() => onChange(point)}
-                className="peer sr-only"
-              />
-              <span
-                className={cn(
-                  "flex size-9 items-center justify-center rounded-md border border-border text-sm tabular-nums transition-colors",
-                  "peer-focus-visible:ring-2 peer-focus-visible:ring-ring peer-focus-visible:ring-offset-1",
-                  "peer-checked:border-primary peer-checked:bg-primary peer-checked:font-medium peer-checked:text-primary-foreground",
-                  disabled ? "text-muted-foreground" : "hover:bg-muted/60",
-                )}
-              >
-                {point}
-              </span>
-            </label>
-          ))}
-        </div>
-
-        {/*
-          The two ends named, under the numbers they belong to — which is what the `w-max` column
-          above is for: left to the fieldset's own width, "Feeling good" would sit at the far edge
-          of the form rather than under the 10. This is the whole reason the control is a scale:
-          "feeling low" and "feeling good" are what is being answered between.
-        */}
-        <div className="flex justify-between text-xs text-muted-foreground">
-          <span>Feeling low</span>
-          <span>Feeling good</span>
-        </div>
-      </div>
-    </fieldset>
-  );
-}
-
-/**
- * One of the form's three parts, each an entry in the page's outline.
+ * One part of the form, each an entry in the page's outline: the fixed head, or one section of the
+ * layout.
  *
  * The `id` is what the outline links to, and `scroll-mt-(--outline-offset)` is what lands the
  * heading under the sticky outline rather than behind it; see `OutlinedPage`.
  */
-function Part({ id, title, children }: { id: string; title: string; children: React.ReactNode }) {
+function Part({
+  id,
+  title,
+  caption,
+  children,
+}: {
+  id: string;
+  title: string;
+  caption?: string;
+  children: React.ReactNode;
+}) {
   return (
     <section id={id} className="scroll-mt-(--outline-offset) flex flex-col gap-6">
-      <h2 className="border-b border-border pb-2 text-base font-semibold">{title}</h2>
+      <div className="flex flex-col gap-1 border-b border-border pb-2">
+        <h2 className="text-base font-semibold">{title}</h2>
+        {caption && <p className="text-xs text-muted-foreground">{caption}</p>}
+      </div>
       {children}
     </section>
   );

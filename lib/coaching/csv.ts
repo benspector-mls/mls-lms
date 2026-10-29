@@ -4,8 +4,10 @@ import { displayNameOf } from "@/lib/people";
 import { schoolClockOf, schoolDayOf, type SchoolDay } from "@/lib/school-time";
 
 import {
-  ALL_PROMPTS,
+  formatAnswer,
+  parseLayout,
   parseSnapshot,
+  questionsOf,
   sessionAnswersSchema,
   type CoachingSnapshot,
 } from "../coaching";
@@ -14,20 +16,21 @@ import {
  * One fellow's coaching history as a spreadsheet: one row per session, one column per field.
  *
  * **Every row has the same columns**, which is what makes the file sortable and filterable, and
- * it takes two decisions to get there. The answer columns are headed by the template's current
- * wording from `ALL_PROMPTS` and filled by prompt id, because the text stored beside each answer is
- * whatever the wording was on the day it was saved, and two sessions saved either side of an edit
- * would otherwise disagree about the column's name. The snapshot's course columns are the union of
- * every course any session froze, keyed by course id, so a session that predates a course has
- * empty cells under it rather than a shorter row.
+ * it takes two decisions to get there. The answer columns are the union of every question any of
+ * the fellow's sessions asked, keyed by the question's id in the order first met and headed by
+ * its wording in the newest session that asked it — because two sessions run through different
+ * forms, or through one form before and after an edit, would otherwise disagree about which
+ * column an answer belongs in and what it is called. The snapshot's course columns are the union
+ * of every course any session froze, keyed by course id, by the same rule. A session that lacks a
+ * question or a course has empty cells under it rather than a shorter row.
  *
  * **A draft is a row too**, with "In progress" in its Status column and nothing under the
  * snapshot, because a draft has not recorded any figures. An empty cell there is the truth; a zero
  * would claim a fellow had attended no mornings.
  *
- * **Oldest first**, where the record lists newest first. A history is read forwards, and the course
- * columns take their order from the same pass, so a course that starts in the spring sits to the
- * right of the autumn's.
+ * **Oldest first**, where the record lists newest first. A history is read forwards, and both
+ * unions take their order from the same pass, so a question or a course that appears in the
+ * spring sits to the right of the autumn's.
  *
  * Pure and browser-safe, and built from the payload the record page already fetched — see the top
  * of `lib/gradebook/csv.ts` for why a file assembled from a second query is a file that can
@@ -51,6 +54,10 @@ export type CoachingCsvSession = {
     githubUsername: string | null;
   } | null;
   temperature: number | null;
+  /** The form the session was run through, named as it was that day. */
+  templateName: string;
+  /** The `layout` column as stored. Read with `parseLayout`; anything else names no questions. */
+  layout: unknown;
   /** The `answers` column as stored. Read with `sessionAnswersSchema`; anything else is no answers. */
   answers: unknown;
   /** The `snapshot` column as stored. Read with `parseSnapshot`; anything else is no snapshot. */
@@ -96,8 +103,13 @@ export function coachingCsv(data: CoachingCsvData): string {
       const answers = sessionAnswersSchema.safeParse(session.answers);
       return {
         ...session,
+        parsedLayout: parseLayout(session.layout),
+        parsedAnswers: answers.success ? answers.data : [],
         answerByPrompt: new Map(
-          (answers.success ? answers.data : []).map((answer) => [answer.promptId, answer.answer]),
+          (answers.success ? answers.data : []).map((answer) => [
+            answer.promptId,
+            formatAnswer(answer.answer),
+          ]),
         ),
         // A draft has no snapshot by the migration's CHECK; parsing it anyway costs nothing.
         parsedSnapshot: parseSnapshot(session.snapshot),
@@ -105,10 +117,28 @@ export function coachingCsv(data: CoachingCsvData): string {
     });
 
   /*
-    Every course any snapshot froze, in the order first met, keyed by id so that a course renamed
-    mid-term is one group of columns rather than two. The label is the name in the newest snapshot
-    holding the course, which is the name a reader will recognise today; the loop overwrites it on
-    each later session for that reason.
+    Every question any session asked, in the order first met, keyed by id so that a question
+    reworded between two sessions is one column rather than two. The heading is the wording in
+    the newest session that asked it, which is the wording a reader will recognise today; the loop
+    overwrites it on each later session for that reason. A session whose form cannot be read
+    still names its questions through the wording stored beside each answer.
+  */
+  const questionHeadings = new Map<string, string>();
+  for (const session of sessions) {
+    for (const question of session.parsedLayout ? questionsOf(session.parsedLayout) : []) {
+      questionHeadings.set(question.id, question.prompt);
+    }
+    for (const answer of session.parsedAnswers) {
+      if (!questionHeadings.has(answer.promptId)) {
+        questionHeadings.set(answer.promptId, answer.prompt);
+      }
+    }
+  }
+  const questionIds = [...questionHeadings.keys()];
+
+  /*
+    Every course any snapshot froze, by the same rule: keyed by id, in the order first met, under
+    its newest name.
   */
   const courseNames = new Map<string, string>();
   for (const session of sessions) {
@@ -124,11 +154,12 @@ export function coachingCsv(data: CoachingCsvData): string {
       "Email",
       "Program",
       "Held on",
+      "Form",
       "Status",
       "Completed at",
       "Led by",
       "Temperature",
-      ...ALL_PROMPTS.map((prompt) => prompt.prompt),
+      ...questionIds.map((id) => questionHeadings.get(id)!),
       "Mornings eligible",
       "Present",
       "Late",
@@ -162,12 +193,13 @@ export function coachingCsv(data: CoachingCsvData): string {
         data.person.email,
         data.program.name,
         session.heldOn,
+        session.templateName,
         session.endedAt === null ? "In progress" : "Completed",
         completedAt(session.endedAt),
         // The record's own words for a session whose instructor's account has gone.
         session.author ? displayNameOf(session.author, "somebody") : "A former instructor",
         session.temperature,
-        ...ALL_PROMPTS.map((prompt) => session.answerByPrompt.get(prompt.id) ?? null),
+        ...questionIds.map((id) => session.answerByPrompt.get(id) ?? null),
         attendance?.eligible ?? null,
         attendance?.present ?? null,
         attendance?.late ?? null,

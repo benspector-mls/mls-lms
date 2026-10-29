@@ -1,13 +1,16 @@
 import Link from "next/link";
 import { Suspense } from "react";
 
-import { CoachingSessionForm } from "@/components/instructor/coaching-session-form";
+import {
+  CoachingSessionForm,
+  SESSION_HEAD,
+} from "@/components/instructor/coaching-session-form";
 import { PageFallback } from "@/components/list-states";
 import { OutlinedPage, type OutlineSection } from "@/components/outlined-page";
 import { PageHeader } from "@/components/page-header";
 import { programStudentHref } from "@/lib/links";
 import { displayNameOf } from "@/lib/people";
-import { formatSchoolDay } from "@/lib/school-time";
+import { formatSchoolDay, schoolDayOf } from "@/lib/school-time";
 import { formatDate } from "@/lib/status";
 import { getQueryClient, trpc } from "@/trpc/server";
 
@@ -20,9 +23,9 @@ import { getQueryClient, trpc } from "@/trpc/server";
  * like the record it deliberately lights no sidebar item.
  *
  * **An outline beside it, as on the settings screens**, because the form is long and is read in
- * three parts in order — what to look at before the fellow arrives, the check-in, and their goals —
- * and a coach halfway through the conversation needs to get back to the figures without scrolling
- * past everything they have written since.
+ * parts in order — where the fellow stands, then each section of the form the session was started
+ * with — and a coach halfway through the conversation needs to get back to the figures without
+ * scrolling past everything they have written since.
  *
  * `cacheComponents` is enabled, so `params` is passed down rather than awaited here.
  */
@@ -48,11 +51,13 @@ async function Session({
     trpc.coaching.session.queryOptions({ programId, sessionId }),
   );
 
-  /* The three parts of `CoachingSessionForm`, in its order. Every part is drawn on every session. */
+  /*
+    The parts of `CoachingSessionForm`, in its order: the fixed head every session opens with, then
+    one entry per section of this session's own form.
+  */
   const sections: OutlineSection[] = [
-    { id: "before", label: "Before the session" },
-    { id: "check-in", label: "Fellow check-in" },
-    { id: "goals", label: "Goal setting" },
+    SESSION_HEAD,
+    ...(data.layout?.sections ?? []).map((section) => ({ id: section.id, label: section.title })),
   ];
 
   return (
@@ -79,7 +84,8 @@ async function Session({
       }
       sections={sections}
     >
-      <CoachingSessionForm programId={programId} data={data} />
+      {/* The clock is read once here, for the reason the record page gives: hydration. */}
+      <CoachingSessionForm programId={programId} data={data} today={schoolDayOf(new Date())} />
     </OutlinedPage>
   );
 }

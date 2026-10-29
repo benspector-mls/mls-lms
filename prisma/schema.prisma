@@ -2927,6 +2927,30 @@ model CoachingTopic {
   @@schema("public")
 }
 
+/// A coaching form: the sections, questions and data panels a coaching session is run through,
+/// written by an admin and used by every program. One row holds the whole form as JSON — see
+/// `coachingLayoutSchema` in `lib/coaching.ts` — because nothing ever references a section or a
+/// question by a row of its own: a session copies the layout when it starts, and answers key on
+/// item ids inside that copy. Editing or deleting a template therefore never changes a session
+/// already begun, which is what makes writing here safe. Application-wide rather than a program's,
+/// the competency list's rule: a program is one run, and a form owned by a run would be copied
+/// into the next and drift. Not audited, by the same rule: a form is curriculum.
+///
+/// At most one row is the default, held by `coachingTemplates.setDefault` in a transaction rather
+/// than by a partial index Prisma cannot express.
+model CoachingTemplate {
+  id        String  @id @default(uuid()) @db.Uuid
+  name      String
+  isDefault Boolean @default(false) @map("is_default")
+  layout    Json
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  @@map("coaching_templates")
+  @@schema("public")
+}
+
 /// One coaching conversation with one fellow: a temperature check and the check-in answers. A
 /// draft until `endedAt` is written; completing it stores the snapshot, which is the half of a
 /// session the fellow sees.
@@ -2950,14 +2974,39 @@ model CoachingSession {
 
   /// How the fellow said they were feeling, 1 to 10. Staff-only, like the answers. Null until
   /// asked; the range is a CHECK constraint in the migration, so a bypassed procedure cannot
-  /// disagree with the zod schema.
+  /// disagree with the zod schema. Its own column rather than an answer, because the record's
+  /// session list, the Fellows screen's Coaching tab, the CSV export and Themes read it: a form
+  /// asks it through its one `TEMPERATURE` item, and a form without that item leaves it null.
   temperature Int?
 
-  /// `[{promptId, prompt, answer}]` — see `sessionAnswersSchema` in `lib/coaching.ts`. The
-  /// prompt text is copied in server-side at save, so a session renders the prompts as they were
-  /// asked however the template moves afterwards. Staff-only. Generating Themes sends a
-  /// completed session's answers to Anthropic when a coach chooses sessions as an input, and
-  /// nothing else does; see `CoachingSummary`.
+  /// The form this session is run through: a copy of the template's layout taken when the session
+  /// started, so that editing or deleting the template afterwards changes nothing here — see
+  /// `coachingLayoutSchema` in `lib/coaching.ts`. The database default is the form every session
+  /// had before forms were templates, written out in the database's own canonical JSON text, and
+  /// it exists for the previous release: a draft it starts during a deploy must still have a form.
+  /// The application always copies a template itself. The default is dropped in the release after
+  /// no instance of the previous one is answering.
+  layout Json @default("{\"version\": 1, \"sections\": [{\"id\": \"before\", \"items\": [{\"id\": \"topics\", \"kind\": \"TOPICS\", \"caption\": \"Theirs to keep or remove.\", \"heading\": \"Discussion items\"}, {\"id\": \"preparation\", \"kind\": \"LONG_TEXT\", \"prompt\": \"Pre-session notes\", \"shared\": false, \"caption\": \"Observations, trends, and questions you want to be sure to raise.\", \"overview\": false}], \"title\": \"Before the session\"}, {\"id\": \"check-in\", \"items\": [{\"id\": \"temperature\", \"kind\": \"TEMPERATURE\", \"prompt\": \"Temperature check\", \"caption\": \"On a scale from 1 to 10, how are you feeling at the moment?\"}, {\"id\": \"on-your-mind\", \"kind\": \"LONG_TEXT\", \"prompt\": \"What has been on your mind lately?\", \"shared\": false, \"caption\": \"In their words, roughly.\", \"heading\": \"On their mind\", \"overview\": true}, {\"id\": \"excited\", \"kind\": \"LONG_TEXT\", \"prompt\": \"What are you most excited to work on at the moment?\", \"shared\": false, \"caption\": \"In their words, roughly.\", \"heading\": \"Excited about\", \"overview\": true}, {\"id\": \"challenging\", \"kind\": \"LONG_TEXT\", \"prompt\": \"Has anything been proving particularly challenging recently?\", \"shared\": false, \"caption\": \"In their words, roughly.\", \"heading\": \"Challenging\", \"overview\": true}, {\"id\": \"progress\", \"kind\": \"LONG_TEXT\", \"prompt\": \"Where have you made progress over the past few weeks / where have you felt most successful?\", \"shared\": false, \"caption\": \"In their words, roughly.\", \"heading\": \"Progress\", \"overview\": true}, {\"id\": \"support\", \"kind\": \"LONG_TEXT\", \"prompt\": \"What kind of support or accountability would feel helpful?\", \"shared\": false, \"caption\": \"In their words, roughly.\", \"heading\": \"Support wanted\", \"overview\": true}, {\"id\": \"additional-notes\", \"kind\": \"LONG_TEXT\", \"prompt\": \"Additional notes\", \"shared\": false, \"caption\": \"Anything else from this conversation worth writing down.\", \"overview\": false}], \"title\": \"Fellow check-in\"}, {\"id\": \"goals\", \"items\": [{\"id\": \"goal-progress\", \"kind\": \"LONG_TEXT\", \"prompt\": \"What progress have you made toward the goal you set during your last coaching session?\", \"shared\": false, \"caption\": \"In their words, roughly.\", \"overview\": false}, {\"id\": \"goal-evidence\", \"kind\": \"LONG_TEXT\", \"prompt\": \"What evidence, artifact, or example shows that progress?\", \"shared\": false, \"caption\": \"In their words, roughly.\", \"overview\": false}, {\"id\": \"goal-adjustment\", \"kind\": \"LONG_TEXT\", \"prompt\": \"What helped or got in the way, and what would you adjust moving forward?\", \"shared\": false, \"caption\": \"In their words, roughly.\", \"overview\": false}, {\"id\": \"goals-panel\", \"kind\": \"GOALS\", \"caption\": \"Theirs to edit.\", \"heading\": \"Goals\"}], \"title\": \"Goal setting\"}]}")
+
+  /// Which form the layout was copied from, as its id and its name on that day — the name is what
+  /// the record's session list and the Fellows screen's Coaching tab print, and the id is what that
+  /// tab filters by, so sessions run through different forms are never read as one. Copies rather
+  /// than a foreign key, for the reason `layout` is a copy: the form may be renamed or deleted and
+  /// the session must keep saying what it was. The database defaults name the form every session
+  /// was run through before forms were templates, which is the seeded default form, and they exist
+  /// for the previous release's inserts during a deploy; the application always writes both. The
+  /// defaults are dropped with `layout`'s.
+  templateId   String @default(dbgenerated("'c0ac4100-f0a1-4e6e-8d2b-7a3f5e9c1b20'::uuid")) @map("template_id") @db.Uuid
+  templateName String @default("Coaching session") @map("template_name")
+
+  /// `[{promptId, prompt, answer}]` — see `sessionAnswersSchema` in `lib/coaching.ts`. Each
+  /// `promptId` is an item id in `layout`, and the prompt text is copied in server-side at save
+  /// from that item, so a stored answer reads beside the question as asked. The answer is text, a
+  /// whole number, true or false, or a list of options, by the question's kind. Staff-only, except
+  /// the answers to questions the form marks as shared, which `coaching.myGoals` hands the fellow
+  /// once the session is completed. Generating Themes sends a completed session's answers to
+  /// Anthropic when a coach chooses sessions as an input, and nothing else does; see
+  /// `CoachingSummary`.
   answers Json @default("[]")
 
   /// When the instructor completed it. Null while a draft; written once, never cleared. The

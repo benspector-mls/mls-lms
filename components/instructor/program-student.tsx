@@ -6,7 +6,9 @@ import { HelpTip } from "@/components/help-tip";
 import type { OutlineSection } from "@/components/outlined-page";
 import { CoachingDownload } from "@/components/instructor/coaching-download";
 import { ExcuseDays } from "@/components/instructor/excuse-days";
+import { AttendanceFigures, calendarDaysOf } from "@/components/instructor/fellow-attendance";
 import { FellowGoals } from "@/components/instructor/fellow-goals";
+import { GcfHistory } from "@/components/instructor/gcf-history";
 import { InstructorNotes } from "@/components/instructor/instructor-notes";
 import { ProgramStudentPicker } from "@/components/instructor/program-student-picker";
 import { RenameStudent } from "@/components/instructor/rename-student";
@@ -17,13 +19,12 @@ import { ViewAsButton } from "@/components/instructor/view-as-button";
 import { TEMPERATURE_MAX, temperatureTone } from "@/lib/coaching";
 import { coachingCsv } from "@/lib/coaching/csv";
 import { coachingSessionHref, studentHref, type RecordTab } from "@/lib/links";
-import { attendanceProvenance } from "@/lib/status";
 import { TestStudentBadge } from "@/components/test-student-badge";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Badge } from "@/components/ui/badge";
 import { displayNameOf, initials } from "@/lib/people";
 import { formatSchoolDay, type SchoolDay } from "@/lib/school-time";
-import { formatPercent, TONE_CLASSES } from "@/lib/status";
+import { TONE_CLASSES } from "@/lib/status";
 import { cn } from "@/lib/utils";
 import type { RouterOutputs } from "@/trpc/types";
 
@@ -196,20 +197,6 @@ export function StudentPerformance({
   const name = displayNameOf(data.student, "Unnamed");
   const removed = data.enrollmentStatus !== "ACTIVE";
 
-  /*
-    The fellow's own calendar, drawn for their instructor. The sentence in each square's tooltip is
-    composed here, as the fellow's record composes it, because turning a source and a timestamp into
-    words needs the school's timezone and the calendar itself is a client component.
-  */
-  const calendarDays = data.days.map((day) => ({
-    day: day.day,
-    status: day.status,
-    open: day.open,
-    upcoming: day.upcoming,
-    detail: day.status ? attendanceProvenance(day) : null,
-    note: day.note,
-  }));
-
   return (
     <>
       <section id="attendance" className="flex scroll-mt-(--outline-offset) flex-col gap-2">
@@ -237,25 +224,7 @@ export function StudentPerformance({
           <h3 className="border-t border-border pt-3 text-xs font-medium tracking-wide text-muted-foreground uppercase">
             Since they joined
           </h3>
-          <p className="text-sm">
-            {data.summary.rate === null ? (
-              <>Nothing has been counted yet.</>
-            ) : (
-              <>
-                Here for{" "}
-                <span className="font-semibold">
-                  {data.summary.present + data.summary.late} of {data.summary.eligible}
-                </span>{" "}
-                mornings since they joined.{" "}
-                <span className="font-semibold">{formatPercent(data.summary.rate)}</span>
-              </>
-            )}
-          </p>
-          <p className="text-xs text-muted-foreground">
-            Present {data.summary.present} · Late {data.summary.late} · Excused{" "}
-            {data.summary.excused} · Absent {data.summary.absent + data.summary.unrecorded}
-            {data.summary.excused > 0 && ". An excused morning still counts as missed."}
-          </p>
+          <AttendanceFigures summary={data.summary} />
         </div>
 
         {/*
@@ -264,10 +233,15 @@ export function StudentPerformance({
           question an instructor has before a conversation about attendance — a run of red
           Mondays and a scattering of absences are the same rate and different conversations. It
           is the fellow's own calendar, drawn from the same days, so the two of them can look at
-          the same square and read the same thing in it.
+          the same square and read the same thing in it. The coaching form's attendance panel
+          draws it the same way, through the same two helpers.
         */}
         {data.days.length > 0 && (
-          <AttendanceCalendar days={calendarDays} enrolledFrom={data.enrolledFrom} today={today} />
+          <AttendanceCalendar
+            days={calendarDaysOf(data.days)}
+            enrolledFrom={data.enrolledFrom}
+            today={today}
+          />
         )}
       </section>
 
@@ -378,42 +352,8 @@ export function StudentPerformance({
           </p>
         </div>
 
-        {data.gcf.length === 0 ? (
-          <p className="rounded-lg bg-muted/40 px-3 py-6 text-center text-sm text-muted-foreground">
-            They have not sat the GCF yet, real or mock.
-          </p>
-        ) : (
-          <ul className="flex flex-col divide-y divide-border overflow-hidden rounded-lg border border-border">
-            {data.gcf.map((attempt) => (
-              <li
-                key={attempt.id}
-                className="flex flex-wrap items-center gap-x-3 gap-y-1 px-3 py-2 text-sm"
-              >
-                <span className="min-w-0 flex-1 truncate">
-                  {attempt.kind === "PROCTORED" ? "Proctored" : "Mock"}
-                </span>
-                <span className="shrink-0 tabular-nums">
-                  {/*
-                  The two kinds are never compared, so a proctored score is shown bare — it is a
-                  calibrated index from 200 to 600 — and a mock is shown over its own possible,
-                  which is however many tasks that one had.
-                */}
-                  {attempt.scorePossible === null
-                    ? attempt.score
-                    : `${attempt.score} / ${attempt.scorePossible}`}
-                </span>
-                {attempt.integrityFlagged && (
-                  <Badge variant="outline" className="shrink-0 font-normal text-destructive">
-                    Integrity flag
-                  </Badge>
-                )}
-                <span className="shrink-0 text-xs text-muted-foreground">
-                  {formatSchoolDay(attempt.takenOn.toISOString().slice(0, 10))}
-                </span>
-              </li>
-            ))}
-          </ul>
-        )}
+        {/* The same list the coaching form's GCF panel draws, from one component. */}
+        <GcfHistory attempts={data.gcf} />
       </section>
     </>
   );
@@ -506,8 +446,10 @@ export function StudentCoaching({ data, coaching }: { data: Data; coaching: Coac
                   href={coachingSessionHref(data.program.id, data.student.id, session.id)}
                   className="flex flex-wrap items-center gap-x-3 gap-y-1 px-3 py-2.5 text-sm hover:bg-muted/50"
                 >
-                  <span className="min-w-0 flex-1 truncate font-medium">
-                    {formatSchoolDay(session.heldOn)}
+                  <span className="min-w-0 flex-1 truncate">
+                    <span className="font-medium">{formatSchoolDay(session.heldOn)}</span>
+                    {/* The form the session was run through, named as it was that day. */}
+                    <span className="text-muted-foreground"> · {session.templateName}</span>
                   </span>
                   {/*
                     The number alone, coloured by band, and nothing when it was never asked:
@@ -545,7 +487,11 @@ export function StudentCoaching({ data, coaching }: { data: Data; coaching: Coac
           </ul>
         )}
 
-        <StartCoachingSession programId={data.program.id} studentId={data.student.id} />
+        <StartCoachingSession
+          programId={data.program.id}
+          studentId={data.student.id}
+          templates={coaching.templates}
+        />
       </section>
 
       <section id="notes" className="flex scroll-mt-(--outline-offset) flex-col gap-2">

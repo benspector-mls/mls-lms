@@ -3,15 +3,20 @@ import { z } from "zod";
 
 import { auditActor, recordEvent, type AuditReference } from "@/lib/audit/record";
 import {
-  ALL_PROMPTS,
-  CHECK_IN_PROMPTS,
   DEVELOPMENT_MARKERS,
   GOAL_COMMENT_MAX_LENGTH,
   SNAPSHOT_VERSION,
   TEMPERATURE_MAX,
   TEMPERATURE_MIN,
   TOPIC_MAX_LENGTH,
+  answerFor,
+  answerValueSchema,
+  overviewAnswersOf,
+  parseLayout,
+  questionsOf,
   sessionAnswersSchema,
+  sharedAnswersOf,
+  type SessionAnswer,
 } from "@/lib/coaching";
 import {
   assembleSnapshot,
@@ -88,8 +93,6 @@ import { displayNameOf, personNameSelect, personSelect } from "../selects";
 
 type Ctx = Parameters<Parameters<typeof programProcedure.mutation>[0]>[0]["ctx"];
 type FellowCtx = Parameters<Parameters<typeof profileProcedure.mutation>[0]>[0]["ctx"];
-
-const prompts = new Map<string, string>(ALL_PROMPTS.map((entry) => [entry.id, entry.prompt]));
 
 const temperatureInput = z.number().int().min(TEMPERATURE_MIN).max(TEMPERATURE_MAX).nullable();
 const markerInput = z.enum(DEVELOPMENT_MARKERS).nullable();
@@ -202,6 +205,7 @@ async function sessionOf(ctx: Ctx, programId: string, sessionId: string) {
     select: {
       id: true,
       heldOn: true,
+      layout: true,
       temperature: true,
       answers: true,
       endedAt: true,
@@ -216,6 +220,46 @@ async function sessionOf(ctx: Ctx, programId: string, sessionId: string) {
   }
 
   return session;
+}
+
+/**
+ * The form a new session is run through — its id, its name today, and the layout it copies: the
+ * form the coach named, or without one — an old tab during a deploy — the default, or the only
+ * form there is. With several forms and no default there is no honest choice, and the picker on
+ * the record asks every time.
+ */
+async function formForNewSession(ctx: Ctx, templateId: string | undefined) {
+  const candidates = await ctx.db.coachingTemplate.findMany({
+    where: templateId === undefined ? {} : { id: templateId },
+    orderBy: [{ isDefault: "desc" }, { name: "asc" }],
+    take: 2,
+    select: { id: true, name: true, isDefault: true, layout: true },
+  });
+
+  const chosen = candidates.length === 1 || candidates[0]?.isDefault ? candidates[0] : undefined;
+
+  if (chosen === undefined) {
+    if (templateId !== undefined) {
+      throw new TRPCError({ code: "NOT_FOUND", message: "No such coaching form." });
+    }
+    throw new TRPCError({
+      code: "BAD_REQUEST",
+      message:
+        candidates.length === 0
+          ? "No coaching form exists yet. An admin creates one under Admin, Coaching forms."
+          : "Choose which coaching form to use.",
+    });
+  }
+
+  const layout = parseLayout(chosen.layout);
+  if (layout === null) {
+    throw new TRPCError({
+      code: "PRECONDITION_FAILED",
+      message: "That coaching form cannot be read. An admin needs to fix it first.",
+    });
+  }
+
+  return { id: chosen.id, name: chosen.name, layout };
 }
 
 /** Refuses writing into a session that has been completed. */
@@ -415,7 +459,7 @@ export const coachingRouter = createTRPCRouter({
     .query(async ({ ctx, input }) => {
       const enrollment = await enrollmentOf(ctx, input.programId, input.studentId);
 
-      const [notes, sessions, goals, topics] = await Promise.all([
+      const [notes, sessions, goals, topics, templates] = await Promise.all([
         ctx.db.instructorNote.findMany({
           where: { enrollmentId: enrollment.id },
           orderBy: { createdAt: "desc" },
@@ -445,6 +489,9 @@ export const coachingRouter = createTRPCRouter({
             temperature: true,
             answers: true,
             snapshot: true,
+            layout: true,
+            /** The form's name the day the session started, printed beside its date. */
+            templateName: true,
           },
         }),
         ctx.db.goal.findMany({
@@ -457,10 +504,20 @@ export const coachingRouter = createTRPCRouter({
           orderBy: { createdAt: "asc" },
           select: topicSelect,
         }),
+        /*
+          The forms a session can be started from, default first, so the record's Start button
+          has its choices in the first paint. Read here rather than through the admin router,
+          because an instructor chooses a form and never writes one.
+        */
+        ctx.db.coachingTemplate.findMany({
+          orderBy: [{ isDefault: "desc" }, { name: "asc" }],
+          select: { id: true, name: true, isDefault: true },
+        }),
       ]);
 
       return {
         student: enrollment.student,
+        templates,
         notes,
         sessions: sessions.map((session) => ({
           ...session,
@@ -473,8 +530,14 @@ export const coachingRouter = createTRPCRouter({
 
   /**
    * The Coaching tab of the Fellows screen: for every fellow in the chosen cohort, their most
-   * recent completed session and the goals they hold now, with the competency groups the goals are
-   * sorted into.
+   * recent completed session run through one chosen form, and the goals they hold now, with the
+   * competency groups the goals are sorted into.
+   *
+   * **One form at a time.** Sessions run through different forms ask different questions, so a
+   * table mixing them would put unrelated answers under one heading. The forms offered are the
+   * ones any completed session of this program was run through, named as the newest such session
+   * names them, newest first; the caller chooses one by id, and without a choice — or with an id no
+   * session here carries — the form of the most recent session is read.
    *
    * **Completed sessions only.** A draft may be a conversation still under way, or one opened early
    * to prepare, so its temperature is not yet something the fellow said.
@@ -483,11 +546,11 @@ export const coachingRouter = createTRPCRouter({
    * by the same cohort selection — so the two tabs of one screen list the same people.
    *
    * Staff-only like `forStudent`: the temperature and the answers are read here and by no procedure
-   * a fellow can call. Only the five check-in answers are returned, because they are the answers the
-   * tab shows; the preparation, the additional notes and the goal answers stay on the session.
+   * a fellow can call. Only the answers to questions the form marks for this tab are returned, each
+   * under the column heading the form gives it; everything else the session holds stays on it.
    */
   overview: programProcedure
-    .input(z.object({ cohort: cohortSelectionInput }))
+    .input(z.object({ cohort: cohortSelectionInput, form: z.string().uuid().optional() }))
     .query(async ({ ctx, input }) => {
       const programId = input.programId;
 
@@ -532,7 +595,15 @@ export const coachingRouter = createTRPCRouter({
         ctx.db.coachingSession.findMany({
           where: { programId, enrollmentId: { in: enrollmentIds }, endedAt: { not: null } },
           orderBy: [{ heldOn: "desc" }, { endedAt: "desc" }],
-          select: { enrollmentId: true, heldOn: true, temperature: true, answers: true },
+          select: {
+            enrollmentId: true,
+            heldOn: true,
+            temperature: true,
+            templateId: true,
+            templateName: true,
+            layout: true,
+            answers: true,
+          },
         }),
         ctx.db.goal.findMany({
           where: { programId, enrollmentId: { in: enrollmentIds } },
@@ -554,20 +625,36 @@ export const coachingRouter = createTRPCRouter({
         }),
       ]);
 
+      /*
+        The forms any of these sessions was run through, in the order of their newest session —
+        which is also where each form's name is read from, so a renamed form shows its latest name.
+      */
+      const forms: { id: string; name: string }[] = [];
+      for (const session of sessions) {
+        if (!forms.some((form) => form.id === session.templateId)) {
+          forms.push({ id: session.templateId, name: session.templateName });
+        }
+      }
+      const form =
+        forms.find((candidate) => candidate.id === input.form)?.id ?? forms[0]?.id ?? null;
+
       const latestSession = new Map<string, (typeof sessions)[number]>();
       for (const session of sessions) {
-        if (!latestSession.has(session.enrollmentId))
+        if (session.templateId === form && !latestSession.has(session.enrollmentId))
           latestSession.set(session.enrollmentId, session);
       }
 
       const today = dateColumnFor(schoolDayOf(new Date())).getTime();
-      const checkInIds = new Set<string>(CHECK_IN_PROMPTS.map((prompt) => prompt.id));
 
       return {
         groups: groups.filter((group) => group.competencies.length > 0),
+        forms,
+        /** The form the rows are read from: the caller's choice, or the newest session's. */
+        form,
         fellows: enrollments.map((enrollment) => {
           const session = latestSession.get(enrollment.id);
-          // An answers column that does not parse is shown as no answers rather than failing the tab.
+          // A column that does not parse is shown as no answers rather than failing the tab.
+          const layout = session ? parseLayout(session.layout) : null;
           const answers = session ? sessionAnswersSchema.safeParse(session.answers) : null;
 
           return {
@@ -580,9 +667,10 @@ export const coachingRouter = createTRPCRouter({
                   // Both are UTC midnights of a civil date, so the difference is whole days.
                   daysSince: Math.round((today - session.heldOn.getTime()) / 86_400_000),
                   temperature: session.temperature,
-                  checkIns: answers?.success
-                    ? answers.data.filter((answer) => checkInIds.has(answer.promptId))
-                    : [],
+                  answers:
+                    layout !== null && answers?.success
+                      ? overviewAnswersOf(layout, answers.data)
+                      : [],
                 }
               : null,
             /*
@@ -620,7 +708,7 @@ export const coachingRouter = createTRPCRouter({
       const session = await sessionOf(ctx, input.programId, input.sessionId);
 
       const now = new Date();
-      const [goals, topics, courses, attendance] = await Promise.all([
+      const [goals, topics, courses, attendance, gcf] = await Promise.all([
         /*
           The fellow's goals as they stand, for the instructor to talk through. The goal's own
           columns are written on the fellow's screen; what an instructor writes here is a comment
@@ -644,6 +732,23 @@ export const coachingRouter = createTRPCRouter({
           : Promise.resolve<TopicRow[]>([]),
         courseFiguresFor(ctx.db, session.enrollment, now),
         attendanceStandingFor(ctx.db, session.enrollment, now),
+        /*
+          Their GCF history, for the form's GCF panel: the select `programs.student` makes, and
+          naming no program for the reason given there. Read whether or not the form has the
+          panel, because it is one indexed read and the layout is not known until it is parsed.
+        */
+        ctx.db.gcfAttempt.findMany({
+          where: { studentId: session.enrollment.studentId },
+          orderBy: { takenOn: "desc" },
+          select: {
+            id: true,
+            kind: true,
+            score: true,
+            scorePossible: true,
+            takenOn: true,
+            integrityFlagged: true,
+          },
+        }),
       ]);
 
       const answers = sessionAnswersSchema.safeParse(session.answers);
@@ -652,6 +757,8 @@ export const coachingRouter = createTRPCRouter({
         id: session.id,
         student: session.enrollment.student,
         heldOn: schoolDayFromColumn(session.heldOn),
+        /** The form this session is run through: a copy taken when it started. Null if unreadable. */
+        layout: parseLayout(session.layout),
         temperature: session.temperature,
         answers: answers.success ? answers.data : [],
         endedAt: session.endedAt,
@@ -659,6 +766,10 @@ export const coachingRouter = createTRPCRouter({
         createdAt: session.createdAt,
         goals: goals.map((goal) => presentGoal(goal, ctx.profile.id)),
         topics,
+        /** For the attendance calendar panel: the same days and start the record draws. */
+        days: attendance.days,
+        enrolledFrom: schoolDayOf(session.enrollment.createdAt),
+        gcf,
         figures: snapshotOf(courses, attendance, now),
         trends: {
           recentAttendance: attendance.recentAttendance,
@@ -669,13 +780,16 @@ export const coachingRouter = createTRPCRouter({
     }),
 
   /**
-   * A new draft, dated today in the school's timezone until the instructor says otherwise. No
-   * audit — a draft is staff-only scratch until completing releases it.
+   * A new draft, dated today in the school's timezone until the instructor says otherwise, run
+   * through the form the coach chose — copied onto the row now, so the form may be edited or
+   * deleted afterwards and this session keeps asking what it asked. No audit — a draft is
+   * staff-only scratch until completing releases it.
    */
   startSession: programProcedure
-    .input(z.object({ studentId: z.string().uuid() }))
+    .input(z.object({ studentId: z.string().uuid(), templateId: z.string().uuid().optional() }))
     .mutation(async ({ ctx, input }) => {
       const enrollment = await enrollmentOf(ctx, input.programId, input.studentId);
+      const form = await formForNewSession(ctx, input.templateId);
 
       return ctx.db.coachingSession.create({
         data: {
@@ -683,14 +797,19 @@ export const coachingRouter = createTRPCRouter({
           programId: enrollment.programId,
           authorId: ctx.profile.id,
           heldOn: dateColumnFor(schoolDayOf(new Date())),
+          templateId: form.id,
+          templateName: form.name,
+          layout: form.layout,
         },
         select: { id: true },
       });
     }),
 
   /**
-   * The autosave target. The server re-derives each prompt's text from the template by id — an
-   * unknown id is refused — so the stored copy is always the canonical wording at save time.
+   * The autosave target. Every answer is checked against **this session's own form**: an id that
+   * is not a question on it is refused, the value must fit the question's kind, and the stored
+   * copy carries the question's wording from the layout — so what is stored is always something
+   * the form asked.
    *
    * `heldOn` rides along when the instructor changes the day the session is held. Optional, so a
    * form from the release before this column keeps saving during a deploy.
@@ -700,7 +819,7 @@ export const coachingRouter = createTRPCRouter({
       z.object({
         sessionId: z.string().uuid(),
         temperature: temperatureInput,
-        answers: z.array(z.object({ promptId: z.string(), answer: z.string().max(20_000) })),
+        answers: z.array(z.object({ promptId: z.string(), answer: answerValueSchema })),
         heldOn: schoolDaySchema.optional(),
       }),
     )
@@ -708,15 +827,28 @@ export const coachingRouter = createTRPCRouter({
       const session = await sessionOf(ctx, input.programId, input.sessionId);
       assertDraft(session);
 
-      const answers = input.answers.map((answer) => {
-        const prompt = prompts.get(answer.promptId);
-        if (!prompt) {
+      const layout = parseLayout(session.layout);
+      if (layout === null) {
+        throw new TRPCError({
+          code: "PRECONDITION_FAILED",
+          message: "This session's form cannot be read, so nothing can be saved to it.",
+        });
+      }
+      const questions = new Map(questionsOf(layout).map((item) => [item.id, item]));
+
+      const answers: SessionAnswer[] = input.answers.map((answer) => {
+        const item = questions.get(answer.promptId);
+        if (!item) {
           throw new TRPCError({
             code: "BAD_REQUEST",
-            message: "That prompt is not part of the coaching template.",
+            message: "That question is not part of this session's form.",
           });
         }
-        return { promptId: answer.promptId, prompt, answer: answer.answer };
+        const checked = answerFor(item, answer.answer);
+        if (!checked.ok) {
+          throw new TRPCError({ code: "BAD_REQUEST", message: checked.message });
+        }
+        return { promptId: item.id, prompt: item.prompt, answer: checked.answer };
       });
 
       await ctx.db.coachingSession.update({
@@ -1445,7 +1577,19 @@ export const coachingRouter = createTRPCRouter({
             endedAt: { not: null },
           },
           orderBy: [{ heldOn: "desc" }, { endedAt: "desc" }],
-          select: { id: true, heldOn: true, endedAt: true, snapshot: true },
+          /*
+            The layout and the answers are read to pick out the shared ones below, and neither
+            column leaves this procedure: `sharedAnswersOf` is the only thing a fellow sees of
+            either, and the test over this payload holds the key set.
+          */
+          select: {
+            id: true,
+            heldOn: true,
+            endedAt: true,
+            snapshot: true,
+            layout: true,
+            answers: true,
+          },
         }),
       ]);
 
@@ -1453,10 +1597,16 @@ export const coachingRouter = createTRPCRouter({
         program,
         goals: goals.map((goal) => presentGoal(goal, ctx.profile.id)),
         topics,
-        sessions: sessions.map((session) => ({
-          ...session,
-          heldOn: schoolDayFromColumn(session.heldOn),
-        })),
+        sessions: sessions.map(({ layout, answers, ...session }) => {
+          const form = parseLayout(layout);
+          const stored = sessionAnswersSchema.safeParse(answers);
+          return {
+            ...session,
+            heldOn: schoolDayFromColumn(session.heldOn),
+            /** The questions the form marked as shared, with the coach's answers. */
+            shared: form !== null && stored.success ? sharedAnswersOf(form, stored.data) : [],
+          };
+        }),
       };
     }),
 });
