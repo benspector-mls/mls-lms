@@ -1,7 +1,7 @@
 /**
  * Runs an assignment's test suite against one submission, from the terminal.
  *
- *   npm run tests:run                      # the most recently active submission
+ *   npm run tests:run                      # the most recently active submission whose assignment has a runner
  *   npm run tests:run -- <submission-id>
  *   npm run tests:run -- <repo-full-name>  # e.g. marcy-lms/swe-1-4-loops-benspector3
  *
@@ -24,6 +24,7 @@ loadEnv({ quiet: true });
 async function main() {
   const { db } = await import("../lib/prisma");
   const { runTestsForSubmission } = await import("../lib/sandbox/run-tests");
+  const { NO_RUNNER } = await import("../lib/sandbox/presets");
 
   const target = process.argv[2];
   const isUuid = target && /^[0-9a-f-]{36}$/i.test(target);
@@ -34,7 +35,9 @@ async function main() {
         select: selection,
       })
     : await db.submission.findFirst({
-        where: { headSha: { not: null } },
+        // Short response assignments have no runner, and they are often the most
+        // recently active submission. Without a target, pick one this script can run.
+        where: { headSha: { not: null }, assignment: { runnerPreset: { not: NO_RUNNER } } },
         orderBy: { lastActivityAt: "desc" },
         select: selection,
       });
@@ -43,7 +46,7 @@ async function main() {
     console.error(
       target
         ? `No submission matching "${target}".`
-        : "No submission with a head commit yet. A student has to open a pull request first.",
+        : "No submission with a head commit on an assignment with a runner. A student has to open a pull request first.",
     );
     process.exit(1);
   }

@@ -642,11 +642,12 @@ Nothing about the runner may assume the technology this application is built wit
 | --------------- | -------- | --------------------------------- | ----------------------------------------------- | ------------- |
 | `node-jest`     | `base`   | `npm ci`, falling back to `npm i` | `npx jest --ci --json --outputFile=…`           | `jest-json`   |
 | `node-vitest`   | `base`   | `npm ci`                          | `npx vitest run --reporter=json --outputFile=…` | `vitest-json` |
-| `python-pytest` | `base`   | `pip install -r requirements.txt` | `pytest --json-report --json-report-file=…`     | `pytest-json` |
+| `python-pytest` | `marcy-python-pytest` | `pip install -r requirements.txt` | `pytest --json-report --json-report-file=…`     | `pytest-json` |
 | `none`          | —        | —                                 | —                                               | —             |
 
 - **`none` is a real preset and the default.** Short response assignments have nothing to execute and frontend assignments have tests this build cannot run yet, so "no tests exist" is an ordinary state. The default is `none` rather than `node-jest` so an unconfigured assignment produces no evidence instead of the wrong evidence. `runTestsForSubmission` throws on `none` rather than writing an `ERRORED` row, and the interface shows "No automated tests for this assignment".
 - **React assignments with runnable tests use `node-jest` or `node-vitest` unchanged.** SQL is absent: it needs a template with PostgreSQL installed.
+- **The Python preset runs in a template of our own.** E2B's stock `base` template decides which Python it carries (3.11 at the time of writing), so `python-pytest` names `marcy-python-pytest`, built by `npm run template:build` from the official `python:<version>` image with pytest and the JSON report plugin installed. The version is an argument to that script and defaults to 3.14. Rebuilding under the same name changes the Python every Python assignment runs under, with no code change. The Node presets stay on `base`.
 
 ### Which sections a run is evidence for
 

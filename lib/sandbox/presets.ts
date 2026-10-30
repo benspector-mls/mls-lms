@@ -15,7 +15,10 @@ import { RESULTS_DIR } from "./paths";
 export type ResultFormat = "jest-json" | "vitest-json" | "pytest-json";
 
 export type RunnerPreset = {
-  /** E2B template id. "base" carries both Node and Python. */
+  /**
+   * E2B template name. "base" is E2B's stock template and carries both Node and
+   * Python; a preset needing a different interpreter names a template of our own.
+   */
   e2bTemplate: string;
   /** Run with network access, because installing dependencies requires it. */
   setupCommands: string[];
@@ -67,6 +70,13 @@ export type RunnerPreset = {
  */
 export const NO_RUNNER = "none" as const;
 
+/**
+ * The template the Python preset runs in. Built by `npm run template:build`, which
+ * chooses the Python version; rebuilding under the same name changes the version
+ * every Python assignment runs under with no code change here.
+ */
+export const PYTHON_TEMPLATE = "marcy-python-pytest";
+
 export const RUNNER_PRESETS: Record<string, RunnerPreset> = {
   "node-jest": {
     e2bTemplate: "base",
@@ -113,7 +123,10 @@ export const RUNNER_PRESETS: Record<string, RunnerPreset> = {
   },
 
   "python-pytest": {
-    e2bTemplate: "base",
+    // Not "base": E2B's stock template carries Python 3.11, and the Python an
+    // assignment runs under should be ours to choose. PYTHON_TEMPLATE is built by
+    // scripts/build-sandbox-template.ts, which is also where the version is set.
+    e2bTemplate: PYTHON_TEMPLATE,
     setupCommands: [
       "pip install --no-input -r requirements.txt",
       "pip install --no-input pytest-json-report",
