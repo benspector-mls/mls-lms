@@ -7,7 +7,8 @@ import { promptExclusionReason } from "@/lib/grade/classify";
 import { getConfiguredInstallationId } from "@/lib/github/app-client";
 import { splitRepoFullName } from "@/lib/github/archives";
 import { fetchRepoFile } from "@/lib/github/files";
-import { getPullRequestDiff, type PatchAbsence } from "@/lib/github/prs";
+import { compareCommits, getPullRequestDiff, type PatchAbsence } from "@/lib/github/prs";
+import type { Db } from "@/lib/prisma";
 import { createTRPCRouter, instructorProcedure } from "../init";
 
 /**
@@ -80,9 +81,22 @@ export const pullRequestsRouter = createTRPCRouter({
    * ordinary work. An audit row per diff view would also inflate any rate window later counted out
    * of that table, which is what `assertWithinRate` is built on. What would change both answers is
    * prefetching diffs across a whole queue, which nothing does.
+   *
+   * **Two starting points.** Without `sinceDraftId` the diff is the pull request's own, measured
+   * from the template snapshot the student received. On a resubmission that diff holds the first
+   * attempt's work as well as the new changes, and an instructor cannot tell which lines answer
+   * the feedback. So the review screen passes the review before the round on screen, and the diff
+   * then runs from the commit that review graded to the current commit: only what the student
+   * changed after being given that feedback.
    */
   diffForSubmission: instructorProcedure
-    .input(z.object({ submissionId: z.string().uuid() }))
+    .input(
+      z.object({
+        submissionId: z.string().uuid(),
+        /** A released review of this submission. The diff starts at the commit it graded. */
+        sinceDraftId: z.string().uuid().optional(),
+      }),
+    )
     .query(async ({ ctx, input }) => {
       const submission = await teachableSubmission(ctx, input.submissionId, {
         id: true,
@@ -110,11 +124,23 @@ export const pullRequestsRouter = createTRPCRouter({
       }
 
       const { owner, repo } = splitRepoFullName(submission.repoFullName);
-      const diff = await getPullRequestDiff(getConfiguredInstallationId(), {
-        owner,
-        repo,
-        pullNumber: submission.prNumber,
-      });
+      const diff = input.sinceDraftId
+        ? await diffSinceReview(ctx.db, {
+            submissionId: submission.id,
+            draftId: input.sinceDraftId,
+            headSha: submission.headSha,
+            owner,
+            repo,
+          })
+        : {
+            baseSha: null,
+            comparisonUrl: null,
+            ...(await getPullRequestDiff(getConfiguredInstallationId(), {
+              owner,
+              repo,
+              pullNumber: submission.prNumber,
+            })),
+          };
 
       const labelled = diff.files.map((file) => ({
         file,
@@ -176,6 +202,10 @@ export const pullRequestsRouter = createTRPCRouter({
         prUrl: submission.prUrl,
         repoUrl: submission.repoUrl,
         headSha: submission.headSha,
+        /** The commit the diff starts from, or null when it starts from the template. */
+        baseSha: diff.baseSha,
+        /** The same comparison on GitHub, or null when the diff is the pull request's own. */
+        comparisonUrl: diff.comparisonUrl,
         files: kept,
         totals: {
           files: diff.files.length,
@@ -247,6 +277,87 @@ export const pullRequestsRouter = createTRPCRouter({
       return { text };
     }),
 });
+
+/**
+ * What changed between the commit a released review graded and the current commit.
+ *
+ * The review is looked up within this submission and must be released, so a draft id from another
+ * submission, or a discarded draft, cannot set the starting point. A review with no commit was
+ * written by hand before the pull request existed, and so there is no commit to start from.
+ *
+ * GitHub refuses to compare when a force push has removed the reviewed commit, and a rewritten
+ * history makes the comparison start before the review. Both are reported as errors naming the
+ * way through, because the template diff is still one click away.
+ */
+async function diffSinceReview(
+  db: Db,
+  params: {
+    submissionId: string;
+    draftId: string;
+    headSha: string | null;
+    owner: string;
+    repo: string;
+  },
+) {
+  const review = await db.gradingDraft.findFirst({
+    where: { id: params.draftId, submissionId: params.submissionId, status: "APPROVED" },
+    select: { headSha: true },
+  });
+
+  if (!review?.headSha || !params.headSha) {
+    throw new TRPCError({
+      code: "PRECONDITION_FAILED",
+      message:
+        "That review did not grade a commit of this pull request, so there is nothing to " +
+        "measure the changes from. Choose Since the template to see the whole pull request.",
+    });
+  }
+
+  let comparison: Awaited<ReturnType<typeof compareCommits>>;
+  try {
+    comparison = await compareCommits(getConfiguredInstallationId(), {
+      owner: params.owner,
+      repo: params.repo,
+      base: review.headSha,
+      head: params.headSha,
+    });
+  } catch (err) {
+    // A missing commit is a 404 and an unrelated one a 422. Anything else, such as GitHub failing
+    // for a moment, is not about the commit, so it goes up as it came and the browser retries it.
+    const status = (err as { status?: number }).status;
+    if (status !== 404 && status !== 422) throw err;
+    console.warn(
+      `pullRequests.diffForSubmission: could not compare ${review.headSha.slice(0, 7)} with ` +
+        `${params.headSha.slice(0, 7)} for ${params.submissionId}. ` +
+        `${err instanceof Error ? err.message : String(err)}`,
+    );
+    throw new TRPCError({
+      code: "PRECONDITION_FAILED",
+      message:
+        `GitHub could not compare commit ${review.headSha.slice(0, 7)}, which that review ` +
+        "graded, with the current commit. This happens when a force push removed the earlier " +
+        "commit. Choose Since the template to see the whole pull request.",
+    });
+  }
+
+  /*
+    GitHub compares from the last commit the two share. After an amend or a rebase and a force
+    push, that commit is older than the reviewed one, so the files would include work from before
+    the review while the panel called them changes since it. Refused rather than shown.
+  */
+  if (comparison.status !== "ahead" && comparison.status !== "identical") {
+    throw new TRPCError({
+      code: "PRECONDITION_FAILED",
+      message:
+        `The current commit does not build on commit ${review.headSha.slice(0, 7)}, which that ` +
+        "review graded, because the history was rewritten after the review. A comparison " +
+        "would mix in work from before it. Choose Since the template to see the whole pull " +
+        "request.",
+    });
+  }
+
+  return { baseSha: review.headSha, comparisonUrl: comparison.htmlUrl, ...comparison };
+}
 
 /** Student work first, then bulk, then anything with no patch to read. */
 function rank(entry: { file: { patch: string | null }; bulkReason: string | null }): number {

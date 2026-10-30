@@ -33,7 +33,14 @@ const AUTO_EXPAND_FILE_LIMIT = 5;
  * nothing, and `DiffFileCard` draws at most five hundred lines of any one file and says how many
  * there were.
  */
-export function PrDiffPanel({ diff }: { diff: Diff }) {
+export function PrDiffPanel({
+  diff,
+  changeScope,
+}: {
+  diff: Diff;
+  /** Where the changes are measured from, as words: "in this pull request" or "since Review 1". */
+  changeScope: string;
+}) {
   /*
     Which files are open, in one place. The alternative — state inside each card, plus a counter
     above them to override it — is two sources for one fact that have to be kept agreeing, and
@@ -58,10 +65,11 @@ export function PrDiffPanel({ diff }: { diff: Diff }) {
   }, []);
 
   if (diff.files.length === 0) {
-    // A real state and not an error: a pull request can be opened with nothing on the branch.
+    // A real state and not an error: a pull request can be opened with nothing on the branch, and
+    // a review can be followed by a resubmission with no new commit.
     return (
       <div className="rounded-md border border-border bg-muted/30 px-3 py-2.5 text-sm text-muted-foreground">
-        This pull request changes no files.
+        No files changed {changeScope}.
       </div>
     );
   }
@@ -84,6 +92,7 @@ export function PrDiffPanel({ diff }: { diff: Diff }) {
         )}
 
         <span className="ml-auto font-mono text-xs text-muted-foreground">
+          {diff.baseSha && `${shortSha(diff.baseSha)}…`}
           {shortSha(diff.headSha)}
         </span>
 
@@ -110,6 +119,7 @@ export function PrDiffPanel({ diff }: { diff: Diff }) {
             key={file.path}
             submissionId={diff.submissionId}
             file={file}
+            changeScope={changeScope}
             open={openPaths.has(file.path)}
             onOpenChange={(open) => setOpen(file.path, open)}
           />
@@ -124,15 +134,35 @@ export function PrDiffPanel({ diff }: { diff: Diff }) {
       {diff.omittedFiles > 0 && (
         <p className="text-xs text-muted-foreground">
           {diff.omittedFiles} more changed {diff.omittedFiles === 1 ? "file is" : "files are"} not
-          shown, because this diff is larger than this panel will load. Open the pull request to see{" "}
-          {diff.omittedFiles === 1 ? "it" : "them"}.
+          shown, because this diff is larger than this panel will load.{" "}
+          {/*
+            The pull request on GitHub is measured from the template, so after a review it would
+            mix the missing files in with the first attempt. GitHub's page for the same
+            comparison lists exactly these.
+          */}
+          {diff.comparisonUrl ? (
+            <a
+              href={diff.comparisonUrl}
+              target="_blank"
+              rel="noreferrer"
+              className="font-medium text-foreground hover:underline"
+            >
+              Open this comparison on GitHub
+            </a>
+          ) : (
+            "Open the pull request"
+          )}{" "}
+          to see {diff.omittedFiles === 1 ? "it" : "them"}.
         </p>
       )}
 
       {diff.githubCapReached && (
         <p className="text-xs text-muted-foreground">
-          GitHub returns at most 3,000 files for one pull request, and this one reached that limit,
-          so the list above may be incomplete.
+          {diff.baseSha
+            ? "GitHub returns at most 300 files for one comparison of two commits, and this one " +
+              "reached that limit, so the list above may be incomplete."
+            : "GitHub returns at most 3,000 files for one pull request, and this one reached " +
+              "that limit, so the list above may be incomplete."}
         </p>
       )}
     </div>

@@ -366,15 +366,16 @@ export async function generateReportForSubmission(submissionId: string): Promise
   // previous review described, and GitHub then cannot compare against it; the report is still
   // written with the previous review in view, and the instructor is told the diff was missing.
   const reviewReasons: string[] = [];
-  let changesSincePrevious: Awaited<ReturnType<typeof compareCommits>> | null = null;
+  let changesSincePrevious: Awaited<ReturnType<typeof compareCommits>>["files"] | null = null;
 
   if (previousRound?.headSha) {
     try {
-      changesSincePrevious = await compareCommits(installationId, {
+      const comparison = await compareCommits(installationId, {
         ...studentRepo,
         base: previousRound.headSha,
         head: submission.headSha,
       });
+      changesSincePrevious = comparison.files;
     } catch (err) {
       console.warn(
         `generate-report: could not compare ${submission.id} against its previous review — ` +

@@ -283,11 +283,27 @@ function toFileDiff(file: DiffEntry): PullRequestFileDiff {
 }
 
 /**
+ * A comparison of two commits: the same diff a pull request gives, plus how the two are related.
+ *
+ * `status` is GitHub's word for that relation. "ahead" and "identical" mean the head builds on the
+ * base, so the files below are exactly what changed after it. "diverged" means the history was
+ * rewritten after the base, by an amend or a rebase and a force push; the files are then measured
+ * from an older common ancestor and include work from before the base. "behind" means the head is
+ * an earlier commit than the base.
+ */
+export type CommitComparison = PullRequestDiff & {
+  status: string;
+  /** The comparison on GitHub, which lists every file this diff holds. */
+  htmlUrl: string;
+};
+
+/**
  * Every file that differs between two commits of one repository, with the change itself.
  *
  * Used when grading a resubmission, to show the model what a student changed since the commit
- * their previous review described. The pull request diff cannot answer that question, because it
- * is measured from the template snapshot and so contains the first submission's work as well.
+ * their previous review described, and on the review screen, to show an instructor the same
+ * thing. The pull request diff cannot answer that question, because it is measured from the
+ * template snapshot and so contains the first submission's work as well.
  *
  * Three dots rather than two, so the comparison runs from the merge base. A student who rebased
  * their branch still gets a diff of their own changes rather than of the rebase.
@@ -303,7 +319,7 @@ function toFileDiff(file: DiffEntry): PullRequestFileDiff {
 export async function compareCommits(
   installationId: number,
   params: { owner: string; repo: string; base: string; head: string },
-): Promise<PullRequestFileDiff[]> {
+): Promise<CommitComparison> {
   const octokit = await getInstallationOctokit(installationId);
   const { data } = await octokit.request("GET /repos/{owner}/{repo}/compare/{basehead}", {
     owner: params.owner,
@@ -311,5 +327,13 @@ export async function compareCommits(
     basehead: `${params.base}...${params.head}`,
   });
 
-  return (data.files ?? []).map(toFileDiff);
+  const files = (data.files ?? []).map(toFileDiff);
+  return {
+    status: data.status,
+    htmlUrl: data.html_url,
+    files,
+    totalAdditions: files.reduce((sum, file) => sum + file.additions, 0),
+    totalDeletions: files.reduce((sum, file) => sum + file.deletions, 0),
+    githubCapReached: files.length >= 300,
+  };
 }

@@ -50,11 +50,14 @@ type Row =
 export function DiffFileCard({
   submissionId,
   file,
+  changeScope,
   open,
   onOpenChange,
 }: {
   submissionId: string;
   file: DiffFile;
+  /** Where the changes are measured from, as words: "in this pull request" or "since Review 1". */
+  changeScope: string;
   open: boolean;
   onOpenChange: (open: boolean) => void;
 }) {
@@ -77,8 +80,8 @@ export function DiffFileCard({
   const tokens = useDiffHighlight(showsPreview ? null : hunks, file.language);
 
   /*
-    The lines of the new file this pull request added, which the preview shades. None for a file
-    the pull request created: every block of it is the fellow's, and shading all of them says
+    The lines of the new file this diff added, which the preview shades. None for a file
+    this diff shows as new: every block of it is the fellow's, and shading all of them says
     nothing that the sentence above the preview does not.
   */
   const changedLines = React.useMemo(() => {
@@ -209,6 +212,7 @@ export function DiffFileCard({
               <MarkdownPreview
                 submissionId={submissionId}
                 file={file}
+                changeScope={changeScope}
                 changedLines={changedLines}
               />
             ) : file.patch === null ? (
@@ -294,7 +298,8 @@ export function DiffFileCard({
 }
 
 /**
- * A Markdown file as the fellow left it, rendered, with the blocks this pull request added shaded.
+ * A Markdown file as the fellow left it, rendered, with the blocks this diff added shaded. The diff
+ * starts from the template or from a previous review, and `changeScope` names which.
  *
  * Fetched only while it is showing, and through a query, so stepping back to a student or
  * switching between Preview and Diff reads it from the cache. The loading and error states are the
@@ -304,10 +309,12 @@ export function DiffFileCard({
 function MarkdownPreview({
   submissionId,
   file,
+  changeScope,
   changedLines,
 }: {
   submissionId: string;
   file: DiffFile;
+  changeScope: string;
   changedLines: ReadonlySet<number> | undefined;
 }) {
   const trpc = useTRPC();
@@ -335,11 +342,11 @@ function MarkdownPreview({
   */
   const legend =
     file.kind === "added"
-      ? "This file is new in this pull request, so all of it is the fellow's writing."
+      ? `This file is new ${changeScope}, so all of it is the fellow's writing.`
       : file.truncated
-        ? "Passages shaded green were added in this pull request. The diff is too large to show " +
+        ? `Passages shaded green were added ${changeScope}. The diff is too large to show ` +
           "in full, so some later changes may not be shaded."
-        : "Passages shaded green were added in this pull request.";
+        : `Passages shaded green were added ${changeScope}.`;
 
   return (
     <div className="flex flex-col gap-3 px-4 py-3">

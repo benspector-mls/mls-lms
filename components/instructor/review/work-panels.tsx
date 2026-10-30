@@ -46,14 +46,26 @@ export function DiffPanel({
   error,
   prUrl,
   prNumber,
+  comparedReview,
+  sinceReview,
+  onSinceChange,
 }: {
   diff: RouterOutputs["pullRequests"]["diffForSubmission"] | undefined;
   loading: boolean;
   error: { message: string } | null;
   prUrl: string | null;
   prNumber: number | null;
+  /** The review released before the round on screen, when it graded a commit. */
+  comparedReview: { number: number } | null;
+  /** True when the diff starts from `comparedReview`'s commit rather than from the template. */
+  sinceReview: boolean;
+  onSinceChange: (since: "review" | "template") => void;
 }) {
-  if (loading) return <Skeleton className="h-20 w-full" />;
+  // Where the changes below are measured from, said in the words each sentence about them uses.
+  const changeScope =
+    sinceReview && comparedReview
+      ? `since Review ${comparedReview.number}`
+      : "in this pull request";
 
   const pullRequestLink = prUrl ? (
     <a
@@ -76,6 +88,27 @@ export function DiffPanel({
             <FileDiff className="size-4 text-muted-foreground" />
             Changed files
           </CardTitle>
+          {/*
+            Offered only on a resubmission, because a first attempt has one starting point. The
+            review comes first because it is the default: the lines that answer the feedback.
+          */}
+          {comparedReview && (
+            <div className="flex items-center gap-1.5">
+              {(["review", "template"] as const).map((option) => (
+                <Button
+                  key={option}
+                  size="xs"
+                  variant={(option === "review") === sinceReview ? "default" : "outline"}
+                  aria-pressed={(option === "review") === sinceReview}
+                  onClick={() => onSinceChange(option)}
+                >
+                  {option === "review"
+                    ? `Since Review ${comparedReview.number}`
+                    : "Since the template"}
+                </Button>
+              ))}
+            </div>
+          )}
           {pullRequestLink}
         </div>
 
@@ -87,27 +120,42 @@ export function DiffPanel({
           Students are taught to revert that, which means it happens; a card calling itself the
           changed files and quietly omitting some would be the wrong place to be silent.
         */}
-        <CardDescription>
-          Measured against the template this student started from, which is the base of their pull
-          request. Anything they committed to their own <code className="font-mono">main</code>{" "}
-          before branching is part of that base and is not shown here.
-        </CardDescription>
+        {sinceReview && comparedReview ? (
+          <CardDescription>
+            Only what changed after Review {comparedReview.number}, measured from the commit that
+            review graded to the current commit.
+          </CardDescription>
+        ) : (
+          <CardDescription>
+            Measured against the template this student started from, which is the base of their pull
+            request. Anything they committed to their own <code className="font-mono">main</code>{" "}
+            before branching is part of that base and is not shown here.
+          </CardDescription>
+        )}
       </CardHeader>
 
       <CardContent>
+        {/*
+          The skeleton sits inside the card rather than replacing it, so the switch above stays
+          where the instructor's pointer is while the other diff loads.
+        */}
         {/*
           A message rather than nothing. "The diff could not be loaded" and "there is no diff" are
           different facts, and an empty card would report the second when the first is true — with
           the pull request link above still offering the way through.
         */}
-        {error ? (
+        {loading ? (
+          <Skeleton className="h-20 w-full" />
+        ) : error ? (
           <Alert variant="destructive">
             <AlertTriangle />
             <AlertTitle>Could not load the changed files</AlertTitle>
             <AlertDescription>{error.message}</AlertDescription>
           </Alert>
         ) : diff ? (
-          <PrDiffPanel diff={diff} />
+          // Keyed on the starting point, so switching opens the files of the new diff rather than
+          // keeping the open files of the last one.
+          <PrDiffPanel key={diff.baseSha ?? "template"} diff={diff} changeScope={changeScope} />
         ) : null}
       </CardContent>
     </Card>

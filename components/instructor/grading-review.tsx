@@ -142,9 +142,58 @@ export function GradingReview({
     ...trpc.testRuns.listForSubmission.queryOptions({ submissionId: submission.id }),
     enabled: canHaveTests,
   });
+
+  /*
+    The newest round that has not been discarded, and null when every one has.
+
+    A discarded round was never sent to anybody, so it is not a state to show or act on — that is
+    the whole meaning of `SUPERSEDED`. Reading one as current did two wrong things: it hid a
+    released grade behind a report its instructor had just rejected, and on work that had never
+    been graded it left the screen with no way forward at all, because the released view offers no
+    action on a round it thinks was discarded. Null is the honest answer in that second case, and
+    it is the one the rest of this screen already knows how to render: no current round, so offer
+    to start one.
+  */
+  const draft = drafts.data?.drafts.find((entry) => entry.status !== "SUPERSEDED") ?? null;
+
+  /*
+    Rounds worth listing under the grade: released, and not the round on screen. A discarded
+    round was never sent to anybody, so it is not previous feedback; the current round is on the
+    card above, so listing it here would call the thing being read "previous". The list shows
+    while a resubmission's round is still being written, because that is when the instructor
+    checks the new work against what the student was told last time.
+  */
+  const previous =
+    drafts.data?.drafts.filter((entry) => entry.status === "APPROVED" && entry.id !== draft?.id) ??
+    [];
+
+  /*
+    The review the diff can start from: the one released before the round on screen. Drafts arrive
+    newest first and every round in `previous` is older than the current one, so the first entry
+    is the review just before it, and its number in the order the student reads them is the count.
+    A review with no commit was written by hand before the pull request existed, so a diff cannot
+    start from it.
+
+    On a resubmission the pull request's own diff holds the first attempt's work as well as the
+    new changes, so the instructor cannot tell which lines answer the feedback. Starting from the
+    previous review's commit shows only those lines, and the template stays one click away.
+  */
+  const comparedReview =
+    previous[0]?.headSha != null ? { id: previous[0].id, number: previous.length } : null;
+  const [diffSince, setDiffSince] = React.useState<"review" | "template">("review");
+  const sinceReview = diffSince === "review" ? comparedReview : null;
+
   const diff = useQuery({
-    ...trpc.pullRequests.diffForSubmission.queryOptions({ submissionId: submission.id }),
-    enabled: diffAside,
+    ...trpc.pullRequests.diffForSubmission.queryOptions({
+      submissionId: submission.id,
+      sinceDraftId: sinceReview?.id,
+    }),
+    // Waits for the rounds, which decide where the diff starts, rather than fetching the template
+    // diff first and replacing it a moment later.
+    enabled: diffAside && drafts.isSuccess,
+    // A refused comparison gives the same answer every time, so it is shown at once; anything
+    // else, such as GitHub failing for a moment, is retried as every other query is.
+    retry: (failures, error) => error.data?.code !== "PRECONDITION_FAILED" && failures < 3,
   });
 
   /*
@@ -177,30 +226,6 @@ export function GradingReview({
   }
 
   const data = drafts.data;
-
-  /*
-    The newest round that has not been discarded, and null when every one has.
-
-    A discarded round was never sent to anybody, so it is not a state to show or act on — that is
-    the whole meaning of `SUPERSEDED`. Reading one as current did two wrong things: it hid a
-    released grade behind a report its instructor had just rejected, and on work that had never
-    been graded it left the screen with no way forward at all, because the released view offers no
-    action on a round it thinks was discarded. Null is the honest answer in that second case, and
-    it is the one the rest of this screen already knows how to render: no current round, so offer
-    to start one.
-  */
-  const draft = data.drafts.find((entry) => entry.status !== "SUPERSEDED") ?? null;
-
-  /*
-    Rounds worth listing under the grade: released, and not the round on screen. A discarded
-    round was never sent to anybody, so it is not previous feedback; the current round is on the
-    card above, so listing it here would call the thing being read "previous". The list shows
-    while a resubmission's round is still being written, because that is when the instructor
-    checks the new work against what the student was told last time.
-  */
-  const previous = data.drafts.filter(
-    (entry) => entry.status === "APPROVED" && entry.id !== draft?.id,
-  );
 
   // The run that describes the code currently on the pull request. An older run is not
   // evidence about this commit, so it is not offered as if it were.
@@ -307,6 +332,9 @@ export function GradingReview({
         error={diff.error}
         prUrl={submission.prUrl}
         prNumber={submission.prNumber}
+        comparedReview={comparedReview}
+        sinceReview={sinceReview !== null}
+        onSinceChange={setDiffSince}
       />
     ) : (
       <StateCard
