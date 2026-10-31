@@ -49,10 +49,10 @@ function Table({
  * **Its own token, because one value cannot serve both themes.** These carried `bg-card`, which in
  * light mode is pure white and so is `--background` — and a table that paints no background of its
  * own is the page. The column masked the scrolling marks correctly and looked like nothing, so the
- * one column an instructor reads down had no edge to read along. But `--muted`, which is the right
- * step darker on a white page, is a step *lighter* on a dark one and a far longer step: the token
- * that is barely there in light reads as a stripe down the table in dark. So `--table-sticky` is
- * `--muted` in light and `--card` in dark, set in `globals.css`.
+ * one column an instructor reads down had no edge to read along. So `--table-sticky` is set in
+ * `globals.css` for each theme: the same faint cool gray as `--table-head`, because the frozen
+ * column is the table's row headings and reads as one piece with the column headings above it,
+ * and the tint is what tells either apart from the cells.
  *
  * A token and not a `dark:` utility, which would have said the same thing in one class: most
  * readers have never touched the theme toggle, so they carry no class on the root and are decided
@@ -161,10 +161,10 @@ const stickyHeaderContainer = "max-h-[calc(100svh-7rem)] overflow-y-auto";
  * container's `isolate` (see `Table` above) keeps the `z-20` from competing with anything outside
  * the table, the shell's `z-10` breadcrumb header included.
  *
- * `bg-background` for the same reason `stickyColumn` is opaque: rows pass behind the header, and
+ * `bg-table-head` for the same reason `stickyColumn` is opaque: rows pass behind the header, and
  * any transparency shows their text through it as a ghost. On the thead rather than per-cell so
  * the gaps between cell paddings are covered too; the corner cells keep painting `bg-table-sticky`
- * on top of it.
+ * on top of it, which is the same tint.
  *
  * **The inset shadow is the header's bottom border, redrawn where the real one goes missing.**
  * Preflight sets `border-collapse: collapse`, and in the collapsed model row borders belong to the
@@ -186,10 +186,21 @@ const stickyHeaderContainer = "max-h-[calc(100svh-7rem)] overflow-y-auto";
  * this way because `TableHeader`'s own `[&_tr]:border-b` outranks any class on the row itself.
  */
 const stickyHeader =
-  "sticky top-0 z-20 bg-background [&_tr]:border-b-0 [&_th]:shadow-[inset_0_-1px_0_var(--color-border)]";
+  "sticky top-0 z-20 bg-table-head [&_tr]:border-b-0 [&_th]:shadow-[inset_0_-1px_0_var(--color-border)]";
 
+/**
+ * Tinted the same faint cool gray as the frozen column, so the headings read apart from the cells.
+ * The hover tint `TableRow` paints is switched off inside it: a header row is not a row a reader
+ * picks out, and a heading that changed color under the pointer looked like one.
+ */
 function TableHeader({ className, ...props }: React.ComponentProps<"thead">) {
-  return <thead data-slot="table-header" className={cn("[&_tr]:border-b", className)} {...props} />;
+  return (
+    <thead
+      data-slot="table-header"
+      className={cn("bg-table-head [&_tr]:border-b [&_tr]:hover:bg-transparent", className)}
+      {...props}
+    />
+  );
 }
 
 function TableBody({ className, ...props }: React.ComponentProps<"tbody">) {

@@ -771,7 +771,7 @@ function MeetingSummary({ shares }: { shares: MeetingShare[] }) {
       <div className="w-fit max-w-full overflow-hidden rounded-lg border border-border">
         <Table>
           <TableHeader>
-            <TableRow className="bg-muted/50 hover:bg-muted/50">
+            <TableRow>
               <TableHead>Column</TableHead>
               <TableHead className="text-right">Meeting or higher</TableHead>
               <TableHead className="text-right">Fellows</TableHead>
