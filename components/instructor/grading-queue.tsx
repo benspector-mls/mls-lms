@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import * as React from "react";
-import { CalendarClock, Inbox, UserMinus, Users } from "lucide-react";
+import { CalendarClock, Inbox, Pencil, UserMinus, Users } from "lucide-react";
 import { toast } from "sonner";
 
 import { AssignmentPicker } from "@/components/instructor/assignment-picker";
@@ -23,7 +23,7 @@ import { DraftStatusBadge, LatenessBadge, SubmissionStatusBadge } from "@/compon
 import { Button } from "@/components/ui/button";
 import type { BatchState } from "@/hooks/use-batch-generate";
 import { useReleaseGrade } from "@/hooks/use-release-grade";
-import { studentHref } from "@/lib/links";
+import { editAssignmentHref, studentHref } from "@/lib/links";
 import type { CohortChoice } from "@/lib/programs/cohorts";
 import { displayNameOf } from "@/lib/people";
 import { draftStatusAddsSomething } from "@/lib/status";
@@ -435,11 +435,32 @@ export function GradingQueue({
               it cannot sit somewhere a reader might not have noticed it.
             */}
             <CohortPicker choice={cohorts} className="w-full" />
-            <AssignmentPicker
-              courseId={data.assignment.courseId}
-              assignmentId={data.assignment.id}
-              assignmentTitle={data.assignment.title}
-            />
+            {/*
+              The pen beside the picker opens the authoring form for the assignment the picker
+              names, which is where a section's points or its rubric are changed when a report
+              shows the declaration was wrong. An icon alone, because the row beneath is already
+              full at the width grading mode leaves this column.
+            */}
+            <div className="flex items-center gap-2">
+              <AssignmentPicker
+                courseId={data.assignment.courseId}
+                assignmentId={data.assignment.id}
+                assignmentTitle={data.assignment.title}
+                className="flex-1"
+              />
+              <Button
+                variant="outline"
+                size="icon"
+                className="size-8 shrink-0"
+                aria-label={`Edit ${data.assignment.title}`}
+                title="Edit assignment"
+                render={
+                  <Link href={editAssignmentHref(data.assignment.courseId, data.assignment.id)} />
+                }
+              >
+                <Pencil />
+              </Button>
+            </div>
             {/*
               The three tabs are three answers to "what is left to grade", which a task does not
               ask: `To do` is permanently zero because a task never enters a triage bucket, and
