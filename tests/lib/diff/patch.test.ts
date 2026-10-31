@@ -1,4 +1,10 @@
-import { changedRanges, parseUnifiedPatch, truncateAtHunkBoundary } from "@/lib/diff/patch";
+import {
+  changedRanges,
+  diffLinePair,
+  parseUnifiedPatch,
+  previewChanges,
+  truncateAtHunkBoundary,
+} from "@/lib/diff/patch";
 
 /**
  * The unified diff parser.
@@ -228,16 +234,13 @@ describe("changedRanges", () => {
     const ranges = rangesOf(
       "@@ -1,2 +1,2 @@\n-if attackerRef.isEmpty:\n+if attackerRef.nonALive:\n     pass",
     );
-    expect(ranges).toEqual([{ start: 15, end: 22 }, { start: 15, end: 23 }, null]);
+    expect(ranges).toEqual([[{ start: 15, end: 22 }], [{ start: 15, end: 23 }], []]);
     expect("if attackerRef.isEmpty:".slice(15, 22)).toBe("isEmpty");
     expect("if attackerRef.nonALive:".slice(15, 23)).toBe("nonALive");
   });
 
-  it("gives an empty range to the side a pure insertion added nothing to", () => {
-    expect(rangesOf("@@ -1,1 +1,1 @@\n-x < 10\n+x <= 10")).toEqual([
-      { start: 3, end: 3 },
-      { start: 3, end: 4 },
-    ]);
+  it("marks nothing on the side a pure insertion added nothing to", () => {
+    expect(rangesOf("@@ -1,1 +1,1 @@\n-x < 10\n+x <= 10")).toEqual([[], [{ start: 3, end: 4 }]]);
   });
 
   it("pairs the nth removed line with the nth added line in a run", () => {
@@ -245,48 +248,163 @@ describe("changedRanges", () => {
       "@@ -1,2 +1,2 @@\n-const a = 1;\n-const b = 2;\n+const a = 9;\n+const b = 8;",
     );
     expect(ranges).toEqual([
-      { start: 10, end: 11 },
-      { start: 10, end: 11 },
-      { start: 10, end: 11 },
-      { start: 10, end: 11 },
+      [{ start: 10, end: 11 }],
+      [{ start: 10, end: 11 }],
+      [{ start: 10, end: 11 }],
+      [{ start: 10, end: 11 }],
     ]);
   });
 
-  it("marks nothing in a run whose two sides differ in length, since the pairing would be a guess", () => {
-    expect(rangesOf("@@ -1,1 +1,2 @@\n-const b = 2;\n+const b = 3;\n+const c = 4;")).toEqual([
-      null,
-      null,
-      null,
+  it("pairs a line in a run of unequal length with the next added line that shares half its words", () => {
+    // An edited paragraph followed by a new one: the edit is paired, the new paragraph is not.
+    expect(
+      rangesOf("@@ -1,1 +1,3 @@\n-the answer is ten\n+the answer is twelve\n+\n+A new paragraph."),
+    ).toEqual([[{ start: 14, end: 17 }], [{ start: 14, end: 20 }], [], []]);
+  });
+
+  it("pairs a line in a run of unequal length with the closest added line, not the first close one", () => {
+    expect(rangesOf("@@ -1,1 +1,2 @@\n-const b = 2;\n+const a = 9;\n+const b = 3;")).toEqual([
+      [{ start: 10, end: 11 }],
+      [],
+      [{ start: 10, end: 11 }],
+    ]);
+  });
+
+  it("leaves a line in a run of unequal length unpaired when no added line is close to it", () => {
+    expect(rangesOf("@@ -1,1 +1,2 @@\n-return total;\n+throw new Error(x);\n+exit(1);")).toEqual([
+      [],
+      [],
+      [],
     ]);
   });
 
   it("marks nothing on a line rewritten rather than edited", () => {
-    expect(rangesOf("@@ -1,1 +1,1 @@\n-return total;\n+throw new Error(x);")).toEqual([null, null]);
+    expect(rangesOf("@@ -1,1 +1,1 @@\n-return total;\n+throw new Error(x);")).toEqual([[], []]);
   });
 
   it("does not count shared indentation toward the half a line must share", () => {
     expect(rangesOf("@@ -1,1 +1,1 @@\n-        return foo;\n+        x = bar();")).toEqual([
-      null,
-      null,
+      [],
+      [],
     ]);
   });
 
   it("marks exactly the carriage return on a line whose only change is its ending", () => {
     expect(rangesOf("@@ -1,1 +1,1 @@\n-const a = 1;\r\n+const a = 1;")).toEqual([
-      { start: 12, end: 13 },
-      { start: 12, end: 12 },
+      [{ start: 12, end: 13 }],
+      [],
     ]);
   });
 
   it("never pairs a removed line at the end of one hunk with an added line opening the next", () => {
     expect(rangesOf("@@ -1,1 +1,0 @@\n-const a = 1;\n@@ -9,0 +8,1 @@\n+const a = 2;")).toEqual([
-      null,
-      null,
+      [],
+      [],
     ]);
   });
 
   it("keeps one entry per line, in render order, around context and lone additions", () => {
     const ranges = rangesOf("@@ -1,3 +1,4 @@\n a\n-b = 1\n+b = 2\n+c\n d");
     expect(ranges).toHaveLength(5);
+  });
+});
+
+/*
+  Two lines a fellow edited in a short response, between the commit their first review graded and
+  the commit they resubmitted. Each was edited in more than one place, which is the case a single
+  marked stretch per line could not describe.
+*/
+const ANSWER_BEFORE =
+  "Your response here...A function is like a machine that you give information with which it " +
+  "does a specific task and delivers and outcome and the technical definition of a function is " +
+  "a series of statements which returns some value to a caller";
+const ANSWER_AFTER =
+  "A function is like a machine that you give information with which it does a specific task " +
+  "and delivers an outcome and the technical definition of a function is a series of statements " +
+  "which returns some value to a caller";
+const EXPLANATION_BEFORE =
+  'Your explanation of the example here...The string variable name is set to "Zo" as the base ' +
+  "name we wan't to use. Then the greet function is created with the parameter person. Inside " +
+  'the function a f string is used to create a sentence using that parameter and the greeting "Hello".Then this sentence is returned.';
+const EXPLANATION_AFTER =
+  'The string variable name is set to "Zo" as the base name we want to use. Then the greet ' +
+  "function is created with the parameter person. Inside the function a f string is used to " +
+  'create a sentence using that parameter and the greeting "Hello". Then this sentence is returned.';
+
+/** The text of each range, which is what a reader sees marked. */
+const textsOf = (line: string, ranges: { start: number; end: number }[]) =>
+  ranges.map((range) => line.slice(range.start, range.end));
+
+describe("diffLinePair", () => {
+  it("marks every edit on a line edited in two places, word by word", () => {
+    const diff = diffLinePair(ANSWER_BEFORE, ANSWER_AFTER);
+    expect(diff).not.toBeNull();
+    expect(textsOf(ANSWER_BEFORE, diff!.removed)).toEqual(["Your response here...", "and"]);
+    expect(textsOf(ANSWER_AFTER, diff!.added)).toEqual(["an"]);
+  });
+
+  it("places each removed passage where it stood in the new line, before its replacement", () => {
+    const diff = diffLinePair(ANSWER_BEFORE, ANSWER_AFTER)!;
+    const at = ANSWER_AFTER.indexOf("an outcome");
+    expect(diff.deletions).toEqual([
+      { at: 0, text: "Your response here..." },
+      { at, text: "and" },
+    ]);
+    expect(diff.added[0].start).toBe(at);
+  });
+
+  it("compares whole words and lone punctuation, as GitHub's code view does", () => {
+    const diff = diffLinePair(EXPLANATION_BEFORE, EXPLANATION_AFTER)!;
+    expect(textsOf(EXPLANATION_BEFORE, diff.removed)).toEqual([
+      "Your explanation of the example here...",
+      "wan't",
+    ]);
+    // The space added after `"Hello".` is the whole of the third edit.
+    expect(textsOf(EXPLANATION_AFTER, diff.added)).toEqual(["want", " "]);
+  });
+
+  it("joins two changes across the spaces between them rather than marking each word apart", () => {
+    const diff = diffLinePair(
+      "we went to the big red shop today",
+      "we went to a small blue shop today",
+    )!;
+    expect(textsOf("we went to a small blue shop today", diff.added)).toEqual(["a small blue"]);
+    expect(diff.deletions).toEqual([{ at: 11, text: "the big red" }]);
+  });
+
+  it("answers null for two identical lines", () => {
+    expect(diffLinePair("same", "same")).toBeNull();
+  });
+});
+
+describe("previewChanges", () => {
+  const changesOf = (patch: string) => previewChanges(parseUnifiedPatch(patch).hunks);
+
+  it("records an edited line with its added words and its removed passages", () => {
+    const changes = changesOf(`@@ -33,1 +33,1 @@\n-${ANSWER_BEFORE}\n+${ANSWER_AFTER}`);
+    expect([...changes.addedLines]).toEqual([]);
+    expect(changes.editedLines.get(33)?.deletions.map((d) => d.text)).toEqual([
+      "Your response here...",
+      "and",
+    ]);
+  });
+
+  it("counts a lone added line and a rewritten line as wholly new", () => {
+    const changes = changesOf(
+      "@@ -1,2 +1,3 @@\n-return total;\n+throw new Error(x);\n+A new paragraph.\n context",
+    );
+    expect([...changes.addedLines]).toEqual([1, 2]);
+    expect(changes.editedLines.size).toBe(0);
+  });
+
+  it("leaves out a line whose only change is trailing spaces an editor trimmed", () => {
+    const changes = changesOf("@@ -1,1 +1,1 @@\n-## Question 1  \n+## Question 1");
+    expect(changes.editedLines.size).toBe(0);
+    expect(changes.addedLines.size).toBe(0);
+  });
+
+  it("leaves out a removed passage of nothing but whitespace, which cannot be seen struck through", () => {
+    const changes = changesOf('@@ -1,1 +1,1 @@\n-said "Hello".  Then\n+said "Hello". Then');
+    expect(changes.editedLines.get(1)?.deletions).toEqual([]);
   });
 });

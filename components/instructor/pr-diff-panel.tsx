@@ -2,7 +2,7 @@
 
 import * as React from "react";
 
-import { DiffFileCard } from "@/components/instructor/diff-file-card";
+import { DiffFileCard, type DiffView } from "@/components/instructor/diff-file-card";
 import { Button } from "@/components/ui/button";
 import { shortSha } from "@/lib/status";
 import type { RouterOutputs } from "@/trpc/types";
@@ -36,10 +36,15 @@ const AUTO_EXPAND_FILE_LIMIT = 5;
 export function PrDiffPanel({
   diff,
   changeScope,
+  views,
+  onViewChange,
 }: {
   diff: Diff;
   /** Where the changes are measured from, as words: "in this pull request" or "since Review 1". */
   changeScope: string;
+  /** Preview or Diff for each Markdown file, by path, kept by the card around this panel. */
+  views: ReadonlyMap<string, DiffView>;
+  onViewChange: (path: string, view: DiffView) => void;
 }) {
   /*
     Which files are open, in one place. The alternative — state inside each card, plus a counter
@@ -120,6 +125,8 @@ export function PrDiffPanel({
             submissionId={diff.submissionId}
             file={file}
             changeScope={changeScope}
+            view={views.get(file.path) ?? "preview"}
+            onViewChange={(view) => onViewChange(file.path, view)}
             open={openPaths.has(file.path)}
             onOpenChange={(open) => setOpen(file.path, open)}
           />

@@ -1,4 +1,4 @@
-import { rehypeMarkChanged } from "@/lib/markdown/mark-changed";
+import { rehypeMarkChanged, rehypeMarkEdits } from "@/lib/markdown/mark-changed";
 
 /**
  * Which blocks of a rendered Markdown file are shaded as the fellow's writing.
@@ -14,7 +14,7 @@ type Node = {
   value?: string;
   children?: Node[];
   properties?: Record<string, unknown>;
-  position?: { start: { line: number }; end: { line: number } };
+  position?: { start: { line: number; offset?: number }; end: { line: number; offset?: number } };
 };
 
 function element(tagName: string, lines: [number, number], children: Node[] = []): Node {
@@ -110,5 +110,127 @@ describe("rehypeMarkChanged", () => {
     const unplaced: Node = { type: "element", tagName: "p", children: [] };
     const tree = mark({ type: "root", children: [unplaced] }, [1]);
     expect(tree.children?.[0]).toBe(unplaced);
+  });
+});
+
+describe("rehypeMarkChanged on edited lines", () => {
+  it("gives an edited block the margin bar and no shading", () => {
+    const answer = element("p", [3, 3]);
+    const tree: Node = { type: "root", children: [answer] };
+    rehypeMarkChanged(new Set(), new Set([3]))(tree);
+
+    const classes = tree.children?.[0].properties?.className as string[];
+    expect(isMarked(tree.children?.[0])).toBe(true);
+    expect(classes.join(" ")).toContain("border-amber-500/70");
+    expect(classes.join(" ")).not.toContain("bg-emerald");
+  });
+
+  it("shades a block holding a wholly new line even when another of its lines was edited", () => {
+    const answer = element("p", [3, 4]);
+    const tree: Node = { type: "root", children: [answer] };
+    rehypeMarkChanged(new Set([4]), new Set([3]))(tree);
+    expect((tree.children?.[0].properties?.className as string[]).join(" ")).toContain(
+      "bg-emerald",
+    );
+  });
+});
+
+/**
+ * A paragraph as the parser gives it: the element on its line, and one run of text carrying the
+ * offsets of that text in `source`.
+ */
+function paragraph(source: string, value: string, line: number): Node {
+  const start = source.indexOf(value);
+  return {
+    type: "element",
+    tagName: "p",
+    properties: {},
+    position: { start: { line, offset: start }, end: { line, offset: start + value.length } },
+    children: [
+      {
+        type: "text",
+        value,
+        position: { start: { line, offset: start }, end: { line, offset: start + value.length } },
+      },
+    ],
+  };
+}
+
+/** The paragraph's children as `[tag, text]` pairs, with `text` for an unmarked run. */
+function runsOf(node: Node | undefined): [string, string][] {
+  return (node?.children ?? []).map((child) =>
+    child.type === "text"
+      ? ["text", child.value ?? ""]
+      : [child.tagName ?? "", child.children?.[0]?.value ?? ""],
+  );
+}
+
+describe("rehypeMarkEdits", () => {
+  const source = "### Response 1\n\nA function delivers an outcome to a caller\n";
+  const answer = "A function delivers an outcome to a caller";
+
+  it("marks the added word and puts the removed words back, struck through, where they stood", () => {
+    const tree: Node = { type: "root", children: [paragraph(source, answer, 3)] };
+    rehypeMarkEdits(
+      source,
+      new Map([
+        [
+          3,
+          {
+            added: [{ start: 20, end: 22 }],
+            deletions: [
+              { at: 0, text: "Your response here..." },
+              { at: 20, text: "and" },
+            ],
+          },
+        ],
+      ]),
+    )(tree);
+
+    expect(runsOf(tree.children?.[0])).toEqual([
+      ["del", "Your response here..."],
+      ["text", "A function delivers "],
+      ["del", "and"],
+      ["ins", "an"],
+      ["text", " outcome to a caller"],
+    ]);
+  });
+
+  it("puts a passage removed from the end of a line after the last word", () => {
+    const tree: Node = { type: "root", children: [paragraph(source, answer, 3)] };
+    rehypeMarkEdits(
+      source,
+      new Map([[3, { added: [], deletions: [{ at: answer.length, text: " and back" }] }]]),
+    )(tree);
+
+    expect(runsOf(tree.children?.[0]).at(-1)).toEqual(["del", " and back"]);
+  });
+
+  it("leaves a run alone when its text is not in the source as written", () => {
+    const escaped = "### Q\n\nUse \\* for a list\n";
+    const run = paragraph(escaped, "Use \\* for a list", 3);
+    // The parser gives the text without its backslash, so it no longer matches the source.
+    run.children![0].value = "Use * for a list";
+    const tree: Node = { type: "root", children: [run] };
+    rehypeMarkEdits(
+      escaped,
+      new Map([[3, { added: [{ start: 0, end: 3 }], deletions: [] }]]),
+    )(tree);
+
+    expect(runsOf(tree.children?.[0])).toEqual([["text", "Use * for a list"]]);
+  });
+
+  it("never marks inside a fenced code block, which is redrawn from its text", () => {
+    const code = "```py\nprint(name)\n```\n";
+    const pre: Node = {
+      type: "element",
+      tagName: "pre",
+      properties: {},
+      children: [paragraph(code, "print(name)", 2)],
+    };
+    const tree: Node = { type: "root", children: [pre] };
+    rehypeMarkEdits(code, new Map([[2, { added: [{ start: 0, end: 5 }], deletions: [] }]]))(tree);
+
+    expect(runsOf(pre.children?.[0])).toEqual([["text", "print(name)"]]);
   });
 });

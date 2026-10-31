@@ -10,6 +10,7 @@
  */
 
 import { useMutation } from "@tanstack/react-query";
+import * as React from "react";
 import {
   AlertTriangle,
   ExternalLink,
@@ -23,6 +24,7 @@ import { useServerMutation } from "@/hooks/use-server-mutation";
 import { TestRunPanel } from "@/components/instructor/test-run-panel";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button, buttonVariants } from "@/components/ui/button";
+import type { DiffView } from "@/components/instructor/diff-file-card";
 import { PrDiffPanel } from "@/components/instructor/pr-diff-panel";
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -66,6 +68,18 @@ export function DiffPanel({
     sinceReview && comparedReview
       ? `since Review ${comparedReview.number}`
       : "in this pull request";
+
+  /*
+    Whether each Markdown file shows Preview or Diff, held here rather than in the file's card. The
+    cards are rebuilt whenever the starting point switches, and a choice held in the card would
+    return to Preview each time, taking an instructor who was reading the diff away from it. This
+    card stays on screen across the switch, so the choice survives it. A path not in the map shows
+    Preview.
+  */
+  const [views, setViews] = React.useState<ReadonlyMap<string, DiffView>>(() => new Map());
+  const setView = React.useCallback((path: string, view: DiffView) => {
+    setViews((previous) => new Map(previous).set(path, view));
+  }, []);
 
   const pullRequestLink = prUrl ? (
     <a
@@ -155,7 +169,13 @@ export function DiffPanel({
         ) : diff ? (
           // Keyed on the starting point, so switching opens the files of the new diff rather than
           // keeping the open files of the last one.
-          <PrDiffPanel key={diff.baseSha ?? "template"} diff={diff} changeScope={changeScope} />
+          <PrDiffPanel
+            key={diff.baseSha ?? "template"}
+            diff={diff}
+            changeScope={changeScope}
+            views={views}
+            onViewChange={setView}
+          />
         ) : null}
       </CardContent>
     </Card>

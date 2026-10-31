@@ -5,7 +5,8 @@ import ReactMarkdown, { type Options } from "react-markdown";
 import remarkGfm from "remark-gfm";
 import { useFileHighlight } from "@/hooks/use-file-highlight";
 import { languageForFence, type DiffLanguage } from "@/lib/diff/languages";
-import { rehypeMarkChanged } from "@/lib/markdown/mark-changed";
+import type { PreviewChanges } from "@/lib/diff/patch";
+import { rehypeMarkChanged, rehypeMarkEdits } from "@/lib/markdown/mark-changed";
 import { cn } from "@/lib/utils";
 
 // Real GFM markdown rendering. This is deliberate: feedback contains headings,
@@ -18,7 +19,7 @@ export function Markdown({
   className,
   sourceOffsets = false,
   reading = false,
-  changedLines,
+  changes,
 }: {
   content: string;
   className?: string;
@@ -35,11 +36,12 @@ export function Markdown({
    */
   reading?: boolean;
   /**
-   * Line numbers in `content` that a pull request added. Each block holding one is shaded, which
-   * is how the preview of a short response tells the fellow's answers from the template's
-   * questions. See `rehypeMarkChanged`.
+   * What a diff added to `content`, by line number. Each block holding a wholly new line is
+   * shaded, which is how the preview of a short response tells the fellow's answers from the
+   * template's questions. Inside an edited block, the words added are marked and the words taken
+   * out are struck through where they stood. See `rehypeMarkChanged` and `rehypeMarkEdits`.
    */
-  changedLines?: ReadonlySet<number>;
+  changes?: PreviewChanges;
 }) {
   const prose = reading ? "text-foreground" : "text-muted-foreground";
   const headingSize = reading
@@ -48,7 +50,14 @@ export function Markdown({
 
   const rehypePlugins: NonNullable<Options["rehypePlugins"]> = [];
   if (sourceOffsets) rehypePlugins.push([rehypeSourceOffsets, content]);
-  if (changedLines) rehypePlugins.push([rehypeMarkChanged, changedLines]);
+  if (changes) {
+    rehypePlugins.push([rehypeMarkEdits, content, changes.editedLines]);
+    rehypePlugins.push([
+      rehypeMarkChanged,
+      changes.addedLines,
+      new Set(changes.editedLines.keys()),
+    ]);
+  }
 
   return (
     <div

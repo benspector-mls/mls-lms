@@ -12,9 +12,11 @@ import { useDiffHighlight } from "@/hooks/use-diff-highlight";
 import {
   changedRanges,
   parseUnifiedPatch,
+  previewChanges,
   type ChangedRange,
   type DiffHunk,
   type DiffLine,
+  type PreviewChanges,
 } from "@/lib/diff/patch";
 import { DIFF_KIND_META, TONE_CLASSES } from "@/lib/status";
 import { cn } from "@/lib/utils";
@@ -22,6 +24,9 @@ import { useTRPC } from "@/trpc/client";
 import type { RouterOutputs } from "@/trpc/types";
 
 type DiffFile = RouterOutputs["pullRequests"]["diffForSubmission"]["files"][number];
+
+/** How a Markdown file is shown: rendered, or as its diff. */
+export type DiffView = "preview" | "diff";
 
 /**
  * The most lines of one file this panel will draw.
@@ -51,6 +56,8 @@ export function DiffFileCard({
   submissionId,
   file,
   changeScope,
+  view,
+  onViewChange,
   open,
   onOpenChange,
 }: {
@@ -58,6 +65,9 @@ export function DiffFileCard({
   file: DiffFile;
   /** Where the changes are measured from, as words: "in this pull request" or "since Review 1". */
   changeScope: string;
+  /** Preview or Diff, for a Markdown file. Held above this card so it survives a new diff. */
+  view: DiffView;
+  onViewChange: (view: DiffView) => void;
   open: boolean;
   onOpenChange: (open: boolean) => void;
 }) {
@@ -68,7 +78,6 @@ export function DiffFileCard({
     them apart by. A removed file has no final version to render.
   */
   const previewable = file.language === "markdown" && file.kind !== "removed";
-  const [view, setView] = React.useState<"preview" | "diff">("preview");
   const showsPreview = previewable && view === "preview";
 
   const hunks = React.useMemo(
@@ -80,23 +89,24 @@ export function DiffFileCard({
   const tokens = useDiffHighlight(showsPreview ? null : hunks, file.language);
 
   /*
-    The lines of the new file this diff added, which the preview shades. None for a file
+    The lines of the new file this diff added or edited, which the preview marks. None for a file
     this diff shows as new: every block of it is the fellow's, and shading all of them says
     nothing that the sentence above the preview does not.
   */
-  const changedLines = React.useMemo(() => {
-    if (!hunks || file.kind === "added") return undefined;
-    const added = new Set<number>();
-    for (const hunk of hunks) {
-      for (const line of hunk.lines) {
-        if (line.kind === "add" && line.newLine !== null) added.add(line.newLine);
-      }
-    }
-    return added;
-  }, [hunks, file.kind]);
+  const changes = React.useMemo(
+    () => (!hunks || !showsPreview || file.kind === "added" ? undefined : previewChanges(hunks)),
+    [hunks, showsPreview, file.kind],
+  );
 
-  // Indexed the same way as `tokens`: the nth line drawn is the nth entry.
-  const changed = React.useMemo(() => (hunks ? changedRanges(hunks) : null), [hunks]);
+  /*
+    Indexed the same way as `tokens`: the nth line drawn is the nth entry. Computed only while the
+    diff is showing, as `changes` is only while the preview is: each compares every edited line
+    word by word, and neither view reads the other's.
+  */
+  const changed = React.useMemo(
+    () => (hunks && !showsPreview ? changedRanges(hunks) : null),
+    [hunks, showsPreview],
+  );
 
   const rendered = React.useMemo(() => {
     if (!hunks) return null;
@@ -200,7 +210,7 @@ export function DiffFileCard({
                     size="xs"
                     variant={view === option ? "default" : "outline"}
                     aria-pressed={view === option}
-                    onClick={() => setView(option)}
+                    onClick={() => onViewChange(option)}
                   >
                     {option === "preview" ? "Preview" : "Diff"}
                   </Button>
@@ -213,7 +223,7 @@ export function DiffFileCard({
                 submissionId={submissionId}
                 file={file}
                 changeScope={changeScope}
-                changedLines={changedLines}
+                changes={changes}
               />
             ) : file.patch === null ? (
               <NoPatch file={file} />
@@ -253,7 +263,7 @@ export function DiffFileCard({
                         key={row.key}
                         line={row.line}
                         tokens={tokens?.[row.index] ?? null}
-                        changed={changed?.[row.index] ?? null}
+                        changed={changed?.[row.index] ?? []}
                       />
                     ),
                   )}
@@ -298,7 +308,7 @@ export function DiffFileCard({
 }
 
 /**
- * A Markdown file as the fellow left it, rendered, with the blocks this diff added shaded. The diff
+ * A Markdown file as the fellow left it, rendered, with what this diff added and edited marked. The diff
  * starts from the template or from a previous review, and `changeScope` names which.
  *
  * Fetched only while it is showing, and through a query, so stepping back to a student or
@@ -310,12 +320,12 @@ function MarkdownPreview({
   submissionId,
   file,
   changeScope,
-  changedLines,
+  changes,
 }: {
   submissionId: string;
   file: DiffFile;
   changeScope: string;
-  changedLines: ReadonlySet<number> | undefined;
+  changes: PreviewChanges | undefined;
 }) {
   const trpc = useTRPC();
   const contents = useQuery(
@@ -340,18 +350,30 @@ function MarkdownPreview({
     this application cut leaves the lines after the cut unknown, so the sentence says so rather
     than letting an unshaded answer read as template text.
   */
+  const added = (changes?.addedLines.size ?? 0) > 0;
+  const edited = (changes?.editedLines.size ?? 0) > 0;
   const legend =
     file.kind === "added"
       ? `This file is new ${changeScope}, so all of it is the fellow's writing.`
-      : file.truncated
-        ? `Passages shaded green were added ${changeScope}. The diff is too large to show ` +
-          "in full, so some later changes may not be shaded."
-        : `Passages shaded green were added ${changeScope}.`;
+      : [
+          added && `Passages shaded green were added ${changeScope}.`,
+          edited &&
+            `Passages marked in amber were edited ${changeScope}: the words added are marked ` +
+              "green and the words taken out are struck through in red.",
+          !added &&
+            !edited &&
+            `Nothing in this file reads differently ${changeScope}. The changes are to spacing ` +
+              "or line endings, which Diff shows.",
+          file.truncated &&
+            "The diff is too large to show in full, so some later changes may not be marked.",
+        ]
+          .filter(Boolean)
+          .join(" ");
 
   return (
     <div className="flex flex-col gap-3 px-4 py-3">
       <p className="text-xs text-muted-foreground">{legend}</p>
-      <Markdown content={contents.data.text} reading changedLines={changedLines} />
+      <Markdown content={contents.data.text} reading changes={changes} />
     </div>
   );
 }
@@ -430,33 +452,31 @@ const LINE_MARKER = { add: "+", remove: "−", context: "" } as const;
 type Piece = { content: string; htmlStyle?: Record<string, string> };
 
 /**
- * The line's pieces, cut again wherever the changed range begins or ends, each marked with whether
- * it lies inside the range.
+ * The line's pieces, cut again wherever a changed range begins or ends, each marked with whether
+ * it lies inside one.
  *
- * Needed because the range is measured in characters and a syntax-coloured piece can be a whole
- * identifier: in `attackerRef.isEmpty` the edit may begin partway through a piece, and shading the
- * whole piece would mark characters that did not change.
+ * Needed because the ranges are measured in characters and a syntax-coloured piece can be a whole
+ * phrase: in a string literal the edit may begin partway through a piece, and shading the whole
+ * piece would mark characters that did not change. `ranges` are in order and never overlap.
  */
-function splitAtRange(pieces: Piece[], range: ChangedRange | null) {
-  if (!range) return pieces.map((piece) => ({ ...piece, changed: false }));
+function splitAtRanges(pieces: Piece[], ranges: ChangedRange[]) {
+  if (ranges.length === 0) return pieces.map((piece) => ({ ...piece, changed: false }));
 
   const out: (Piece & { changed: boolean })[] = [];
   let offset = 0;
   for (const piece of pieces) {
     const end = offset + piece.content.length;
-    const cuts = [
-      offset,
-      Math.min(Math.max(range.start, offset), end),
-      Math.min(Math.max(range.end, offset), end),
-      end,
-    ];
-    for (let k = 0; k < 3; k += 1) {
-      if (cuts[k] === cuts[k + 1]) continue;
+    let cursor = offset;
+    while (cursor < end) {
+      const inside = ranges.find((range) => range.start <= cursor && cursor < range.end);
+      const upcoming = ranges.find((range) => range.start > cursor);
+      const next = Math.min(inside ? inside.end : (upcoming?.start ?? end), end);
       out.push({
-        content: piece.content.slice(cuts[k] - offset, cuts[k + 1] - offset),
+        content: piece.content.slice(cursor - offset, next - offset),
         htmlStyle: piece.htmlStyle,
-        changed: k === 1,
+        changed: inside !== undefined,
       });
+      cursor = next;
     }
     offset = end;
   }
@@ -470,7 +490,7 @@ function CodeLine({
 }: {
   line: DiffLine;
   tokens: Piece[] | null;
-  changed: ChangedRange | null;
+  changed: ChangedRange[];
 }) {
   // Shown as a visible mark rather than left invisible. Without it a student's line-ending commit
   // is a diff where every line changed and every line looks identical, and there is nothing on
@@ -500,7 +520,7 @@ function CodeLine({
           break at, and `break-words` leaves such a line to widen the grid column instead.
         */}
         <code className="shiki-code min-w-0 pr-3 whitespace-pre-wrap wrap-anywhere">
-          {splitAtRange(tokens ?? [{ content: text }], changed).map((piece, index) => (
+          {splitAtRanges(tokens ?? [{ content: text }], changed).map((piece, index) => (
             <span
               key={index}
               style={piece.htmlStyle as React.CSSProperties}
@@ -513,8 +533,8 @@ function CodeLine({
             <span
               className={cn(
                 "text-muted-foreground/60",
-                // The range reaches past the visible text only when it covers the carriage return.
-                changed && changed.end > text.length && CHANGED_TINT[line.kind],
+                // A range reaches past the visible text only when it covers the carriage return.
+                changed.some((range) => range.end > text.length) && CHANGED_TINT[line.kind],
               )}
             >
               ␍
