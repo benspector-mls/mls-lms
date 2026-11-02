@@ -226,7 +226,7 @@ export function AttendanceCalendar({
             render={<a href={attendanceCodesHref(programId)} target="_blank" rel="noreferrer" />}
           >
             <Printer data-icon="inline-start" />
-            Print the coming codes
+            Print the upcoming codes
             <ExternalLink className="ml-1 size-3" />
           </Button>
         </div>
