@@ -68,6 +68,7 @@ async function Triage({
   */
   return (
     <TriageOverview
+      courseId={courseId}
       triage={triage}
       courseName={course.name}
       term={course.program.term}

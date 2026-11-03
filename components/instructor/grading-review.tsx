@@ -395,8 +395,24 @@ export function GradingReview({
   */
   const labelClass = split ? "@max-sm:sr-only" : "@max-md:sr-only";
 
+  /*
+    Whether there is any feedback to write yet. Before a fellow hands anything in, `DraftBody` draws
+    nothing at all, so a Feedback tab would open on an empty column and read as a screen that failed
+    to load. Without the tab, Comments is what opens in grading mode, which is the one thing an
+    instructor can do for a fellow who has not handed in.
+
+    The same condition `DraftBody` returns nothing on, read from the row's `activeDraft` rather
+    than from the draft query, so the tab does not appear and vanish while that query loads.
+  */
+  const feedbackTab =
+    submission.activeDraft !== null ||
+    (submission.status !== "NOT_STARTED" && submission.status !== "ACCEPTED");
+
   const tabs = (
-    <Tabs defaultValue={split ? "report" : "work"} className="gap-3">
+    <Tabs
+      defaultValue={split ? (feedbackTab ? "report" : "conversation") : "work"}
+      className="gap-3"
+    >
       {/*
         The labels collapse to icons alone when the tab row is too narrow for them. `@container`
         makes the row measure its own width rather than the window's, because the grade column can
@@ -414,10 +430,12 @@ export function GradingReview({
               <span className={labelClass}>Work</span>
             </TabsTrigger>
           )}
-          <TabsTrigger value="report" title="Feedback">
-            <PenLine data-icon="inline-start" />
-            <span className={labelClass}>Feedback</span>
-          </TabsTrigger>
+          {feedbackTab && (
+            <TabsTrigger value="report" title="Feedback">
+              <PenLine data-icon="inline-start" />
+              <span className={labelClass}>Feedback</span>
+            </TabsTrigger>
+          )}
           <TabsTrigger value="conversation" title="Comments">
             <MessagesSquare data-icon="inline-start" />
             <span className={labelClass}>Comments</span>

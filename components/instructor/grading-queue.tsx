@@ -26,7 +26,7 @@ import { useReleaseGrade } from "@/hooks/use-release-grade";
 import { editAssignmentHref, studentHref } from "@/lib/links";
 import type { CohortChoice } from "@/lib/programs/cohorts";
 import { displayNameOf } from "@/lib/people";
-import { draftStatusAddsSomething } from "@/lib/status";
+import { draftStatusAddsSomething, formatDueDateShort } from "@/lib/status";
 import { cn } from "@/lib/utils";
 import type { RouterOutputs } from "@/trpc/types";
 
@@ -37,10 +37,28 @@ import type { RouterOutputs } from "@/trpc/types";
  * after another, and losing the queue on every selection would make that a chore.
  * Selection lives in the query string so a particular review can be linked to — which is
  * how the triage screen sends you here.
+ *
+ * **Or every ungraded submission in the course**, across its assignments, when the picker's
+ * "All ungraded submissions" is chosen. That list is only ever worked down, so it has no tabs:
+ * it is permanently To do, and a released grade leaves it on the next refresh. The controls that
+ * act on one assignment — its edit form and its extensions — are left out, and a header row is
+ * drawn wherever the assignment changes.
  */
 
 type Data = RouterOutputs["submissions"]["listForAssignment"];
-type Row = Data["submissions"][number];
+type UngradedData = RouterOutputs["submissions"]["listUngraded"];
+type UngradedRow = UngradedData["submissions"][number];
+/** A row of either list. An ungraded row is a queue row with its assignment attached. */
+type Row = Data["submissions"][number] | UngradedRow;
+
+/** What a row and the review pane read of the assignment a submission belongs to. */
+type RowAssignment = {
+  id: string;
+  title: string;
+  dueAt: Date | null;
+  kind: Data["assignment"]["kind"];
+  completionThreshold: number;
+};
 
 type Filter = "needs_review" | "graded" | "all";
 
@@ -68,21 +86,46 @@ function teamMembers(team: NonNullable<Row["team"]>): string {
 }
 
 export function GradingQueue({
-  data,
+  queue,
   cohorts,
-  completionThreshold,
   now,
 }: {
-  data: Data;
+  /**
+   * What the list holds: one assignment's submissions, or every ungraded submission in a course.
+   * The completion threshold comes with the single assignment because it decides whether a score
+   * passes and is not on the submission list; an ungraded row carries its own.
+   */
+  queue:
+    | { kind: "assignment"; data: Data; completionThreshold: number }
+    | { kind: "ungraded"; courseId: string; data: UngradedData };
   /** The picker's options and the selection this queue was built for, from `resolveCohort`. */
   cohorts: CohortChoice;
-  completionThreshold: number;
   now: Date;
 }) {
   const router = useRouter();
   const searchParams = useSearchParams();
   const selectedId = searchParams.get("submission");
   const grading = useGradingMode();
+
+  const ungraded = queue.kind === "ungraded";
+  /** The one assignment this queue is open on, or null when it is open on every ungraded submission. */
+  const assignment = queue.kind === "assignment" ? queue.data.assignment : null;
+  const courseId = queue.kind === "assignment" ? queue.data.assignment.courseId : queue.courseId;
+
+  /**
+   * The assignment a row belongs to. On one assignment's queue that is the page's own; on the
+   * ungraded list each row carries it, because neighboring rows may belong to different ones.
+   */
+  function assignmentOf(row: Row): RowAssignment {
+    if (queue.kind === "assignment") {
+      return { ...queue.data.assignment, completionThreshold: queue.completionThreshold };
+    }
+    return (row as UngradedRow).assignment;
+  }
+
+  // Fellows with no row and work outside the cohort exist only on one assignment's queue.
+  const notStartedAll = queue.kind === "assignment" ? queue.data.notStarted : [];
+  const asideSubmissions = queue.kind === "assignment" ? queue.data.asideSubmissions : [];
 
   /*
     Whether the list is slid over the pane as a sheet. The sheet is the list's only form below the
@@ -116,9 +159,12 @@ export function GradingQueue({
     server first, where "all" is the only answer — an initializer reading storage would hydrate
     against different markup. Not in the URL, deliberately: a colleague's link to a submission
     should not impose the sender's tab, and the sidebar's links carry no parameters anyway.
+
+    The ungraded list is To do and nothing else, so it opens there. Its key is never written,
+    because it has no tabs to pick.
   */
-  const tabStorageKey = `grading-tab:${data.assignment.id}`;
-  const [filter, setFilterState] = React.useState<Filter>("all");
+  const tabStorageKey = `grading-tab:${assignment?.id ?? "ungraded"}`;
+  const [filter, setFilterState] = React.useState<Filter>(ungraded ? "needs_review" : "all");
   React.useEffect(() => {
     try {
       const stored = window.sessionStorage.getItem(tabStorageKey);
@@ -161,15 +207,18 @@ export function GradingQueue({
    * A task is not graded and never waits on anybody, so "what is left to grade" is a question it
    * cannot answer. What its queue is for instead is "who has done this", so it has no tabs and no
    * report to generate.
+   *
+   * Never on the ungraded list: a task never enters a triage bucket, so none is ever on it.
    */
-  const isTask = data.assignment.kind === "TASK";
+  const taskAssignment = assignment?.kind === "TASK" ? assignment : null;
+  const isTask = taskAssignment !== null;
 
   /*
     Whether fellows may mark this task themselves. Read once for the page, like `isTask` beside it,
     because it is a property of the assignment rather than of a row — and passed to the pane so it
     can say what an unmarked task means, which differs by the answer.
   */
-  const selfMarked = taskIsSelfMarked(data.assignment);
+  const selfMarked = taskAssignment !== null && taskIsSelfMarked(taskAssignment);
 
   /*
     Every row on the assignment, whatever its status. A fellow who has accepted but not handed in,
@@ -178,7 +227,7 @@ export function GradingQueue({
     anybody on it. Those rows have a null `bucket`, so To do leaves them out and they count under
     All.
   */
-  const submissions = data.submissions;
+  const submissions: Row[] = queue.data.submissions;
 
   /*
     "Needs review" is the same question the triage screen asks, answered by the same
@@ -195,13 +244,13 @@ export function GradingQueue({
     "what is left to grade" and somebody who has not begun has nothing on either. A task has no
     tabs, so its list always carries them.
   */
-  const notStarted = isTask || filter === "all" ? data.notStarted : [];
+  const notStarted = isTask || filter === "all" ? notStartedAll : [];
 
   const counts = {
     needs_review: submissions.filter(needsReview).length,
     graded: submissions.filter((row) => row.status === "GRADED").length,
     // The fellows with no row as well, so the number on the tab matches the list beneath it.
-    all: submissions.length + data.notStarted.length,
+    all: submissions.length + notStartedAll.length,
   };
   // Deliberately outside `needs_review`: a question is not work to grade, and `bucket` is null on
   // a row nobody has submitted. It counts under All, which is where the record is looked for.
@@ -223,7 +272,7 @@ export function GradingQueue({
     whose system asks for reduced motion. The library is imported only at that moment, so nobody
     downloads it until there is something to celebrate.
   */
-  const scope = `${data.assignment.id}:${cohorts.cohort}`;
+  const scope = `${assignment?.id ?? "ungraded"}:${cohorts.cohort}`;
   const approvedIn = React.useRef<string | null>(null);
   const stillGenerating = submissions.some((row) => row.bucket === "generating");
   React.useEffect(() => {
@@ -233,7 +282,9 @@ export function GradingQueue({
     }
     if (counts.needs_review > 0 || stillGenerating) return;
     approvedIn.current = null;
-    toast.success("Nothing is left in To do. Well done!");
+    toast.success(
+      ungraded ? "Nothing is left to grade. Well done!" : "Nothing is left in To do. Well done!",
+    );
     void import("canvas-confetti").then(({ default: confetti }) =>
       confetti({
         particleCount: 150,
@@ -242,11 +293,17 @@ export function GradingQueue({
         disableForReducedMotion: true,
       }),
     );
-  }, [scope, counts.needs_review, stillGenerating]);
+  }, [scope, counts.needs_review, stillGenerating, ungraded]);
 
   // Filtering a cohort's worth of rows is not work worth memoizing, and `submissions` is
   // a fresh array on every render anyway, so a memo here would recompute regardless.
   const filtered = submissions.filter((row) => {
+    /*
+      Every row on the ungraded list, including a report still being written. The server sends
+      only waiting work, and hiding the rows in generation would leave a list reading "Nothing is
+      waiting" — and an assignment with no header — while those reports are still on their way.
+    */
+    if (ungraded) return true;
     if (filter === "needs_review") return needsReview(row);
     if (filter === "graded") return row.status === "GRADED";
     return true;
@@ -277,7 +334,7 @@ export function GradingQueue({
     <SubmissionRow
       key={row.id}
       row={row}
-      dueAt={data.assignment.dueAt}
+      dueAt={assignmentOf(row).dueAt}
       /*
         A team's row is headed by the team, because that is what the pile is a pile of: one piece
         of work per team, not one per member. Its members follow on the same line, so an instructor
@@ -293,7 +350,7 @@ export function GradingQueue({
         claimed the work would name somebody the work is not about — so that row's heading stays
         plain text and the members are linked from the review pane instead.
       */
-      primaryHref={row.team ? undefined : studentHref(data.assignment.courseId, row.student.id)}
+      primaryHref={row.team ? undefined : studentHref(courseId, row.student.id)}
       active={selected?.id === row.id}
       onSelect={() => select(row.id)}
       now={now}
@@ -329,28 +386,39 @@ export function GradingQueue({
     and the fallback lands on a real row again.
   */
   const selectedFellowId = searchParams.get("fellow");
-  const selectedFellow = data.notStarted.find((student) => student.id === selectedFellowId) ?? null;
+  const selectedFellow = notStartedAll.find((student) => student.id === selectedFellowId) ?? null;
 
-  const selected =
+  /*
+    The ungraded list has no aside to find a finished submission in: a grade released a moment ago,
+    or one a stale link names, is simply gone from it. Falling through to the first row would then
+    show another fellow's work under a URL naming somebody else, so a named submission that is not
+    here opens nothing, and the pane asks for a pick.
+  */
+  const fallback = ungraded && selectedId !== null ? null : (filtered[0] ?? null);
+
+  const selected: Row | null =
     selectedFellow !== null
       ? null
       : (submissions.find((row) => row.id === selectedId) ??
-        data.asideSubmissions.find((row) => row.id === selectedId) ??
-        filtered[0] ??
-        null);
+        asideSubmissions.find((row) => row.id === selectedId) ??
+        fallback);
 
   /*
-    Whether this assignment can have extensions. `grantExtensions` refuses an assignment that has
-    not been given out or has no due date, so the button is hidden in those cases rather than
-    opening a sheet where every grant fails.
+    The assignment whose extensions the button grants, or null when there is no button.
+    `grantExtensions` refuses an assignment that has not been given out or has no due date, so the
+    button is hidden in those cases rather than opening a sheet where every grant fails. Hidden on
+    the ungraded list too, where the rows belong to many assignments.
   */
-  const extendable = data.assignment.distributedAt !== null && data.assignment.dueAt !== null;
+  const extendable =
+    assignment !== null && assignment.distributedAt !== null && assignment.dueAt !== null
+      ? assignment
+      : null;
 
   /** Why the open submission is not in the list beside it, or null when it is. */
   const asideReason =
     selected === null
       ? null
-      : (data.asideSubmissions.find((row) => row.id === selected.id)?.asideReason ?? null);
+      : (asideSubmissions.find((row) => row.id === selected.id)?.asideReason ?? null);
 
   function select(id: string) {
     const params = new URLSearchParams(searchParams.toString());
@@ -370,7 +438,9 @@ export function GradingQueue({
 
     On any tab, not only To do: the next row *still needing review* is searched forward from the
     released one and then backward, so on All the graded rows in between are stepped over. With
-    nothing left to grade the selection stays put and the pane shows the released report.
+    nothing left to grade the selection stays put and the pane shows the released report — except
+    on the ungraded list, where the released row leaves with the refresh and the pane asks for a
+    pick.
   */
   function advanceAfterApproval() {
     // Read by the celebration above once the refresh shows To do empty.
@@ -381,6 +451,17 @@ export function GradingQueue({
       filtered.slice(at + 1).find(needsReview) ?? filtered.slice(0, at).reverse().find(needsReview);
     if (next) select(next.id);
   }
+
+  /*
+    What the grading mode bar says beside the open name, muted: who is on a team, and on the
+    ungraded list which assignment the work is for. The assignment is needed there because in
+    grading mode the list and its headers are put away, and nothing else on the screen says which
+    assignment is open.
+  */
+  const detailParts: string[] = [];
+  if (selected?.team) detailParts.push(teamMembers(selected.team));
+  if (selected && ungraded) detailParts.push(assignmentOf(selected).title);
+  const selectedDetail = detailParts.length > 0 ? detailParts.join(" · ") : undefined;
 
   /** Opens a fellow who has no submission row. The mirror of `select` above. */
   function selectFellow(studentId: string) {
@@ -439,35 +520,38 @@ export function GradingQueue({
               The pen beside the picker opens the authoring form for the assignment the picker
               names, which is where a section's points or its rubric are changed when a report
               shows the declaration was wrong. An icon alone, because the row beneath is already
-              full at the width grading mode leaves this column.
+              full at the width grading mode leaves this column. Absent on the ungraded list, which
+              is not open on any one assignment.
             */}
             <div className="flex items-center gap-2">
               <AssignmentPicker
-                courseId={data.assignment.courseId}
-                assignmentId={data.assignment.id}
-                assignmentTitle={data.assignment.title}
+                courseId={courseId}
+                assignmentId={assignment?.id ?? null}
+                assignmentTitle={assignment?.title ?? null}
                 className="flex-1"
               />
-              <Button
-                variant="outline"
-                size="icon"
-                className="size-8 shrink-0"
-                aria-label={`Edit ${data.assignment.title}`}
-                title="Edit assignment"
-                render={
-                  <Link href={editAssignmentHref(data.assignment.courseId, data.assignment.id)} />
-                }
-              >
-                <Pencil />
-              </Button>
+              {assignment && (
+                <Button
+                  variant="outline"
+                  size="icon"
+                  className="size-8 shrink-0"
+                  aria-label={`Edit ${assignment.title}`}
+                  title="Edit assignment"
+                  render={<Link href={editAssignmentHref(courseId, assignment.id)} />}
+                >
+                  <Pencil />
+                </Button>
+              )}
             </div>
             {/*
               The three tabs are three answers to "what is left to grade", which a task does not
               ask: `To do` is permanently zero because a task never enters a triage bucket, and
               `Graded` counts both verdicts together, so it would read as "done" over a fellow
               whose task came back. One view, unlabelled, is the honest shape for a roster.
+
+              Absent on the ungraded list as well, which is To do and nothing else.
             */}
-            {!isTask && (
+            {!isTask && !ungraded && (
               <div className="flex items-center gap-1 rounded-lg bg-muted p-1">
                 {(
                   [
@@ -507,8 +591,8 @@ export function GradingQueue({
               Grant extensions opens the same sheet as the curriculum view, which grants deadlines
               to several students at once and lists the ones already agreed.
             */}
-            <div className={cn("flex gap-2", !extendable && "max-lg:hidden")}>
-              {extendable && (
+            <div className={cn("flex gap-2", extendable === null && "max-lg:hidden")}>
+              {extendable !== null && (
                 <Button
                   variant="outline"
                   size="sm"
@@ -542,8 +626,9 @@ export function GradingQueue({
                   bucket: row.bucket,
                 }))}
                 // One assignment, one rubric, one set of answer keys — so every subject shares a
-                // system prompt and the first run warms the cache the rest read from.
-                warmFirst
+                // system prompt and the first run warms the cache the rest read from. Not on the
+                // ungraded list, whose subjects belong to many assignments and share no prompt.
+                warmFirst={!ungraded}
                 onStateChange={setBatch}
               />
             )}
@@ -560,11 +645,47 @@ export function GradingQueue({
                 <Inbox className="size-8 text-muted-foreground" />
                 <p className="text-sm font-medium">Nothing here</p>
                 <p className="text-xs text-muted-foreground">
-                  {filter === "needs_review"
-                    ? "Every submission for this assignment has been dealt with."
-                    : "No submissions match."}
+                  {ungraded
+                    ? "Nothing is waiting to be graded."
+                    : filter === "needs_review"
+                      ? "Every submission for this assignment has been dealt with."
+                      : "No submissions match."}
                 </p>
               </div>
+            ) : ungraded ? (
+              /*
+                The ungraded list in the server's order — oldest due date first — with a header
+                wherever the assignment changes. Not split into open and graded halves like the list
+                below, because a grade whose report went stale belongs under its own assignment
+                rather than at the bottom of the whole course.
+              */
+              <ul className="flex flex-col gap-1">
+                {filtered.map((row, index) => {
+                  const rowAssignment = assignmentOf(row);
+                  const startsGroup =
+                    index === 0 || assignmentOf(filtered[index - 1]!).id !== rowAssignment.id;
+                  return (
+                    <React.Fragment key={row.id}>
+                      {startsGroup && (
+                        <li className="mt-3 flex items-baseline justify-between gap-2 bg-table-head px-3 py-1.5 first:mt-0">
+                          <span
+                            className="min-w-0 truncate text-sm font-semibold"
+                            title={rowAssignment.title}
+                          >
+                            {rowAssignment.title}
+                          </span>
+                          <span className="shrink-0 text-xs text-muted-foreground">
+                            {rowAssignment.dueAt === null
+                              ? "No due date"
+                              : `Due ${formatDueDateShort(rowAssignment.dueAt)}`}
+                          </span>
+                        </li>
+                      )}
+                      {submissionRow(row)}
+                    </React.Fragment>
+                  );
+                })}
+              </ul>
             ) : (
               <ul className="flex flex-col gap-1">
                 {open.map(submissionRow)}
@@ -606,7 +727,7 @@ export function GradingQueue({
                     <div className="pointer-events-none relative flex flex-col items-start gap-0.5 px-3 py-2 text-left">
                       <span className="text-sm font-medium">
                         <Link
-                          href={studentHref(data.assignment.courseId, student.id)}
+                          href={studentHref(courseId, student.id)}
                           className="pointer-events-auto hover:underline"
                         >
                           {displayNameOf(student, "Unknown student")}
@@ -629,10 +750,10 @@ export function GradingQueue({
           </div>
         </aside>
 
-        {extendable && (
+        {extendable !== null && (
           <ExtensionsSheet
-            assignmentId={data.assignment.id}
-            title={data.assignment.title}
+            assignmentId={extendable.id}
+            title={extendable.title}
             open={extending}
             onOpenChange={setExtending}
           />
@@ -656,7 +777,7 @@ export function GradingQueue({
                   ? displayNameOf(selectedFellow, "Unknown student")
                   : null
             }
-            currentDetail={selected?.team ? teamMembers(selected.team) : undefined}
+            currentDetail={selectedDetail}
             /*
                 The same record the rows in the list link to, which is why it is here at all: in
                 this mode the list is put away, so the bar carries the only name on the screen and
@@ -667,9 +788,9 @@ export function GradingQueue({
               selected
                 ? selected.team
                   ? undefined
-                  : studentHref(data.assignment.courseId, selected.student.id)
+                  : studentHref(courseId, selected.student.id)
                 : selectedFellow
-                  ? studentHref(data.assignment.courseId, selectedFellow.id)
+                  ? studentHref(courseId, selectedFellow.id)
                   : undefined
             }
             /*
@@ -681,7 +802,7 @@ export function GradingQueue({
               selected && !isTask ? (
                 <span className="flex flex-wrap items-center gap-2">
                   <SubmissionStatusBadge status={selected.status} />
-                  <LatenessBadge dueAt={data.assignment.dueAt} submission={selected} />
+                  <LatenessBadge dueAt={assignmentOf(selected).dueAt} submission={selected} />
                   {/*
                       The draft's own state, on the same rule the hidden row applies: shown only
                       where it says something the submission's status does not. Writing a report
@@ -696,7 +817,13 @@ export function GradingQueue({
               ) : null
             }
             listLabel={
-              filter === "needs_review" ? "To do" : filter === "graded" ? "Graded" : "All students"
+              ungraded
+                ? "Ungraded"
+                : filter === "needs_review"
+                  ? "To do"
+                  : filter === "graded"
+                    ? "Graded"
+                    : "All students"
             }
             onSelect={select}
             onOpenList={() => setListOpen(true)}
@@ -768,10 +895,10 @@ export function GradingQueue({
               submission — drafts, test runs, a diff, a score — so a task would be a branch
               suppressing nearly all of it, and the rowless fellow could not be passed to it at all.
             */}
-            {isTask && selectedFellow ? (
+            {taskAssignment && selectedFellow ? (
               <TaskReview
                 key={selectedFellow.id}
-                assignmentId={data.assignment.id}
+                assignmentId={taskAssignment.id}
                 student={selectedFellow}
                 // Nothing on record, which is what having no row means.
                 isComplete={null}
@@ -780,10 +907,10 @@ export function GradingQueue({
                 selfMarked={selfMarked}
                 now={now}
               />
-            ) : isTask && selected ? (
+            ) : taskAssignment && selected ? (
               <TaskReview
                 key={selected.id}
-                assignmentId={data.assignment.id}
+                assignmentId={taskAssignment.id}
                 student={selected.student}
                 isComplete={selected.isComplete}
                 markedAt={selected.gradedAt}
@@ -791,13 +918,14 @@ export function GradingQueue({
                 selfMarked={selfMarked}
                 now={now}
               />
-            ) : selectedFellow ? (
+            ) : assignment && selectedFellow ? (
               /*
                 A fellow with no row on graded work. There is no report, test run, or diff to show,
                 so the pane says that nothing has been handed in and offers the conversation, which
                 is what an instructor opens a fellow who has not started to do. Posting the first
                 comment creates their row, and the refresh that follows moves them into
-                `submissions`.
+                `submissions`. Only ever on one assignment's queue, which is the only list that
+                holds these fellows.
               */
               <div
                 key={selectedFellow.id}
@@ -808,7 +936,7 @@ export function GradingQueue({
                   {displayNameOf(selectedFellow, "This fellow")} has not started this assignment.
                 </p>
                 <FellowConversation
-                  assignmentId={data.assignment.id}
+                  assignmentId={assignment.id}
                   studentId={selectedFellow.id}
                   studentName={displayNameOf(selectedFellow, "this fellow")}
                   now={now}
@@ -820,15 +948,15 @@ export function GradingQueue({
               <GradingReview
                 key={selected.id}
                 submission={selected}
-                assignmentId={data.assignment.id}
-                assignmentDueAt={data.assignment.dueAt}
+                assignmentId={assignmentOf(selected).id}
+                assignmentDueAt={assignmentOf(selected).dueAt}
                 // Links each member of a team's line to their own record — "what else has this
                 // person done" is the question a report prompts about a member.
-                studentHref={studentHref(data.assignment.courseId, selected.student.id)}
+                studentHref={studentHref(courseId, selected.student.id)}
                 // Read here rather than by the review pane, which would have to wait on its
                 // own request to find out whether this assignment can have tests at all.
-                assignmentKind={data.assignment.kind}
-                completionThreshold={completionThreshold}
+                assignmentKind={assignmentOf(selected).kind}
+                completionThreshold={assignmentOf(selected).completionThreshold}
                 now={now}
                 onApproved={advanceAfterApproval}
                 release={releasing.release}

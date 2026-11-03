@@ -373,6 +373,36 @@ const QUEUE_STATUS_ORDER: Record<SubmissionStatus, number> = {
   GRADED: 7,
 };
 
+/**
+ * The submissions that may be waiting on an instructor, as a database condition.
+ *
+ * Shared by triage and the grading queue's list of every ungraded submission, because the two are
+ * the same pile drawn on two screens. Written out in each, a change to one would leave a
+ * submission waiting on one screen and finished on the other. Both then drop the rows whose
+ * `triageBucket` is null, which is the final word; this only keeps the database from returning the
+ * whole course to find them.
+ */
+const awaitingInstructorWhere = {
+  OR: [
+    // Open work, whether or not a run has happened yet.
+    { status: { in: ["SUBMITTED", "RESUBMITTED"] } },
+    // A run that reached some state a person has to act on. Included
+    // independently of the submission's status, because a student can push after
+    // being graded and have a new draft waiting while the submission still reads
+    // GRADED.
+    {
+      gradingDrafts: {
+        some: { status: { in: ["READY", "NEEDS_MANUAL_REVIEW", "FAILED", "GENERATING"] } },
+      },
+    },
+    // Approved, but the comment never reached the pull request. Recoverable —
+    // there is a retry — and worth finding without being looked for. Not the same
+    // as a submission that never had a pull request to post to, which is every
+    // hand-graded one: `undeliveredApprovalWhere` is what keeps those out.
+    { gradingDrafts: { some: undeliveredApprovalWhere() } },
+  ],
+} satisfies Prisma.SubmissionWhereInput;
+
 export const submissionsRouter = createTRPCRouter({
   /**
    * A student saying they have read the feedback they were given.
@@ -1754,24 +1784,7 @@ export const submissionsRouter = createTRPCRouter({
             from one course to every course of the term with nothing to say so.
           */
           ...teamAwareWork(course.programId, input.courseId, selection),
-          OR: [
-            // Open work, whether or not a run has happened yet.
-            { status: { in: ["SUBMITTED", "RESUBMITTED"] } },
-            // A run that reached some state a person has to act on. Included
-            // independently of the submission's status, because a student can push after
-            // being graded and have a new draft waiting while the submission still reads
-            // GRADED.
-            {
-              gradingDrafts: {
-                some: { status: { in: ["READY", "NEEDS_MANUAL_REVIEW", "FAILED", "GENERATING"] } },
-              },
-            },
-            // Approved, but the comment never reached the pull request. Recoverable —
-            // there is a retry — and worth finding without being looked for. Not the same
-            // as a submission that never had a pull request to post to, which is every
-            // hand-graded one: `undeliveredApprovalWhere` is what keeps those out.
-            { gradingDrafts: { some: undeliveredApprovalWhere() } },
-          ],
+          ...awaitingInstructorWhere,
         },
         orderBy: [{ lastActivityAt: "desc" }, { createdAt: "desc" }],
         select: {
@@ -2205,6 +2218,96 @@ export const submissionsRouter = createTRPCRouter({
           .filter((entry) => entry.reason !== null)
           .map((entry) => ({ ...decorate(entry.row), asideReason: entry.reason! })),
       };
+    }),
+
+  /**
+   * Every submission in one course that is waiting on an instructor, across all its assignments.
+   *
+   * The grading queue's "All ungraded submissions" view. It is the triage pile — the same
+   * condition and the same `bucket`, so the two screens cannot disagree about what is waiting —
+   * read with `reviewableSubmissionSelect` instead of triage's narrower select, because the review
+   * pane opens these rows and needs everything it reads from one.
+   *
+   * **Each row carries its own assignment**, because the queue normally reads the assignment once
+   * for the page and here every row may belong to a different one. The fields are the ones the
+   * review pane asks of an assignment: its due date, its kind and its passing threshold.
+   *
+   * **Ordered by assignment, oldest due date first**, with undated assignments last, so the screen
+   * can draw a header wherever the assignment changes. The title and then the id break a tie
+   * between two assignments due together, which keeps each assignment's rows next to each other.
+   * Within one assignment, the earliest hand-in comes first.
+   */
+  listUngraded: courseProcedure
+    .input(z.object({ cohort: cohortSelectionInput }))
+    .query(async ({ ctx, input }) => {
+      const selection = parseCohortSelection(input.cohort);
+      /*
+        Empty for an archived course, as triage is: a term that has ended has nothing waiting on
+        anyone, and this list is that pile. One assignment's queue still opens on its work.
+      */
+      const course = await ctx.db.course.findFirst({
+        where: { id: input.courseId, archivedAt: null },
+        select: { programId: true },
+      });
+      if (!course) return { submissions: [] };
+
+      const submissions = await ctx.db.submission.findMany({
+        where: {
+          ...teamAwareWork(course.programId, input.courseId, selection),
+          ...awaitingInstructorWhere,
+        },
+        orderBy: { submittedAt: "asc" },
+        select: {
+          ...reviewableSubmissionSelect,
+          assignment: {
+            select: {
+              id: true,
+              title: true,
+              dueAt: true,
+              kind: true,
+              completionThreshold: true,
+              // Read for `manualOnly` and then dropped, as `listForStudent` does.
+              sections: true,
+            },
+          },
+        },
+      });
+
+      const undelivered = await ctx.db.gradingDraft.findMany({
+        where: undeliveredApprovalWhere({ id: { in: submissions.map((s) => s.id) } }),
+        select: { submissionId: true },
+        distinct: ["submissionId"],
+      });
+      const undeliveredIds = new Set(undelivered.map((draft) => draft.submissionId));
+
+      const rows = submissions
+        .map((submission) => {
+          const { sections, ...assignment } = submission.assignment;
+          return {
+            ...decorateSubmission(submission, {
+              manualOnly: isManualOnly(sections),
+              undeliveredIds,
+            }),
+            assignment,
+          };
+        })
+        // The same last step as triage: a row in no bucket has nothing for a person to do.
+        .filter((row) => row.bucket != null);
+
+      // Infinity for an undated assignment puts it last. Two undated assignments subtract to NaN,
+      // which is falsy, so the title decides between them.
+      const dueTime = (row: (typeof rows)[number]) =>
+        row.assignment.dueAt?.getTime() ?? Number.POSITIVE_INFINITY;
+
+      // `sort` is stable, so within one assignment the hand-in order from the database stands.
+      rows.sort(
+        (a, b) =>
+          dueTime(a) - dueTime(b) ||
+          a.assignment.title.localeCompare(b.assignment.title) ||
+          a.assignment.id.localeCompare(b.assignment.id),
+      );
+
+      return { submissions: rows };
     }),
 
   /**

@@ -19,6 +19,7 @@ import { ResolveQuestionButton } from "@/components/comments/resolve-button";
 import { EmptyState } from "@/components/list-states";
 import { PageHeader } from "@/components/page-header";
 import { TestStudentBadge } from "@/components/test-student-badge";
+import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader } from "@/components/ui/card";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { CohortPicker } from "@/components/instructor/cohort-picker";
@@ -30,7 +31,7 @@ import {
 } from "@/lib/programs/cohorts";
 import { filterIsActive, matchesColumnFilter, parseColumnFilter } from "@/lib/gradebook/filters";
 import { groupByAssignment, nameSubtext, type AssignmentGroup } from "@/lib/grade/triage-groups";
-import { gradingQueueHref, studentHref } from "@/lib/links";
+import { gradingQueueHref, studentHref, ungradedQueueHref } from "@/lib/links";
 import { formatDueDateShort, formatRelative } from "@/lib/status";
 import { lateness } from "@/lib/submissions/hand-in";
 import type { AssignmentKind } from "@/lib/generated/prisma/enums";
@@ -67,6 +68,7 @@ type Row = Triage["submissions"][number];
 type Waiting = Triage["awaitingReply"][number];
 
 export function TriageOverview({
+  courseId,
   triage,
   courseName,
   term,
@@ -75,6 +77,7 @@ export function TriageOverview({
   units,
   now,
 }: {
+  courseId: string;
   triage: Triage;
   courseName: string;
   /** The program's term, "Fall 2026". The heading names it beside the course. */
@@ -167,6 +170,16 @@ export function TriageOverview({
 
   // Not folded into `remaining`, which is spent in "N submissions left to grade".
   const waiting = questions.length;
+
+  /*
+    The cohort in the address travels with the button, so the list opens on the same fellows. The
+    work filter does not: the ungraded view has no filter, so it always holds the whole course's
+    waiting work.
+  */
+  const cohortParam = searchParams.get("cohort");
+  const ungradedHref = cohortParam
+    ? `${ungradedQueueHref(courseId)}?cohort=${encodeURIComponent(cohortParam)}`
+    : ungradedQueueHref(courseId);
 
   return (
     <div className="mx-auto flex w-full max-w-5xl flex-col gap-6 p-4 md:p-6">
@@ -270,6 +283,10 @@ export function TriageOverview({
           past to reach the next thing to do.
         */
         <div className="flex flex-col gap-4">
+          <Button variant="outline" className="self-start" render={<Link href={ungradedHref} />}>
+            Grade all ungraded submissions
+            <ArrowRight data-icon="inline-end" />
+          </Button>
           {pastDue.length > 0 && (
             <TriageDueSection
               label="Past due"

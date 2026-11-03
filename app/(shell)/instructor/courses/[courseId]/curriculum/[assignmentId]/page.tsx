@@ -71,9 +71,8 @@ async function Queue({
 
   return (
     <GradingQueue
-      data={data}
+      queue={{ kind: "assignment", data, completionThreshold: assignment.completionThreshold }}
       cohorts={cohorts}
-      completionThreshold={assignment.completionThreshold}
       now={new Date()}
     />
   );

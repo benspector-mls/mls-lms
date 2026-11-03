@@ -233,6 +233,15 @@ export function gradingQueueHref(
   return submissionId ? `${base}?submission=${submissionId}` : base;
 }
 
+/**
+ * The grading queue opened on every ungraded submission in the course rather than on one
+ * assignment. Under `curriculum/` beside the assignment ids, so the sidebar keeps Curriculum lit
+ * exactly as it does for one assignment's queue.
+ */
+export function ungradedQueueHref(courseId: string): string {
+  return `/instructor/courses/${courseId}/curriculum/ungraded`;
+}
+
 export function newAssignmentHref(courseId: string, courseUnitId?: string): string {
   const base = `/instructor/courses/${courseId}/curriculum/new`;
   /*

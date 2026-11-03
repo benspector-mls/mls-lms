@@ -398,6 +398,25 @@ describe("what the filter does to every screen", () => {
     ).toBe(all.submissions.length);
   });
 
+  /*
+    The grading queue's list of every ungraded submission is the triage pile opened beside the
+    review pane, so the two must hold the same submissions under every cohort — or one screen would
+    say there is work waiting that the other has lost.
+  */
+  it("the ungraded queue holds exactly triage's pile, filtered and unfiltered", async () => {
+    for (const cohort of [undefined, squadId]) {
+      const triage = await asInstructor().submissions.triage({ courseId: world.courseId, cohort });
+      const ungraded = await asInstructor().submissions.listUngraded({
+        courseId: world.courseId,
+        cohort,
+      });
+      expect(ungraded.submissions.map((row) => row.id).sort()).toEqual(
+        triage.submissions.map((row) => row.id).sort(),
+      );
+      expect(ungraded.submissions.length).toBeGreaterThan(0);
+    }
+  });
+
   it("the gradebook lists only the cohort's fellows", async () => {
     const book = await asInstructor().courses.gradebook({
       courseId: world.courseId,
@@ -521,6 +540,57 @@ describe("what the filter does to every screen", () => {
       cohort: ALL_STUDENTS,
     });
     expect(named.submissions.length).toBe(all.submissions.length);
+  });
+});
+
+/*
+  The ungraded queue draws a header wherever the assignment changes, so its order is what makes
+  those headers mean anything: oldest due date first, undated work last, each assignment's rows
+  together, and a released grade nowhere in it.
+*/
+describe("the ungraded queue's order", () => {
+  const tx = withRollback();
+
+  it("lists assignments oldest due date first, undated last, and leaves out graded work", async () => {
+    const world = await makeWorld(tx(), { students: 2 });
+    const assignment = (title: string, dueAt: Date | null) =>
+      makeAssignment(tx(), {
+        courseId: world.courseId,
+        courseUnitId: world.unitId,
+        title: `${title} ${suffix}`,
+        dueAt,
+      });
+
+    // Made out of order, so the database's insertion order cannot pass for the sort.
+    const later = await assignment("Due later", new Date("2026-10-20T00:00:00Z"));
+    const undated = await assignment("Undated", null);
+    const earlier = await assignment("Due earlier", new Date("2026-10-05T00:00:00Z"));
+
+    const [first, second] = world.students.map((student) => student.studentId) as [string, string];
+    for (const { id } of [later, undated]) {
+      await makeSubmission(tx(), { assignmentId: id, studentId: first });
+      await makeSubmission(tx(), { assignmentId: id, studentId: second });
+    }
+    await makeSubmission(tx(), { assignmentId: earlier.id, studentId: first });
+    // An enrolled fellow's released grade, so the only reason for it to be absent is that it is graded.
+    const released = await makeSubmission(tx(), {
+      assignmentId: earlier.id,
+      studentId: second,
+      graded: { score: 10, possible: 10, isComplete: true },
+    });
+
+    const { submissions } = await createCaller(tx(), world.instructorId).submissions.listUngraded({
+      courseId: world.courseId,
+    });
+
+    expect(submissions.map((row) => row.assignment.id)).toEqual([
+      earlier.id,
+      later.id,
+      later.id,
+      undated.id,
+      undated.id,
+    ]);
+    expect(submissions.some((row) => row.id === released.id)).toBe(false);
   });
 });
 
