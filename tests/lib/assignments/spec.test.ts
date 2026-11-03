@@ -91,6 +91,8 @@ const RUBRIC = "3f2504e0-4f89-11d3-9a0c-0305e82c3301";
 
 const codingSection = {
   grading: "ai",
+  key: "code",
+  label: "Coding",
   type: "coding_algorithm",
   pointValue: 30,
   rubricId: RUBRIC,
@@ -98,7 +100,12 @@ const codingSection = {
   evidence: "tests",
 } as const;
 
-const manualSection = { grading: "manual", label: "Reflection", pointValue: 10 } as const;
+const manualSection = {
+  grading: "manual",
+  key: "reflection",
+  label: "Reflection",
+  pointValue: 10,
+} as const;
 
 const repoSpec = {
   kind: AssignmentKind.REPO,
@@ -244,7 +251,15 @@ describe("the total is derived, never entered", () => {
     expect(
       rejects({
         ...repoSpec,
-        sections: [{ grading: "ai", type: "coding_algorithm", rubricId: RUBRIC }],
+        sections: [
+          {
+            grading: "ai",
+            key: "code",
+            label: "Coding",
+            type: "coding_algorithm",
+            rubricId: RUBRIC,
+          },
+        ],
       }),
     ).toEqual(["sections.0.pointValue"]);
   });
@@ -274,22 +289,27 @@ describe("sections describe something a rubric covers", () => {
   });
 
   /*
-    A pattern with no `evidence: "tests"` is silently ignored, so the section is graded with no test
-    evidence at all — the opposite of what naming a pattern means. This is the class of mistake the
+    A choice of tests with no `evidence: "tests"` is silently ignored, so the section is graded with
+    no test evidence at all — the opposite of what choosing tests means. This is the class of mistake the
     whole module exists for: nothing throws, and the report reads as though the tests were consulted.
   */
-  it("a testNamePattern without evidence:tests is refused", () => {
+  it("chosen tests without evidence:tests are refused", () => {
     expect(
       rejects({
         ...repoSpec,
-        sections: [{ ...codingSection, evidence: undefined, testNamePattern: "^from-scratch" }],
+        sections: [
+          { ...codingSection, evidence: undefined, tests: [{ suite: null, name: "from-scratch" }] },
+        ],
       }),
-    ).toEqual(["sections.0.testNamePattern"]);
+    ).toEqual(["sections.0.tests"]);
   });
 
-  it("a testNamePattern with evidence:tests is accepted", () => {
+  it("chosen tests with evidence:tests are accepted", () => {
     expect(
-      rejects({ ...repoSpec, sections: [{ ...codingSection, testNamePattern: "^from-scratch" }] }),
+      rejects({
+        ...repoSpec,
+        sections: [{ ...codingSection, tests: [{ suite: null, name: "from-scratch" }] }],
+      }),
     ).toBe("accepted");
   });
 });
@@ -330,21 +350,55 @@ describe("how a section is graded", () => {
   });
 
   it("a manual section needs a label", () => {
-    expect(rejects({ ...repoSpec, sections: [{ grading: "manual", pointValue: 10 }] })).toEqual([
-      "sections.0.label",
-    ]);
+    expect(
+      rejects({ ...repoSpec, sections: [{ grading: "manual", key: "r", pointValue: 10 }] }),
+    ).toEqual(["sections.0.label"]);
   });
 
   it("a manual section still needs a point value", () => {
     expect(
-      rejects({ ...repoSpec, sections: [{ grading: "manual", label: "Reflection" }] }),
+      rejects({ ...repoSpec, sections: [{ grading: "manual", key: "r", label: "Reflection" }] }),
     ).toEqual(["sections.0.pointValue"]);
   });
 
-  it("an AI section may not use a label instead of a type", () => {
-    expect(rejects({ ...repoSpec, sections: [{ ...codingSection, label: "Whatever" }] })).toEqual([
-      "sections.0:label",
+  it("an AI section needs a type as well as a label", () => {
+    expect(rejects({ ...repoSpec, sections: [{ ...codingSection, type: undefined }] })).toEqual([
+      "sections.0.type",
     ]);
+  });
+
+  // The key is what a graded round's sections are matched to, so it is required and unique.
+  it("every section needs a key, in the key's own alphabet", () => {
+    expect(rejects({ ...repoSpec, sections: [{ ...codingSection, key: undefined }] })).toEqual([
+      "sections.0.key",
+    ]);
+    expect(rejects({ ...repoSpec, sections: [{ ...codingSection, key: "Question 1" }] })).toEqual([
+      "sections.0.key",
+    ]);
+  });
+
+  it("two sections may not share a key", () => {
+    expect(
+      rejects({
+        ...repoSpec,
+        sections: [codingSection, { ...codingSection, label: "Coding again" }],
+      }),
+    ).toEqual(["sections.1.key"]);
+  });
+
+  it("a section may carry a heading and a skill", () => {
+    expect(
+      rejects({
+        ...repoSpec,
+        sections: [
+          {
+            ...codingSection,
+            heading: "From Scratch",
+            skillId: "e7c1a1d0-0000-4000-8000-000000000002",
+          },
+        ],
+      }),
+    ).toBe("accepted");
   });
 });
 
@@ -365,13 +419,57 @@ describe("one grading mode per assignment", () => {
     ]);
   });
 
-  it("several sections graded the same way are accepted, and both count toward the total", () => {
+  it("several sections graded the same way are accepted, and all count toward the total", () => {
     expect(
       parseAssignmentSpec({
         ...repoSpec,
-        sections: [codingSection, { ...codingSection, type: "short_response", pointValue: 15 }],
+        sections: [
+          codingSection,
+          { ...codingSection, key: "q1", type: "short_response", pointValue: 12 },
+          { ...codingSection, key: "writing", type: "short_response_writing", pointValue: 3 },
+        ],
       }).pointValue,
     ).toBe(45);
+  });
+
+  /*
+    A short response's questions and its one writing section come together: questions declared
+    without the writing section would be graded with the writing score folded back into them,
+    and a writing section alone has no call to be filled from. The form keeps the pair itself,
+    so these are the hand-written cases.
+  */
+  it("short response questions without a writing section are refused", () => {
+    expect(
+      rejects({
+        ...repoSpec,
+        sections: [
+          { ...codingSection, key: "q1", type: "short_response", pointValue: 3 },
+          { ...codingSection, key: "q2", type: "short_response", pointValue: 3 },
+        ],
+      }),
+    ).toEqual(["sections.0.type", "sections.1.type"]);
+  });
+
+  it("a writing section without its questions is refused", () => {
+    expect(
+      rejects({
+        ...repoSpec,
+        sections: [{ ...codingSection, type: "short_response_writing", pointValue: 3 }],
+      }),
+    ).toEqual(["sections.0.type"]);
+  });
+
+  it("a short response has one writing section", () => {
+    expect(
+      rejects({
+        ...repoSpec,
+        sections: [
+          { ...codingSection, key: "q1", type: "short_response", pointValue: 3 },
+          { ...codingSection, key: "w1", type: "short_response_writing", pointValue: 3 },
+          { ...codingSection, key: "w2", type: "short_response_writing", pointValue: 3 },
+        ],
+      }),
+    ).toEqual(["sections.1.type", "sections.2.type"]);
   });
 
   it("isAiGraded reads the mode off each section", () => {
@@ -407,28 +505,30 @@ describe("filling in what an author does not type", () => {
   });
 
   /*
-    A pattern with no evidence declaration is refused by the schema. Clearing it alongside the flag
+    Chosen tests with no evidence declaration are refused by the schema. Clearing them alongside the flag
     means an author who turns the runner off does not then face a validation error about a field the
     form no longer shows.
   */
-  it("a stranded testNamePattern is cleared rather than left to fail validation", () => {
+  it("stranded chosen tests are cleared rather than left to fail validation", () => {
     const derived = withDerivedFields({
       runnerPreset: "none",
-      sections: [{ ...codingSection, testNamePattern: "^from-scratch" }],
-    }) as { sections: { testNamePattern?: string }[] };
+      sections: [{ ...codingSection, tests: [{ suite: null, name: "from-scratch" }] }],
+    }) as { sections: { tests?: unknown[] }[] };
 
-    expect(derived.sections[0].testNamePattern).toBeUndefined();
+    expect(derived.sections[0].tests).toBeUndefined();
   });
 
-  // The raw draft would be refused for exactly that stranded pattern; the derived one passes.
+  // The raw draft would be refused for exactly those stranded tests; the derived one passes.
   it("...so the raw draft is refused", () => {
     expect(
       rejects({
         ...repoSpec,
         runnerPreset: "none",
-        sections: [{ ...codingSection, evidence: undefined, testNamePattern: "^from-scratch" }],
+        sections: [
+          { ...codingSection, evidence: undefined, tests: [{ suite: null, name: "from-scratch" }] },
+        ],
       }),
-    ).toEqual(["sections.0.testNamePattern"]);
+    ).toEqual(["sections.0.tests"]);
   });
 
   it("...and the derived draft is accepted", () => {
@@ -437,7 +537,7 @@ describe("filling in what an author does not type", () => {
         withDerivedFields({
           ...repoSpec,
           runnerPreset: "none",
-          sections: [{ ...codingSection, testNamePattern: "^from-scratch" }],
+          sections: [{ ...codingSection, tests: [{ suite: null, name: "from-scratch" }] }],
         }),
       ),
     ).toBe("accepted");

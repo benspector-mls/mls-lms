@@ -21,44 +21,31 @@ import { z } from "zod";
  * rejected when the request is made, which is a failure at grading time rather than
  * one a type check would catch.
  *
- * The cost is that the schema cannot express "score_earned must not exceed
- * score_possible", or that scores are non-negative. Those are checked in
- * cross-check.ts instead. This is why the arithmetic verification there is not
- * made redundant by schema validation.
+ * The cost is that the schema cannot express "score_earned must not exceed the section's
+ * points", or that scores are non-negative. Those are checked in cross-check.ts instead.
+ * This is why the arithmetic verification there is not made redundant by schema validation.
  */
 
 /**
- * One scored row of the report: a question, or a checklist item.
+ * One scored section of the report: the model's score and feedback for one declared section of
+ * the assignment — a question, an exercise, a checklist item.
  *
- * Each row is both a line of arithmetic and a piece of the student's report. The application
- * writes the headings and the scores into the posted comment from these rows (`composeReport` in
- * `report-text.ts`), so the score an instructor edits on a row is the only place that number is
- * stored.
+ * The model is handed the declared sections with their keys, labels and points, and returns one
+ * of these per key. It writes no label and no maximum: both come from the declaration, so the
+ * score an instructor edits on a section is the only number stored.
  */
-export const rubricItemSchema = z.object({
-  /**
-   * The row's heading without its score. For an algorithm report, the question number and
-   * function name, e.g. "Question 2: is_even". For a short response, "Question 3: Flexbox vs.
-   * CSS Grid". For a checklist item, the item copied verbatim from the README.
-   */
-  label: z.string(),
-  /**
-   * For a checklist item, the README section it is listed under, e.g. "Section 3: Fetch
-   * Helpers". Null for a row that is a heading of its own.
-   */
-  group: z.string().nullable(),
-  /** Which rubric criterion this scores, e.g. "algorithm", "code_style", "technical", "writing_quality", "checklist", "query_task". */
-  criterion: z.string(),
+export const scoredSectionSchema = z.object({
+  /** The declared section's key, exactly as given. */
+  key: z.string(),
   scoreEarned: z.number(),
-  scorePossible: z.number(),
   /**
-   * What the student reads beneath this row, as markdown bullets. Empty for a row with nothing
-   * to say, which is the ordinary case for full marks.
+   * What the student reads beneath this section's heading, as markdown bullets. Empty for a
+   * section with nothing to say, which is the ordinary case for full marks.
    */
   feedbackMarkdown: z.string(),
   /**
-   * Why this row earned this score, for the instructor. Shown beside the feedback on the review
-   * screen and never posted. Null when there is nothing to explain.
+   * Why this section earned this score, for the instructor. Shown beside the feedback on the
+   * review screen and never posted. Null when there is nothing to explain.
    */
   modelReasoning: z.string().nullable(),
 });
@@ -86,7 +73,7 @@ export const testClaimSchema = z.object({
  *
  * Each one names a reason a student lost points, and each corresponds to a bullet in
  * a `rubric.md` score band, so a flag can always be traced to the written criterion
- * behind it. Raised only where points were actually deducted — a full-marks section
+ * behind it. Raised only where points were actually deducted — a full-marks round
  * carries none.
  *
  * These are for the instructor. They are never written into the report a student
@@ -115,18 +102,39 @@ export const REPORT_FLAGS = [
   "TERMINOLOGY",
 ] as const;
 
+export type ReportFlag = (typeof REPORT_FLAGS)[number];
+
+/**
+ * Which rubric band each flag belongs to, so a raised flag can be checked against the marks
+ * awarded by the sections that band scores: the writing flags against the Writing Quality
+ * section, the technical flags against the short response questions.
+ *
+ * Every flag the model may raise appears here. Codes the pipeline writes itself — the
+ * cross-check's own findings, TEST_EVIDENCE, LOW_CONFIDENCE — are added afterwards and belong to
+ * no band, so they map to nothing and are skipped by every reader.
+ */
+export const FLAG_FAMILY: Record<ReportFlag, "technical" | "writing"> = {
+  MECHANICAL: "writing",
+  CLARITY: "writing",
+  MARKDOWN: "writing",
+  STRUCTURE: "writing",
+  INCOMPLETE: "technical",
+  UNDERSTANDING: "technical",
+  TERMINOLOGY: "technical",
+};
+
 export const gradingReportSchema = z.object({
   /**
    * The opening of the report as the student will read it: everything between the title and the
-   * first scored row. Second person throughout. The title, the scores and the headings are not
-   * written here — the application builds them from `rubricItems`.
+   * first scored section. Second person throughout. The title, the scores and the headings are
+   * not written here — the application builds them from the sections.
    */
   summaryMarkdown: z.string(),
   /**
-   * Every scored row, in the order the student reads them. The section's score is their sum,
+   * One entry per declared section, carrying the section's key. The round's score is their sum,
    * computed rather than stated, so there is no total for the model to get wrong.
    */
-  rubricItems: z.array(rubricItemSchema),
+  sections: z.array(scoredSectionSchema),
   /**
    * Empty unless something applies. A closed vocabulary, not free text.
    *
@@ -164,7 +172,7 @@ export const gradingReportSchema = z.object({
   testClaims: z.array(testClaimSchema),
 });
 
-export type RubricItem = z.infer<typeof rubricItemSchema>;
+export type ScoredSection = z.infer<typeof scoredSectionSchema>;
 export type TestClaim = z.infer<typeof testClaimSchema>;
 export type GradingReport = z.infer<typeof gradingReportSchema>;
 

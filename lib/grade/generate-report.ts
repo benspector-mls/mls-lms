@@ -3,11 +3,17 @@ import "server-only";
 import { randomUUID } from "node:crypto";
 
 import { db, type Tx } from "../prisma";
-import { readSections } from "../assignments/spec";
+import {
+  declaredUnits,
+  hasUnconvertedSections,
+  readSections,
+  type DeclaredUnit,
+} from "../assignments/spec";
 import { getConfiguredInstallationId } from "../github/app-client";
 import { splitRepoFullName } from "../github/archives";
 import { compareCommits, getPullRequestFiles } from "../github/prs";
 import type { GradingDraft } from "../generated/prisma/client";
+import { testDisplay, testMatches } from "../assignments/test-names";
 import type { NormalizedTest } from "../sandbox/parsers";
 import { NO_RUNNER, resolveRunner } from "../sandbox/presets";
 import { runTestsForSubmission } from "../sandbox/run-tests";
@@ -15,7 +21,6 @@ import { GradingAssetsError, loadGradingAssets } from "./assets";
 import {
   belongsToSection,
   classifySections,
-  findSection,
   partitionForPrompt,
   promptExclusionReason,
   resolveSectionTests,
@@ -23,11 +28,17 @@ import {
   TEST_EVIDENCE_FLAG,
   type AssignmentSection,
 } from "./classify";
+import { companionsOf, isCompanion, type SectionType } from "../section-types";
 import { crossCheck, type Facts } from "./cross-check";
 import { effectiveSection } from "./delivery";
-import { buildSystemPrompt, buildUserPrompt, type PreviousReview } from "./prompts";
+import {
+  buildSystemPrompt,
+  buildUserPrompt,
+  type PreviousReview,
+  type PromptSection,
+} from "./prompts";
 import { getReportGenerator, ProviderError } from "./provider";
-import { composeReport, rowTotals } from "./report-text";
+import { composeRound } from "./report-text";
 import { ReportValidationError } from "./schema";
 
 /**
@@ -216,6 +227,19 @@ export async function generateReportForSubmission(submissionId: string): Promise
   */
   const allSections = readSections(submission.assignment.sections) as AssignmentSection[];
 
+  /*
+    A declaration from before sections were scored units has no keys, and `declaredUnits` would
+    key its sections by type. A round written under such keys is one no later declaration can
+    match and one `convert:rounds` would not touch, so nothing is written until the declaration
+    has been converted.
+  */
+  if (hasUnconvertedSections(submission.assignment.sections)) {
+    throw new ReportGenerationError(
+      `This assignment's sections have not been converted to scored units yet. Run ` +
+        `convert:sections, then generate again.`,
+    );
+  }
+
   if (allSections.length === 0) {
     throw new ReportGenerationError(
       `Assignment "${submission.assignment.title}" has no sections mapping, so there is ` +
@@ -316,8 +340,14 @@ export async function generateReportForSubmission(submissionId: string): Promise
     select: {
       id: true,
       headSha: true,
+      summaryMarkdown: true,
+      editedSummaryMarkdown: true,
       sections: {
+        // The order the round was written in, which is the order it was read in.
+        orderBy: [{ createdAt: "asc" }, { id: "asc" }],
         select: {
+          sectionKey: true,
+          label: true,
           sectionType: true,
           reportMarkdown: true,
           scoreEarned: true,
@@ -468,20 +498,57 @@ export async function generateReportForSubmission(submissionId: string): Promise
     let assetsCommitSha: string | null = null;
     let answerKeyCommitSha: string | null = null;
 
-    for (const sectionType of classification.present) {
-      const section = findSection(declaredSections, sectionType);
+    /*
+      Every declared section as one scored unit, and the skill each is tagged with by name, so
+      the prompt can say what a section is evidence of. One read for the whole round.
+    */
+    const units = declaredUnits(allSections).filter((unit) => unit.type !== "manual");
+    const skillIds = [...new Set(units.flatMap((unit) => (unit.skillId ? [unit.skillId] : [])))];
+    const skillName = new Map(
+      skillIds.length === 0
+        ? []
+        : (
+            await db.skill.findMany({
+              where: { id: { in: skillIds } },
+              select: { id: true, name: true },
+            })
+          ).map((skill) => [skill.id, skill.name]),
+    );
 
-      // Refused rather than defaulted. Told nothing about the maximum, a model will
-      // invent one — an early run produced a report scored out of 40 for a 30-point
-      // assignment — and a plausible score against an invented denominator is worse
-      // than no score, because nothing downstream can tell it apart from a real one.
-      const sectionPointValue = section?.pointValue;
-      if (typeof sectionPointValue !== "number") {
+    /*
+      What the round as a whole receives from its calls. A checkpoint is two calls — a short
+      response and a coding section, each against its own rubric — and the round has one summary,
+      one set of flags and one confidence, so the calls' answers are joined: summaries in order,
+      flags and notes together, the lower confidence, and the first process note.
+    */
+    const summaries: string[] = [];
+    const roundFlags = new Set<string>();
+    /** How each call's tests resolved, read together after the loop for the round's flag. */
+    const testKinds: (keyof typeof TEST_EVIDENCE_FLAG)[] = [];
+    const roundNotes: string[] = [];
+    let roundConfidence: "HIGH" | "LOW" = "HIGH";
+    let processNote: string | null = null;
+
+    for (const sectionType of classification.present) {
+      // Filled by its primary's call below, never graded on its own.
+      if (isCompanion(sectionType)) continue;
+
+      /*
+        The sections this call fills: every declared unit of this type, and of each companion
+        type the pull request also presents. For a short response that is the questions and the
+        one writing section; for a coding assignment, every exercise.
+      */
+      const family: SectionType[] = [
+        sectionType,
+        ...companionsOf(sectionType).filter((companion) =>
+          classification.present.includes(companion),
+        ),
+      ];
+      const callUnits = units.filter((unit) => (family as string[]).includes(unit.type));
+      if (callUnits.length === 0) {
         throw new Error(
-          `The "${sectionType}" section of ${submission.assignment.title} has no ` +
-            `pointValue, so there is no maximum to score it against. Point values are ` +
-            `per section rather than per assignment; a row seeded before that change ` +
-            `carries the old shape. Re-run \`npm run db:seed\` for this assignment.`,
+          `The "${sectionType}" section of ${submission.assignment.title} declares no scored ` +
+            `units, so there is nothing to ask the model to fill. Edit the assignment's sections.`,
         );
       }
 
@@ -495,9 +562,21 @@ export async function generateReportForSubmission(submissionId: string): Promise
       assetsCommitSha = assets.commitSha;
       answerKeyCommitSha = assets.answerKeyCommitSha ?? answerKeyCommitSha;
 
-      // Which tests count toward this section, or why there are none. Absent pattern
-      // with evidence "tests" means the whole suite counts.
-      const sectionTests = resolveSectionTests(section, allTests);
+      /*
+        Which tests count toward this call, or why there are none. When every section of the
+        call chose its tests, the call's evidence is those tests together, and a choice none of
+        which ran is the fault `TEST_MATCH_MISSING` names; when any section chose none, the
+        suite as a whole is the evidence, since that section is read against all of it. Each
+        section is then told which of the run's tests are its own below.
+      */
+      const evidenced = callUnits.find((unit) => unit.hasTestEvidence);
+      const chosen = callUnits.every((unit) => unit.tests.length > 0)
+        ? callUnits.flatMap((unit) => unit.tests)
+        : [];
+      const sectionTests = resolveSectionTests(
+        evidenced ? { type: evidenced.type, evidence: "tests", tests: chosen } : undefined,
+        allTests,
+      );
       const sectionResults = sectionTests.kind === "results" ? sectionTests.results : null;
 
       // A section that was supposed to be checked against a suite and was not. The
@@ -511,54 +590,67 @@ export async function generateReportForSubmission(submissionId: string): Promise
             `Run the tests and regenerate.`,
         );
       }
-      if (sectionTests.kind === "pattern-matched-nothing") {
-        reviewReasons.push(
-          `${sectionType}: graded without test results. The tests ran, but this ` +
-            `section's testNamePattern ` +
-            `(${JSON.stringify(section?.testNamePattern ?? "")}) matched none of the ` +
-            `${allTests.length} tests in the suite. Either the pattern is wrong or the ` +
-            `tests it names do not exist.`,
-        );
-      }
+
+      const promptSections: PromptSection[] = callUnits.map((unit) => {
+        const own = testsOf(unit, sectionResults?.tests ?? []);
+        // Named when a run exists and the choice missed it; with no run at all, the one reason
+        // above says so and nothing is repeated per section.
+        if (
+          own !== null &&
+          own.length === 0 &&
+          (sectionResults !== null || sectionTests.kind === "pattern-matched-nothing")
+        ) {
+          reviewReasons.push(
+            `${unit.label}: none of its chosen tests (${unit.tests.map(testDisplay).join(", ")}) ` +
+              `were among the ${allTests.length} tests in the run, so it was graded without ` +
+              `tests of its own. Either the suite changed or the choice is wrong.`,
+          );
+        }
+        return {
+          key: unit.key,
+          label: unit.label,
+          heading: unit.heading,
+          pointValue: unit.pointValue,
+          skill: unit.skillId ? (skillName.get(unit.skillId) ?? null) : null,
+          tests: own,
+        };
+      });
 
       const studentFiles = await fetchChangedFiles(installationId, {
         ...studentRepo,
         ref: submission.headSha,
-        paths: changedPaths.filter((path) => belongsToSection(path, sectionType)),
+        paths: changedPaths.filter((path) => family.some((type) => belongsToSection(path, type))),
       });
 
-      // Matched by section type, which is also what a hand-written round stores for a section
-      // graded by the pipeline. A section the previous round did not have — one added to the
-      // assignment since — is graded as a first submission.
-      const previousSection = previousRound?.sections.find(
-        (candidate) => candidate.sectionType === sectionType,
-      );
-      const previousReview: PreviousReview | null =
-        previousRound && previousSection
-          ? {
-              number: previousRound.number,
-              headSha: previousRound.headSha,
-              ...effectiveSection(previousSection),
-              /*
-                Through the same two filters as the student's files. The exclusion list first,
-                because the comparison's file list is independent of the pull request's, and a
-                committed `.env` withheld there would otherwise reach the model here as a patch.
-                Then `belongsToSection`, which for a short response section admits only the
-                short response file — so an edit to LICENSE or README.md made by accident is not
-                presented as a change to the answers.
-              */
-              changes:
-                changesSincePrevious === null
-                  ? null
-                  : changesSincePrevious
-                      .filter(
-                        (file) =>
-                          promptExclusionReason(file.path) === null &&
-                          belongsToSection(file.path, sectionType),
-                      )
-                      .map((file) => ({ path: file.path, kind: file.kind, patch: file.patch })),
-            }
-          : null;
+      /*
+        The round the student last received, as they read it, restricted to this call's
+        sections. Matched by key, which is what a round written before keys lacks — such a
+        round's sections are matched by type, the one identity they hold.
+      */
+      const previous = previousRound ? previousReviewFor(previousRound, callUnits, family) : null;
+      const previousReview: PreviousReview | null = previous
+        ? {
+            ...previous,
+            /*
+              Through the same two filters as the student's files. The exclusion list first,
+              because the comparison's file list is independent of the pull request's, and a
+              committed `.env` withheld there would otherwise reach the model here as a patch.
+              Then `belongsToSection`, which for a short response admits only the short response
+              file — so an edit to LICENSE or README.md made by accident is not presented as a
+              change to the answers.
+            */
+            changes:
+              changesSincePrevious === null
+                ? null
+                : changesSincePrevious
+                    .filter(
+                      (file) =>
+                        promptExclusionReason(file.path) === null &&
+                        family.some((type) => belongsToSection(file.path, type)),
+                    )
+                    .map((file) => ({ path: file.path, kind: file.kind, patch: file.patch })),
+          }
+        : null;
 
       const readme = await fetchFile(installationId, {
         ...studentRepo,
@@ -584,7 +676,7 @@ export async function generateReportForSubmission(submissionId: string): Promise
             ],
             teamName: submission.team?.name ?? null,
             assignmentTitle: submission.assignment.title,
-            pointValue: sectionPointValue,
+            sections: promptSections,
             readme,
             studentFiles,
             testResults: sectionResults,
@@ -603,72 +695,80 @@ export async function generateReportForSubmission(submissionId: string): Promise
       const facts: Facts = {
         tests: sectionResults?.tests ?? null,
         tamperedPaths,
-        pointValue: sectionPointValue,
+        sections: callUnits.map((unit) => ({
+          key: unit.key,
+          label: unit.label,
+          type: unit.type,
+          pointValue: unit.pointValue,
+          tests: unit.tests,
+        })),
       };
       const check = crossCheck(response.output, facts);
 
       /*
-        The model returns the parts and this assembles the whole. The text and the score are stored
-        beside the parts rather than derived on every read, so the student's page, the digest and
-        approval read the same two columns they read for a hand grade.
+        One row per declared section, in declared order, whatever the model returned. A section
+        the model scored takes its score, feedback and reasoning; one it left out is written with
+        no score, which the cross-check has already named and approval refuses until an
+        instructor fills it in. A key the model invented is named by the cross-check and written
+        nowhere.
       */
-      /*
-        Only a frontend checklist is drawn under section headings. The model is told to leave
-        `group` null on every other section type, but it still sometimes copies the README's
-        headings ("Modify Questions") into it, so two submissions of one assignment came back laid
-        out differently. Clearing it here makes the layout depend on the section type alone.
-      */
-      const rubricItems =
-        sectionType === "coding_frontend"
-          ? response.output.rubricItems
-          : response.output.rubricItems.map((item) => ({ ...item, group: null }));
+      const scored = new Map(response.output.sections.map((entry) => [entry.key, entry]));
+      // One create per unit, in declared order, rather than one statement for all: the rows'
+      // creation order is the order a reader without the declaration lists them in, and a
+      // single statement gives every row the same instant.
+      for (const unit of callUnits) {
+        const entry = scored.get(unit.key);
+        await db.gradingDraftSection.create({
+          data: {
+            gradingDraftId: draft.id,
+            sectionKey: unit.key,
+            label: unit.label,
+            heading: unit.heading,
+            skillId: unit.skillId,
+            sectionType: unit.type,
+            reportMarkdown: entry?.feedbackMarkdown ?? null,
+            scoreEarned: entry?.scoreEarned ?? null,
+            scorePossible: unit.pointValue,
+            modelReasoning: entry?.modelReasoning ?? null,
+          },
+        });
+      }
 
-      const totals = rowTotals(rubricItems);
+      summaries.push(response.output.summaryMarkdown.trim());
+      for (const flag of response.output.flags) roundFlags.add(flag);
+      testKinds.push(sectionTests.kind);
+      for (const finding of check.findings) roundFlags.add(finding.code);
+      roundNotes.push(...response.output.instructorNotes);
+      if (response.output.confidence === "low") roundConfidence = "LOW";
+      processNote ??= response.output.submissionProcessNote?.trim() || null;
 
-      /*
-        The process note is written onto the end of the stored summary, so the student reads it at
-        the top of the report. Joining it here rather than inside `composeReport` means every later
-        reassembly — an instructor's edit, the review screen's preview — carries it without being
-        handed it, and an instructor can edit or delete it in the summary like any other sentence.
-      */
-      let summaryMarkdown = response.output.summaryMarkdown;
-      const processNote = response.output.submissionProcessNote?.trim();
-      if (processNote) summaryMarkdown = `${summaryMarkdown.trim()}\n\n${processNote}`;
-
-      await db.gradingDraftSection.create({
-        data: {
-          gradingDraftId: draft.id,
-          sectionType,
-          summaryMarkdown,
-          reportMarkdown: composeReport({
-            sectionType,
-            summaryMarkdown,
-            rows: rubricItems,
-          }),
-          scoreEarned: totals.earned,
-          scorePossible: totals.possible,
-          rubricItems,
-          flags: [
-            ...response.output.flags,
-            // Recorded on the row so the review interface can show, at a glance,
-            // which sections had their claims verified against a run and which rest
-            // entirely on the model's reading of the code.
-            TEST_EVIDENCE_FLAG[sectionTests.kind],
-            ...check.findings.map((finding) => finding.code),
-          ],
-          instructorNotes: response.output.instructorNotes,
-          confidence: response.output.confidence === "low" ? "LOW" : "HIGH",
-          submissionProcessNote: response.output.submissionProcessNote,
-        },
-      });
-
-      // Recorded twice on purpose, for two readers: as a flag on the section above, which is
+      // Recorded twice on purpose, for two readers: as a flag on the round above, which is
       // what an instructor scans, and as a finding here, which names what could not be
       // reconciled and directs attention at it.
       for (const finding of check.findings) {
         reviewReasons.push(`${sectionType}: ${finding.detail}`);
       }
     }
+
+    /*
+      One reading of the test evidence for the round, so the review screen says at a glance
+      whether the claims were checked against a run. A round whose calls all expected no tests
+      says so once; otherwise the flags of the calls that expected tests are recorded, and a
+      call that expected none adds nothing, since "no tests by design" beside "checked against
+      tests" would read as a contradiction about one round.
+    */
+    const expectedTests = testKinds.filter((kind) => kind !== "not-expected");
+    if (expectedTests.length === 0) roundFlags.add(TEST_EVIDENCE_FLAG["not-expected"]);
+    for (const kind of expectedTests) roundFlags.add(TEST_EVIDENCE_FLAG[kind]);
+
+    /*
+      The process note is written onto the end of the stored summary, so the student reads it at
+      the top of the report. Joining it here rather than inside `composeRound` means every later
+      reassembly — an instructor's edit, the review screen's preview — carries it without being
+      handed it, and an instructor can edit or delete it in the summary like any other sentence.
+    */
+    let summaryMarkdown = summaries.filter((summary) => summary !== "").join("\n\n");
+    if (processNote) summaryMarkdown = `${summaryMarkdown}\n\n${processNote}`.trim();
 
     /*
       One ready state, whatever the cross-check found.
@@ -687,6 +787,11 @@ export async function generateReportForSubmission(submissionId: string): Promise
       where: { id: draft.id },
       data: {
         status: "READY",
+        summaryMarkdown,
+        flags: [...roundFlags],
+        instructorNotes: roundNotes,
+        confidence: roundConfidence,
+        submissionProcessNote: processNote,
         errorDetail: reviewReasons.length > 0 ? reviewReasons.join("\n") : null,
         modelMetadata: {
           provider: generator.name,
@@ -744,9 +849,93 @@ export async function generateReportForSubmission(submissionId: string): Promise
   traced to the wording that produced it. `2026-10-10.1` asks for a summary and one row per scored
   item, each carrying its own feedback, in place of a whole report written as one block of text.
   `2026-10-29.1` describes the summary as three beats ending in one focus, and stops the report
-  from mentioning commented-out code.
+  from mentioning commented-out code. `2026-11-02.1` hands the model the assignment's declared
+  sections by key and asks for a score, feedback and reasoning per key, in place of rows the model
+  discovered for itself.
 */
-const PROMPT_VERSION = "2026-10-29.1";
+const PROMPT_VERSION = "2026-11-02.1";
+
+/**
+ * The names of the run's tests that one section chose, or null for a section that chose none
+ * and so is read against the whole suite. Empty means none of its choices was in the run, which
+ * the caller names for the instructor.
+ */
+function testsOf(unit: DeclaredUnit, tests: NormalizedTest[]): string[] | null {
+  if (unit.tests.length === 0) return null;
+  return tests
+    .filter((test) => unit.tests.some((choice) => testMatches(choice, test)))
+    .map((test) => (test.suite ? `${test.suite} › ${test.name}` : test.name));
+}
+
+/**
+ * The previous round as the student read it, restricted to the sections this call fills: its
+ * summary and the matching sections composed as one report, with their total.
+ *
+ * A round written before keys holds one section per type with its text whole; such a section is
+ * reproduced as it was. `changes` is filled in by the caller.
+ */
+function previousReviewFor(
+  round: {
+    number: number;
+    headSha: string | null;
+    summaryMarkdown: string | null;
+    editedSummaryMarkdown: string | null;
+    sections: {
+      sectionKey: string | null;
+      label: string | null;
+      sectionType: string;
+      reportMarkdown: string | null;
+      scoreEarned: number | null;
+      scorePossible: number | null;
+      editedReportMarkdown: string | null;
+      editedScoreEarned: number | null;
+    }[];
+  },
+  callUnits: DeclaredUnit[],
+  family: SectionType[],
+): PreviousReview | null {
+  const keys = new Set(callUnits.map((unit) => unit.key));
+  const own = round.sections
+    .map(effectiveSection)
+    .filter((section) =>
+      section.sectionKey !== null
+        ? keys.has(section.sectionKey)
+        : (family as string[]).includes(section.sectionType),
+    );
+  if (own.length === 0) return null;
+
+  const keyed = own.every((section) => section.sectionKey !== null);
+  const earned = own.reduce((sum, section) => sum + (section.scoreEarned ?? 0), 0);
+  const possible = own.reduce((sum, section) => sum + (section.scorePossible ?? 0), 0);
+  const reportMarkdown = keyed
+    ? composeRound({
+        summaryMarkdown: round.editedSummaryMarkdown ?? round.summaryMarkdown ?? "",
+        sections: own.map((section) => {
+          const unit = callUnits.find((candidate) => candidate.key === section.sectionKey);
+          return {
+            label: section.label ?? unit?.label ?? section.sectionType,
+            heading: unit?.heading ?? null,
+            type: section.sectionType,
+            scoreEarned: section.scoreEarned,
+            scorePossible: section.scorePossible ?? 0,
+            feedbackMarkdown: section.reportMarkdown ?? "",
+          };
+        }),
+      })
+    : own
+        .map((section) => section.reportMarkdown?.trim())
+        .filter((text): text is string => Boolean(text))
+        .join("\n\n---\n\n");
+
+  return {
+    number: round.number,
+    headSha: round.headSha,
+    reportMarkdown,
+    scoreEarned: earned,
+    scorePossible: possible,
+    changes: null,
+  };
+}
 
 /** Returns null when the file does not exist, which is an ordinary outcome. */
 async function fetchFile(

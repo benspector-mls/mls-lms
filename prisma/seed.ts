@@ -44,7 +44,7 @@
 import { PrismaPg } from "@prisma/adapter-pg";
 import { config as loadEnv } from "dotenv";
 
-import { AssignmentKind, parseAssignmentSpec } from "../lib/assignments/spec";
+import { AssignmentKind, parseAssignmentSpec, withDerivedFields } from "../lib/assignments/spec";
 import { suggestCourseSlug } from "../lib/courses/course-slug";
 import { newJoinToken } from "../lib/courses/join-token";
 import { END_OF_DAY, instantAtSchoolClock, schoolDayOf } from "../lib/school-time";
@@ -159,7 +159,7 @@ type SeedSection = {
   rubricId?: string;
   reportTemplate?: string;
   evidence?: string;
-  testNamePattern?: string;
+  tests?: { suite: string | null; name: string }[];
 };
 
 const SEED_ASSIGNMENTS: Record<string, SeedAssignment> = {
@@ -182,7 +182,7 @@ const SEED_ASSIGNMENTS: Record<string, SeedAssignment> = {
         pointValue: 30,
         rubricId: rubricId("CODING_ALGORITHM_FLUENCY"),
         reportTemplate: "coding-fluency",
-        // The whole suite counts toward this section, so no testNamePattern.
+        // The whole suite counts toward this section, so no tests are chosen.
         evidence: "tests",
       },
     ],
@@ -700,27 +700,29 @@ async function main() {
     by `parseAssignmentSpec`, so there is no input to this script that could make the
     gradebook column disagree with the reports beneath it.
   */
-  const spec = parseAssignmentSpec({
-    kind: AssignmentKind.REPO,
-    // For repository-based assignments the title is the repository name, so that
-    // what a student sees in the LMS matches the repository they are working in.
-    // `title` stays a separate column because a Google Doc or upload assignment
-    // still needs a human-readable name and has no repository to borrow one from.
-    title: ASSIGNMENT_REPO_NAME,
-    courseUnitId: moduleIdFor(ANSWER_KEY_DIR),
-    completionThreshold: 0.75,
-    templateRepo: TEMPLATE_REPO,
-    answerKeyRepo: ANSWER_KEY_REPO,
-    answerKeyDir: keyDir,
-    assignmentRepoName: ASSIGNMENT_REPO_NAME,
-    githubOrg: GITHUB_ORG,
-    runnerPreset: SPEC.runnerPreset,
-    runnerConfig: SPEC.runnerConfig ?? null,
-    sections: SPEC.sections((name) => rubricsByName.get(name)).map((section) => ({
-      grading: "ai" as const,
-      ...section,
-    })),
-  });
+  const spec = parseAssignmentSpec(
+    withDerivedFields({
+      kind: AssignmentKind.REPO,
+      // For repository-based assignments the title is the repository name, so that
+      // what a student sees in the LMS matches the repository they are working in.
+      // `title` stays a separate column because a Google Doc or upload assignment
+      // still needs a human-readable name and has no repository to borrow one from.
+      title: ASSIGNMENT_REPO_NAME,
+      courseUnitId: moduleIdFor(ANSWER_KEY_DIR),
+      completionThreshold: 0.75,
+      templateRepo: TEMPLATE_REPO,
+      answerKeyRepo: ANSWER_KEY_REPO,
+      answerKeyDir: keyDir,
+      assignmentRepoName: ASSIGNMENT_REPO_NAME,
+      githubOrg: GITHUB_ORG,
+      runnerPreset: SPEC.runnerPreset,
+      runnerConfig: SPEC.runnerConfig ?? null,
+      sections: SPEC.sections((name) => rubricsByName.get(name)).map((section) => ({
+        grading: "ai" as const,
+        ...section,
+      })),
+    }),
+  );
 
   const assignment = await prisma.assignment.upsert({
     where: {
@@ -797,25 +799,27 @@ async function main() {
   */
   const DRIVE_ASSIGNMENT_TITLE = "Test Google Doc Assignment";
 
-  const driveSpec = parseAssignmentSpec({
-    kind: AssignmentKind.GOOGLE_DRIVE,
-    title: DRIVE_ASSIGNMENT_TITLE,
-    courseUnitId: moduleIdFor("answer-keys/mod-1-js-fundamentals"),
-    completionThreshold: 0.75,
-    /*
+  const driveSpec = parseAssignmentSpec(
+    withDerivedFields({
+      kind: AssignmentKind.GOOGLE_DRIVE,
+      title: DRIVE_ASSIGNMENT_TITLE,
+      courseUnitId: moduleIdFor("answer-keys/mod-1-js-fundamentals"),
+      completionThreshold: 0.75,
+      /*
       Through the same schema the authoring form uses, for the sake of the URL above all others:
       `GOOGLE_DRIVE_URL` is what guarantees `copyUrlFromTemplate` can turn this into a `/copy`
       link. A URL this script accepted and that pattern would not is a seeded assignment whose
       copy control sends every student to the instructor's own document to edit in place, and it
       would go wrong at the student's press rather than here.
     */
-    templateDriveUrl: DRIVE_TEMPLATE_URL,
-    dueAt: instantAtSchoolClock(
-      schoolDayOf(new Date(Date.now() + 7 * 24 * 60 * 60 * 1000)),
-      END_OF_DAY,
-    ),
-    sections: [{ grading: "manual", label: "Overall", pointValue: 10 }],
-  });
+      templateDriveUrl: DRIVE_TEMPLATE_URL,
+      dueAt: instantAtSchoolClock(
+        schoolDayOf(new Date(Date.now() + 7 * 24 * 60 * 60 * 1000)),
+        END_OF_DAY,
+      ),
+      sections: [{ grading: "manual", label: "Overall", pointValue: 10 }],
+    }),
+  );
 
   const seededDrive = await prisma.assignment.findFirst({
     where: { courseId: course.id, title: DRIVE_ASSIGNMENT_TITLE },
@@ -859,19 +863,21 @@ async function main() {
   */
   const TASK_ASSIGNMENT_TITLE = "Set up your laptop";
 
-  const taskSpec = parseAssignmentSpec({
-    kind: AssignmentKind.TASK,
-    title: TASK_ASSIGNMENT_TITLE,
-    courseUnitId: moduleIdFor("answer-keys/mod-1-js-fundamentals"),
-    dueAt: instantAtSchoolClock(
-      schoolDayOf(new Date(Date.now() + 7 * 24 * 60 * 60 * 1000)),
-      END_OF_DAY,
-    ),
-    submissionInstructions:
-      "Install Node, VS Code, and the GitHub CLI, then run `node --version` and check it " +
-      "prints 22 or later.\n\nThere is nothing to hand in — mark this done once it works.",
-    sections: [],
-  });
+  const taskSpec = parseAssignmentSpec(
+    withDerivedFields({
+      kind: AssignmentKind.TASK,
+      title: TASK_ASSIGNMENT_TITLE,
+      courseUnitId: moduleIdFor("answer-keys/mod-1-js-fundamentals"),
+      dueAt: instantAtSchoolClock(
+        schoolDayOf(new Date(Date.now() + 7 * 24 * 60 * 60 * 1000)),
+        END_OF_DAY,
+      ),
+      submissionInstructions:
+        "Install Node, VS Code, and the GitHub CLI, then run `node --version` and check it " +
+        "prints 22 or later.\n\nThere is nothing to hand in — mark this done once it works.",
+      sections: [],
+    }),
+  );
 
   const seededTask = await prisma.assignment.findFirst({
     where: { courseId: course.id, title: TASK_ASSIGNMENT_TITLE },
@@ -906,20 +912,22 @@ async function main() {
   */
   const CHECKED_TASK_TITLE = "Show your instructor your dev environment";
 
-  const checkedTaskSpec = parseAssignmentSpec({
-    kind: AssignmentKind.TASK,
-    title: CHECKED_TASK_TITLE,
-    courseUnitId: moduleIdFor("answer-keys/mod-1-js-fundamentals"),
-    dueAt: instantAtSchoolClock(
-      schoolDayOf(new Date(Date.now() + 10 * 24 * 60 * 60 * 1000)),
-      END_OF_DAY,
-    ),
-    submissionInstructions:
-      "Bring your laptop to office hours and walk your instructor through running the " +
-      "assignment tests.\n\nThey mark this one — there is nothing for you to press.",
-    sections: [],
-    studentMayMarkDone: false,
-  });
+  const checkedTaskSpec = parseAssignmentSpec(
+    withDerivedFields({
+      kind: AssignmentKind.TASK,
+      title: CHECKED_TASK_TITLE,
+      courseUnitId: moduleIdFor("answer-keys/mod-1-js-fundamentals"),
+      dueAt: instantAtSchoolClock(
+        schoolDayOf(new Date(Date.now() + 10 * 24 * 60 * 60 * 1000)),
+        END_OF_DAY,
+      ),
+      submissionInstructions:
+        "Bring your laptop to office hours and walk your instructor through running the " +
+        "assignment tests.\n\nThey mark this one — there is nothing for you to press.",
+      sections: [],
+      studentMayMarkDone: false,
+    }),
+  );
 
   const seededCheckedTask = await prisma.assignment.findFirst({
     where: { courseId: course.id, title: CHECKED_TASK_TITLE },

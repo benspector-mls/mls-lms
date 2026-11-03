@@ -59,7 +59,7 @@ describe("a task's shape", () => {
       nobody handed in and nobody can read.
     */
     const parsed = assignmentSpecSchema.safeParse(
-      task({ sections: [{ grading: "manual", label: "Overall", pointValue: 10 }] }),
+      task({ sections: [{ grading: "manual", key: "overall", label: "Overall", pointValue: 10 }] }),
     );
     expect(parsed.success).toBe(false);
   });
@@ -104,7 +104,7 @@ describe("who may mark a task done", () => {
       title: "A reflection",
       courseUnitId: UNIT,
       handInMethods: ["LINK"],
-      sections: [{ grading: "manual", label: "Overall", pointValue: 10 }],
+      sections: [{ grading: "manual", key: "overall", label: "Overall", pointValue: 10 }],
       studentMayMarkDone: true,
     });
     expect(parsed.success).toBe(false);
@@ -116,7 +116,7 @@ describe("who may mark a task done", () => {
       title: "A reflection",
       courseUnitId: UNIT,
       handInMethods: ["LINK"],
-      sections: [{ grading: "manual", label: "Overall", pointValue: 10 }],
+      sections: [{ grading: "manual", key: "overall", label: "Overall", pointValue: 10 }],
     });
     expect(parsed.studentMayMarkDone).toBeNull();
   });

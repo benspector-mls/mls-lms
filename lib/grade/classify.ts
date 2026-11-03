@@ -1,5 +1,6 @@
+import { testMatches, type DeclaredTest } from "../assignments/test-names";
 import type { NormalizedResults, NormalizedTest } from "../sandbox/parsers";
-import { isSectionType, type SectionType } from "../section-types";
+import { companionOf, isCompanion, isSectionType, type SectionType } from "../section-types";
 
 /**
  * Which gradable sections a pull request contains.
@@ -48,8 +49,8 @@ export type AssignmentSection = {
   reportTemplate?: string;
   /** Absent means no deterministic evidence constrains this section. */
   evidence?: string;
-  /** Absent with evidence "tests" means the whole suite counts toward it. */
-  testNamePattern?: string;
+  /** Absent or empty with evidence "tests" means the whole suite counts toward it. */
+  tests?: DeclaredTest[];
 };
 
 export type ClassificationResult = {
@@ -208,9 +209,20 @@ export function classifySections(params: {
     params.declaredSections.map((section) => section.type).filter(isSectionType),
   );
 
+  /*
+    A companion is present exactly when its primary is, because no file implies it on its own —
+    the writing section of a short response is written from the short response file's call. It
+    is left out of `notSubmitted` and can never be `unexpected`, since its primary speaks for
+    both: "Not submitted: short_response" already says the writing section was not either.
+  */
+  const isPresent = (type: SectionType) => {
+    const primary = companionOf(type);
+    return primary === null ? detected.has(type) : declared.has(primary) && detected.has(primary);
+  };
+
   return {
-    present: [...declared].filter((type) => detected.has(type)),
-    notSubmitted: [...declared].filter((type) => !detected.has(type)),
+    present: [...declared].filter(isPresent),
+    notSubmitted: [...declared].filter((type) => !isCompanion(type) && !isPresent(type)),
     unexpected: [...detected].filter((type) => !declared.has(type)),
     unclassified,
   };
@@ -227,6 +239,8 @@ export function classifySections(params: {
 export function belongsToSection(path: string, sectionType: SectionType): boolean {
   switch (sectionType) {
     case "short_response":
+    // Filled from the short response file's call, so it reads the same file.
+    case "short_response_writing":
       return isShortResponseFile(path);
     case "coding_sql":
       return path.endsWith(".sql");
@@ -371,8 +385,8 @@ export function summarizeExclusions(excluded: ExcludedPath[]): {
  * Four outcomes rather than "results or null", because the reasons are not equivalent
  * and collapsing them hides two faults behind one ordinary case. A frontend assignment
  * with no suite is working as intended. A section that declares `evidence: "tests"` and
- * has nothing to show is either a run that never happened or a `testNamePattern` that
- * matches none of the tests that did — and in both of those the model graded without a
+ * has nothing to show is either a run that never happened or a choice of tests that
+ * names none of the tests that did — and in both of those the model graded without a
  * constraint it was supposed to have, which an instructor needs to know.
  */
 type SectionTests =
@@ -381,7 +395,7 @@ type SectionTests =
   | { kind: "not-expected" }
   /** Tests expected, but the submission has no completed run at this commit. */
   | { kind: "run-missing" }
-  /** Tests expected and a run exists, but this section's pattern matched none of them. */
+  /** Tests expected and a run exists, but none of this section's chosen tests is among them. */
   | { kind: "pattern-matched-nothing" };
 
 export function resolveSectionTests(
@@ -391,11 +405,11 @@ export function resolveSectionTests(
   if (!hasTestEvidence(section)) return { kind: "not-expected" };
   if (allTests.length === 0) return { kind: "run-missing" };
 
-  const tests = section?.testNamePattern
-    ? allTests.filter((test) =>
-        new RegExp(section.testNamePattern!).test(`${test.suite} ${test.name}`),
-      )
-    : allTests;
+  const chosen = section?.tests ?? [];
+  const tests =
+    chosen.length > 0
+      ? allTests.filter((test) => chosen.some((choice) => testMatches(choice, test)))
+      : allTests;
 
   if (tests.length === 0) return { kind: "pattern-matched-nothing" };
 
@@ -418,14 +432,6 @@ export const TEST_EVIDENCE_FLAG: Record<SectionTests["kind"], string> = {
   "run-missing": "TEST_RUN_MISSING",
   "pattern-matched-nothing": "TEST_MATCH_MISSING",
 };
-
-/** Finds the assignment's configuration for one detected section. */
-export function findSection(
-  sections: AssignmentSection[],
-  type: SectionType,
-): AssignmentSection | undefined {
-  return sections.find((section) => section.type === type);
-}
 
 /**
  * True when a section's score is constrained by test results.

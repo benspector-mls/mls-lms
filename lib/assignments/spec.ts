@@ -1,6 +1,16 @@
 import { z } from "zod";
 
-import { isSectionType, SECTION_TYPES, type SectionType } from "../section-types";
+import type { DeclaredTest } from "./test-names";
+
+import {
+  companionOf,
+  companionsOf,
+  isCompanion,
+  isSectionType,
+  SECTION_TYPES,
+  SECTION_TYPE_REGISTRY,
+  type SectionType,
+} from "../section-types";
 import { AssignmentKind, HandInMethod } from "../generated/prisma/enums";
 import { resolveRunner, UnknownRunnerPresetError } from "../sandbox/presets";
 import { UPLOAD_FILE_TYPE_KEYS, type UploadFileTypeKey } from "../uploads/file-types";
@@ -278,28 +288,89 @@ export function repositorySource(assignment: {
 const pointValue = z.number().int().positive();
 
 /**
+ * What every section has, however it is graded: a key, a label, a point value, and the skill it
+ * is evidence of.
+ *
+ * **A section is one scored unit** — a question of a short response, an exercise of a coding
+ * assignment, a criterion of a rubric — and the same shape whether the model or an instructor
+ * scores it. `key` is what a grading round's section remembers, so renaming a label or
+ * re-tagging a section never orphans a round already graded; the form writes one when the
+ * section is created and nothing shows it. `heading` is the rubric or README heading the section
+ * sits under, for the report and the editor to group by. `skillId` names the skill the score
+ * counts toward on the Skills tabs, which is a reading of the grade rather than a way of
+ * producing it; absent means the score counts toward nothing there.
+ */
+const sectionCore = {
+  key: z
+    .string()
+    .min(1)
+    .max(40)
+    .regex(/^[a-z0-9][a-z0-9-]*$/, "a key is lowercase letters, digits and hyphens"),
+  label: z.string().min(1).max(160),
+  heading: z.string().min(1).max(160).optional(),
+  pointValue,
+  skillId: z.string().uuid().optional(),
+};
+
+/**
+ * A key for a section the form is creating: eight hexadecimal characters from four random bytes,
+ * which is enough that two sections of one assignment never collide and short enough to read in
+ * a database row. `getRandomValues` rather than `randomUUID`, because a browser offers
+ * `randomUUID` only on a secure origin, and the form runs this on open.
+ */
+export function newSectionKey(): string {
+  const bytes = crypto.getRandomValues(new Uint8Array(4));
+  return Array.from(bytes, (byte) => byte.toString(16).padStart(2, "0")).join("");
+}
+
+/**
+ * A label as two sections are compared by it, with case and spacing set aside. The one rule the
+ * form's re-proposal and both conversion scripts use to decide that two labels name one section.
+ */
+export function normalizedLabel(label: string): string {
+  return label.trim().toLowerCase().replace(/\s+/g, " ");
+}
+
+/**
+ * One test a section chose from the template's suite: the suite the run reports it under, or
+ * null where the file names its describe block with an expression, and its name. See
+ * `lib/assignments/test-names.ts` for how these are read and matched.
+ */
+const declaredTestSchema = z
+  .object({ suite: z.string().nullable(), name: z.string().min(1) })
+  .strict();
+
+/**
  * A section the pipeline grades: a rubric, answer keys, and optionally test evidence.
+ *
+ * `type` is the instrument — which rubric and which model call fill it — and several sections
+ * share one: a four-question short response is four `short_response` sections and one
+ * `short_response_writing` section, and one call fills all five. `tests` names the tests that
+ * count toward this section alone, chosen from the template's suite.
  */
 const aiSectionSchema = z
   .object({
     grading: z.literal("ai"),
+    ...sectionCore,
     type: z.enum(SECTION_TYPES),
-    pointValue,
     rubricId: z.string().uuid(),
     reportTemplate: z.string().min(1).optional(),
     /** Absent means no deterministic evidence constrains this section. */
     evidence: z.literal("tests").optional(),
-    /** Absent with `evidence: "tests"` means the whole suite counts toward it. */
-    testNamePattern: z.string().min(1).optional(),
+    /** Absent or empty with `evidence: "tests"` means the whole suite counts toward it. */
+    tests: z.array(declaredTestSchema).optional(),
   })
   .strict()
-  .refine((section) => !(section.testNamePattern && section.evidence !== "tests"), {
-    message:
-      'testNamePattern only has an effect with evidence: "tests". Without it the pattern ' +
-      "is silently ignored and the section is graded with no test evidence at all, which " +
-      "is the opposite of what naming a pattern means.",
-    path: ["testNamePattern"],
-  });
+  .refine(
+    (section) => !(section.tests && section.tests.length > 0 && section.evidence !== "tests"),
+    {
+      message:
+        'tests only have an effect with evidence: "tests". Without it the list is silently ' +
+        "ignored and the section is graded with no test evidence at all, which is the opposite " +
+        "of what choosing tests means.",
+      path: ["tests"],
+    },
+  );
 
 /**
  * A section an instructor grades by hand.
@@ -308,16 +379,11 @@ const aiSectionSchema = z
  * reflection submitted as a Google Doc or a resume uploaded as a PDF has nothing the
  * pipeline can read and no `rubric.md` heading that describes it. Rather than let one be
  * created with a rubric that would never be applied, the shape refuses to hold one.
- *
- * `label` exists because `type` does not. An AI-graded section is named by its type in
- * the interface; a manual section needs something to call itself, and "Section 1" is
- * worse than what the instructor would have written.
  */
 const manualSectionSchema = z
   .object({
     grading: z.literal("manual"),
-    label: z.string().min(1).max(120),
-    pointValue,
+    ...sectionCore,
   })
   .strict();
 
@@ -344,15 +410,74 @@ const sectionsSchema = z
   .min(1, "an assignment needs at least one gradable section")
   .superRefine((sections, ctx) => {
     const modes = new Set(sections.map((section) => section.grading));
-    if (modes.size <= 1) return;
+    if (modes.size > 1) {
+      ctx.addIssue({
+        code: "custom",
+        path: [],
+        message:
+          "Every section of an assignment has to be graded the same way. This one mixes " +
+          "sections the pipeline grades with sections graded by hand, which no assignment " +
+          "does — split it into two assignments instead.",
+      });
+      return;
+    }
 
-    ctx.addIssue({
-      code: "custom",
-      path: [],
-      message:
-        "Every section of an assignment has to be graded the same way. This one mixes " +
-        "sections the pipeline grades with sections graded by hand, which no assignment " +
-        "does — split it into two assignments instead.",
+    /*
+      Keys are what a grading round's sections are matched to the declaration by, so two
+      sections sharing one would leave a round unable to say which it scored.
+    */
+    const seen = new Set<string>();
+    sections.forEach((section, index) => {
+      if (seen.has(section.key)) {
+        ctx.addIssue({
+          code: "custom",
+          path: [index, "key"],
+          message: `Two sections share the key "${section.key}".`,
+        });
+      }
+      seen.add(section.key);
+    });
+
+    /*
+      A companion type is filled from its primary's model call. A short response's questions are
+      `short_response` sections and the one writing score for the whole submission is a
+      `short_response_writing` section: declared without its questions it has no call to be
+      filled from, and questions declared without it would be graded with the writing score
+      folded back into them. One writing section, because the rubric scores writing once for the
+      whole submission. The form keeps the pair itself, so this is reached only by a hand-written
+      spec.
+    */
+    const types = sections.flatMap((section) => (section.grading === "ai" ? [section.type] : []));
+    sections.forEach((section, index) => {
+      if (section.grading !== "ai") return;
+      const primary = companionOf(section.type);
+      if (primary !== null && !types.includes(primary)) {
+        ctx.addIssue({
+          code: "custom",
+          path: [index, "type"],
+          message:
+            `A ${SECTION_TYPE_REGISTRY[section.type].label} section is filled from the ` +
+            `${SECTION_TYPE_REGISTRY[primary].label} sections' report, so it cannot stand alone.`,
+        });
+      }
+      if (primary !== null && types.indexOf(section.type) !== types.lastIndexOf(section.type)) {
+        ctx.addIssue({
+          code: "custom",
+          path: [index, "type"],
+          message: `An assignment has one ${SECTION_TYPE_REGISTRY[section.type].label} section.`,
+        });
+      }
+      for (const companion of companionsOf(section.type)) {
+        if (!types.includes(companion)) {
+          ctx.addIssue({
+            code: "custom",
+            path: [index, "type"],
+            message:
+              `${SECTION_TYPE_REGISTRY[section.type].label} sections need one ` +
+              `${SECTION_TYPE_REGISTRY[companion].label} section beside them.`,
+          });
+        }
+      }
     });
   });
 
@@ -413,12 +538,60 @@ export function isManualOnly(sections: unknown): boolean {
  * section scored out of an invented total is the failure the whole "`pointValue` is required and
  * never defaulted" rule exists to prevent, and skipping it is visible where a zero would not be.
  */
-export function blankSections(sections: unknown): { label: string; pointValue: number }[] {
+export type DeclaredUnit = {
+  /** The declared `key`, or for a section saved before keys its label or type. */
+  key: string;
+  label: string;
+  heading: string | null;
+  /** The instrument for a section the model grades, or `manual`. */
+  type: string;
+  pointValue: number;
+  skillId: string | null;
+  /** The tests that count toward this section alone; empty means the whole suite does. */
+  tests: DeclaredTest[];
+  hasTestEvidence: boolean;
+};
+
+/**
+ * Every section of a stored `sections` column as one scored unit, in declared order.
+ *
+ * The one reading of the column that every round-shaped reader shares: the blank round a hand
+ * grade opens, the sections the pipeline fills, the order a round's sections are read in, and
+ * the skill each counts toward. A section saved before sections had keys is keyed by its label
+ * (hand-graded) or its type (model-graded), which is what a round written then stored as its
+ * `sectionType`, so such a round still matches its declaration.
+ *
+ * Reads the key, the label and the point value and nothing else a blank section needs. A row
+ * missing a point value is skipped rather than defaulted — a section scored out of an invented
+ * total is the failure the whole "`pointValue` is required and never defaulted" rule exists to
+ * prevent, and skipping it is visible where a zero would not be.
+ */
+export function declaredUnits(sections: unknown): DeclaredUnit[] {
   return readSections(sections).flatMap((entry) => {
-    const key = entry.grading === "manual" ? entry.label : entry.type;
+    const manual = entry.grading === "manual";
+    const legacyKey = manual ? entry.label : entry.type;
+    const key = typeof entry.key === "string" && entry.key !== "" ? entry.key : legacyKey;
     if (typeof key !== "string" || key.length === 0) return [];
     if (typeof entry.pointValue !== "number" || !Number.isFinite(entry.pointValue)) return [];
-    return [{ label: key, pointValue: entry.pointValue }];
+    const type = manual ? "manual" : typeof entry.type === "string" ? entry.type : "manual";
+    const label =
+      typeof entry.label === "string" && entry.label !== ""
+        ? entry.label
+        : isSectionType(type)
+          ? SECTION_TYPE_REGISTRY[type].label
+          : key;
+    return [
+      {
+        key,
+        label,
+        heading: typeof entry.heading === "string" && entry.heading !== "" ? entry.heading : null,
+        type,
+        pointValue: entry.pointValue,
+        skillId: typeof entry.skillId === "string" && entry.skillId !== "" ? entry.skillId : null,
+        tests: readDeclaredTests(entry.tests),
+        hasTestEvidence: entry.evidence === "tests",
+      },
+    ];
   });
 }
 
@@ -467,16 +640,13 @@ export function readSections(sections: unknown): Record<string, unknown>[] {
  * after the round was graded) sorts after every match, keeping its fetched position: the
  * sort is stable, which is why callers give it a deterministically ordered fetch.
  */
-export function inDeclaredOrder<T extends { sectionType: string }>(
+export function inDeclaredOrder<T extends { sectionType: string; sectionKey?: string | null }>(
   declared: unknown,
   rows: T[],
 ): T[] {
-  const order = readSections(declared).flatMap((entry) => {
-    const key = entry.grading === "manual" ? entry.label : entry.type;
-    return typeof key === "string" ? [key] : [];
-  });
+  const order = declaredUnits(declared).map((unit) => unit.key);
   const rank = (row: T) => {
-    const index = order.indexOf(row.sectionType);
+    const index = order.indexOf(row.sectionKey ?? row.sectionType);
     return index === -1 ? order.length : index;
   };
   return [...rows].sort((a, b) => rank(a) - rank(b));
@@ -496,6 +666,8 @@ export function inDeclaredOrder<T extends { sectionType: string }>(
  */
 export function derivesTestEvidence(sectionType: SectionType, runnerPreset: string): boolean {
   if (sectionType === "short_response") return false;
+  // A companion has no call of its own, so there is nothing for test results to constrain.
+  if (isCompanion(sectionType)) return false;
   return runnerPreset !== "none";
 }
 
@@ -517,7 +689,22 @@ export function withDerivedFields(draft: unknown): unknown {
     ...record,
     sections: record.sections.map((section) => {
       if (!section || typeof section !== "object") return section;
-      const entry = section as Record<string, unknown>;
+      const entry = { ...(section as Record<string, unknown>) };
+
+      /*
+        A key and a label for a section saved before sections had them: an assignment copied
+        from one authored then, or one saved from a tab on the previous release. The key is
+        generated once here and stored with the save, which is the same thing the form does
+        when it creates a section.
+      */
+      if (typeof entry.key !== "string" || entry.key === "") entry.key = newSectionKey();
+      if (typeof entry.label !== "string" || entry.label === "") {
+        entry.label =
+          typeof entry.type === "string" && isSectionType(entry.type)
+            ? SECTION_TYPE_REGISTRY[entry.type].label
+            : "Section";
+      }
+
       if (entry.grading !== "ai") return entry;
 
       const type = entry.type;
@@ -525,10 +712,13 @@ export function withDerivedFields(draft: unknown): unknown {
 
       const evidence = derivesTestEvidence(type, runnerPreset) ? "tests" : undefined;
       const next: Record<string, unknown> = { ...entry, evidence };
-      // A pattern with no evidence declaration is refused by the schema, and rightly — it
-      // reads as though the tests were consulted when they were not. Cleared with it rather
-      // than left to produce a validation error the author cannot act on.
-      if (!evidence) delete next.testNamePattern;
+      // Chosen tests with no evidence declaration are refused by the schema, and rightly —
+      // they read as though the tests were consulted when they were not. Cleared with it
+      // rather than left to produce a validation error the author cannot act on.
+      if (!evidence) delete next.tests;
+      // The regular expression sections carried before they chose tests by name. Nothing reads
+      // it; `convert:sections` resolves it to names, and a save before that drops it.
+      delete next.testNamePattern;
       if (next.evidence === undefined) delete next.evidence;
       return next;
     }),
@@ -1001,4 +1191,25 @@ export type AssignmentSpec = z.infer<typeof assignmentSpecSchema>;
 export function parseAssignmentSpec(input: unknown): AssignmentSpec & { pointValue: number } {
   const spec = assignmentSpecSchema.parse(input);
   return { ...spec, pointValue: assignmentPointValue(spec) };
+}
+
+/** A section's chosen tests as stored, narrowed from JSON; anything else reads as none. */
+export function readDeclaredTests(value: unknown): DeclaredTest[] {
+  if (!Array.isArray(value)) return [];
+  return value.flatMap((entry) => {
+    if (typeof entry !== "object" || entry === null) return [];
+    const test = entry as Record<string, unknown>;
+    if (typeof test.name !== "string" || test.name === "") return [];
+    return [{ suite: typeof test.suite === "string" ? test.suite : null, name: test.name }];
+  });
+}
+
+/**
+ * Whether a stored declaration is from before sections were scored units: any section without a
+ * key. Nothing writes against such a declaration — no report is generated, no hand grade opened,
+ * no edit saved — because every round written under it would carry a key no later declaration
+ * holds. `convert:sections` is the one path from here to the current shape.
+ */
+export function hasUnconvertedSections(sections: unknown): boolean {
+  return readSections(sections).some((entry) => typeof entry.key !== "string" || entry.key === "");
 }

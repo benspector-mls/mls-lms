@@ -29,7 +29,13 @@ import {
 import type { BatchState } from "@/hooks/use-batch-generate";
 import { useReleaseGrade } from "@/hooks/use-release-grade";
 import { CATEGORY_META, type CourseUnitCategory } from "@/lib/course-units";
-import { courseHref, gradingQueueHref, programStudentHref, studentHref } from "@/lib/links";
+import {
+  courseHref,
+  gradingQueueHref,
+  isReviewTab,
+  programStudentHref,
+  studentHref,
+} from "@/lib/links";
 import { displayNameOf } from "@/lib/people";
 import { initials } from "@/lib/people";
 import { draftStatusAddsSomething } from "@/lib/status";
@@ -60,6 +66,9 @@ export function StudentOverview({ data, now }: { data: Data; now: Date }) {
   const router = useRouter();
   const searchParams = useSearchParams();
   const selectedId = searchParams.get("submission");
+  // A link may name the tab to open on, as the record's skill history does with the feedback.
+  const tabParam = searchParams.get("tab");
+  const initialTab = isReviewTab(tabParam) ? tabParam : undefined;
   const grading = useGradingMode();
 
   /*
@@ -463,6 +472,7 @@ export function StudentOverview({ data, now }: { data: Data; now: Date }) {
                 release={releasing.release}
                 releasing={releasing.inFlight.has(selected.submission.id)}
                 split={grading.on}
+                initialTab={initialTab}
               />
             ) : (
               /*

@@ -415,7 +415,7 @@ describe("copying a course", () => {
         completionThreshold: 0.75,
         dueAt: new Date("2026-10-01T00:00:00Z"),
         distributedAt: new Date("2026-01-02T09:00:00Z"),
-        sections: [{ grading: "manual", label: "Overall", pointValue: 10 }],
+        sections: [{ grading: "manual", key: "overall", label: "Overall", pointValue: 10 }],
         templateRepo: "marcy-lab-school/verify-enrollment-template",
         answerKeyRepo: "marcy-lab-school/verify-enrollment-answer-keys",
         answerKeyDir: "solutions",

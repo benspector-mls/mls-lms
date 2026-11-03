@@ -9,6 +9,7 @@ import type { CohortChoice } from "@/lib/programs/cohorts";
 const TAB_LABEL: Record<FellowsTab, string> = {
   roster: "Roster",
   performance: "Performance",
+  skills: "Skills",
   coaching: "Coaching",
   trends: "Trends",
 };

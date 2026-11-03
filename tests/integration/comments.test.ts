@@ -1201,7 +1201,7 @@ describe("accepting work a comment already made a row for", () => {
         pointValue: 10,
         templateDriveUrl: "https://docs.google.com/document/d/abc123/edit",
         distributedAt: new Date("2026-09-01T09:00:00Z"),
-        sections: [{ grading: "manual", label: "Deliverable", pointValue: 10 }],
+        sections: [{ grading: "manual", key: "deliverable", label: "Deliverable", pointValue: 10 }],
       },
       select: { id: true },
     });

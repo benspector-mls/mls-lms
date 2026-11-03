@@ -1,7 +1,7 @@
 import {
   derivesTestEvidence,
   inDeclaredOrder,
-  blankSections,
+  declaredUnits,
   isManualOnly,
   sectionGradingModes,
 } from "@/lib/assignments/spec";
@@ -20,6 +20,48 @@ import {
 
 const ai = { grading: "ai", type: "coding_algorithm", pointValue: 30 };
 const manual = { grading: "manual", label: "Reflection", pointValue: 10 };
+
+describe("a short response's two sections", () => {
+  const split = [
+    { grading: "ai", type: "short_response", pointValue: 12 },
+    { grading: "ai", type: "short_response_writing", pointValue: 3 },
+  ];
+
+  // Hand grading opens one box per declared section, so a short response graded by hand gets
+  // a technical box and a writing box rather than one score for both.
+  it("open as two boxes for hand grading", () => {
+    expect(declaredUnits(split).map((s) => [s.key, s.label, s.pointValue])).toEqual([
+      ["short_response", "Short Response", 12],
+      ["short_response_writing", "Writing Quality", 3],
+    ]);
+  });
+
+  it("read in declared order, writing after technical", () => {
+    const rows = [{ sectionType: "short_response_writing" }, { sectionType: "short_response" }];
+    expect(inDeclaredOrder(split, rows).map((row) => row.sectionType)).toEqual([
+      "short_response",
+      "short_response_writing",
+    ]);
+  });
+
+  it("read in declared order by key when the round carries keys", () => {
+    const keyed = [
+      { grading: "ai", key: "q1", label: "Question 1", type: "short_response", pointValue: 3 },
+      { grading: "ai", key: "q2", label: "Question 2", type: "short_response", pointValue: 3 },
+      { grading: "ai", key: "w", label: "Writing", type: "short_response_writing", pointValue: 3 },
+    ];
+    const rows = [
+      { sectionKey: "w", sectionType: "short_response_writing" },
+      { sectionKey: "q2", sectionType: "short_response" },
+      { sectionKey: "q1", sectionType: "short_response" },
+    ];
+    expect(inDeclaredOrder(keyed, rows).map((row) => row.sectionKey)).toEqual(["q1", "q2", "w"]);
+  });
+
+  it("never derive test evidence", () => {
+    expect(derivesTestEvidence("short_response_writing", "jest")).toBe(false);
+  });
+});
 
 describe("sectionGradingModes", () => {
   it("reads each section's mode", () => {
@@ -81,31 +123,78 @@ describe("isManualOnly", () => {
   });
 });
 
-describe("blankSections", () => {
-  it("reads a manual section's label and point value", () => {
-    expect(blankSections([manual])).toEqual([{ label: "Reflection", pointValue: 10 }]);
+describe("declaredUnits", () => {
+  const unit = (over: Record<string, unknown>) => ({
+    heading: null,
+    skillId: null,
+    tests: [],
+    hasTestEvidence: false,
+    ...over,
   });
 
-  it("keys an AI section by its type, which is what a generated round stores", () => {
-    /*
-      An instructor may write the report on an assignment the pipeline grades. The blank round's
-      sections have to carry the same key a generated one does, or `inDeclaredOrder` would sort
-      them last and `sectionLabel` would have nothing it recognises to put into words.
-    */
-    expect(blankSections([ai])).toEqual([{ label: "coding_algorithm", pointValue: 30 }]);
-  });
-
-  it("keys an entry with no grading mode by its type, because that counts as ai", () => {
-    expect(blankSections([{ type: "coding_algorithm", pointValue: 30 }])).toEqual([
-      { label: "coding_algorithm", pointValue: 30 },
+  it("reads a manual section's key, label and point value", () => {
+    expect(declaredUnits([{ ...manual, key: "r1" }])).toEqual([
+      unit({ key: "r1", label: "Reflection", type: "manual", pointValue: 10 }),
     ]);
   });
 
+  it("reads an AI section's type, heading, skill and chosen tests beside the core", () => {
+    expect(
+      declaredUnits([
+        {
+          ...ai,
+          key: "q1",
+          label: "Question 1: is_even",
+          heading: "From Scratch",
+          skillId: "skill-1",
+          evidence: "tests",
+          tests: [{ suite: null, name: "is_even" }],
+        },
+      ]),
+    ).toEqual([
+      {
+        key: "q1",
+        label: "Question 1: is_even",
+        heading: "From Scratch",
+        type: "coding_algorithm",
+        pointValue: 30,
+        skillId: "skill-1",
+        tests: [{ suite: null, name: "is_even" }],
+        hasTestEvidence: true,
+      },
+    ]);
+  });
+
+  /*
+    A section saved before sections had keys is keyed by what a round written then stored as its
+    `sectionType`: the declared label of a hand-graded section, the type of a generated one. That
+    is what lets such a round still match its declaration.
+  */
+  it("keys a section saved before keys by its label or its type, and labels a type in words", () => {
+    expect(declaredUnits([manual])).toEqual([
+      unit({ key: "Reflection", label: "Reflection", type: "manual", pointValue: 10 }),
+    ]);
+    expect(declaredUnits([ai])).toEqual([
+      unit({
+        key: "coding_algorithm",
+        label: "Algorithm Fluency",
+        type: "coding_algorithm",
+        pointValue: 30,
+      }),
+    ]);
+  });
+
+  it("keys an entry with no grading mode by its type, because that counts as ai", () => {
+    expect(declaredUnits([{ type: "coding_algorithm", pointValue: 30 }]).map((s) => s.key)).toEqual(
+      ["coding_algorithm"],
+    );
+  });
+
   it("keeps the declared order", () => {
-    const technical = { grading: "ai", type: "technical", pointValue: 20 };
-    expect(blankSections([ai, technical]).map((section) => section.label)).toEqual([
+    const technical = { grading: "ai", key: "t", type: "technical", pointValue: 20 };
+    expect(declaredUnits([ai, technical]).map((section) => section.key)).toEqual([
       "coding_algorithm",
-      "technical",
+      "t",
     ]);
   });
 
@@ -115,25 +204,25 @@ describe("blankSections", () => {
       never defaulted" rule exists to prevent. Skipping is visible where a zero would not be:
       `startManual` refuses to open a draft with no sections.
     */
-    expect(blankSections([{ grading: "manual", label: "Reflection" }])).toEqual([]);
-    expect(blankSections([{ grading: "ai", type: "coding_algorithm" }])).toEqual([]);
+    expect(declaredUnits([{ grading: "manual", label: "Reflection" }])).toEqual([]);
+    expect(declaredUnits([{ grading: "ai", type: "coding_algorithm" }])).toEqual([]);
   });
 
   it("skips a section with no key", () => {
-    expect(blankSections([{ grading: "manual", pointValue: 10 }])).toEqual([]);
-    expect(blankSections([{ grading: "manual", label: "", pointValue: 10 }])).toEqual([]);
-    expect(blankSections([{ grading: "ai", pointValue: 30 }])).toEqual([]);
+    expect(declaredUnits([{ grading: "manual", pointValue: 10 }])).toEqual([]);
+    expect(declaredUnits([{ grading: "manual", label: "", pointValue: 10 }])).toEqual([]);
+    expect(declaredUnits([{ grading: "ai", pointValue: 30 }])).toEqual([]);
   });
 
   it("skips a point value that is not a finite number", () => {
     for (const pointValue of ["10", NaN, Infinity, null]) {
-      expect(blankSections([{ grading: "manual", label: "Reflection", pointValue }])).toEqual([]);
+      expect(declaredUnits([{ grading: "manual", label: "Reflection", pointValue }])).toEqual([]);
     }
   });
 
   it("is empty for a column that is not an array", () => {
-    expect(blankSections(null)).toEqual([]);
-    expect(blankSections("Reflection")).toEqual([]);
+    expect(declaredUnits(null)).toEqual([]);
+    expect(declaredUnits("Reflection")).toEqual([]);
   });
 });
 

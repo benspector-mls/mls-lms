@@ -91,18 +91,18 @@ export function myGoalsHref(programId: string): string {
  * The tabs of the Fellows screen, in the order they are offered. Each is an address: the roster is
  * the bare `fellows` address, and the rest sit one segment beneath it.
  */
-export const FELLOWS_TABS = ["roster", "performance", "coaching", "trends"] as const;
+export const FELLOWS_TABS = ["roster", "performance", "skills", "coaching", "trends"] as const;
 export type FellowsTab = (typeof FELLOWS_TABS)[number];
 
 /**
  * The Fellows screen: everybody on the program's roster, and the readings of them.
  *
- * **One screen with four tabs, because the two jobs an instructor comes here for both begin from
+ * **One screen with five tabs, because the two jobs an instructor comes here for both begin from
  * the same list.** Finding one fellow by name to open their record starts from the roster; the
- * cohort meeting reads the Performance and Coaching tabs of the same people. The roster is the
- * tab the bare address lands on, because it is also where a program's name leads from everywhere
- * else, and the other three are one segment deeper so a link, a bookmark and the back button can
- * each name a tab.
+ * cohort meeting reads the Performance, Skills and Coaching tabs of the same people. The roster
+ * is the tab the bare address lands on, because it is also where a program's name leads from
+ * everywhere else, and the other four are one segment deeper so a link, a bookmark and the back
+ * button can each name a tab.
  *
  * **The roster is the program's, and this is the duplication it removed.** One roster where there
  * used to be one per course, entered once instead of once per course of a term.
@@ -121,7 +121,7 @@ export function programSettingsHref(programId: string): string {
  * The tabs of a fellow's record, in the order they are offered. They are the Fellows screen's tabs
  * less the roster, because the record is one row of it. Performance is the bare record address.
  */
-export const RECORD_TABS = ["performance", "coaching", "trends"] as const;
+export const RECORD_TABS = ["performance", "skills", "coaching", "trends"] as const;
 export type RecordTab = (typeof RECORD_TABS)[number];
 
 /**
@@ -197,6 +197,15 @@ export function coachingFormHref(templateId: string): string {
  */
 export function competenciesHref(): string {
   return "/admin/competencies";
+}
+
+/**
+ * The skills list, which admins write and the Skills tabs of every program read. Under `/admin`
+ * for the reason the competency list is: one list for the application, with each skill saying
+ * which disciplines it is offered to.
+ */
+export function skillsAdminHref(): string {
+  return "/admin/skills";
 }
 
 // ---------------------------------------------------------------------------------------------
@@ -295,9 +304,30 @@ export function courseSettingsHref(courseId: string): string {
  * wrong half the time. `programStudentHref` above is the screen about the person rather than the
  * work, and it links here once per course.
  */
-export function studentHref(courseId: string, studentId: string, submissionId?: string): string {
+export function studentHref(
+  courseId: string,
+  studentId: string,
+  submissionId?: string,
+  tab?: ReviewTab,
+): string {
   const base = `/instructor/courses/${courseId}/students/${studentId}`;
-  return submissionId ? `${base}?submission=${submissionId}` : base;
+  if (!submissionId) return base;
+  return tab
+    ? `${base}?submission=${submissionId}&tab=${tab}`
+    : `${base}?submission=${submissionId}`;
+}
+
+/**
+ * The review pane's tabs, as a link may name one to open on.
+ *
+ * Outside grading mode the pane opens on the work, so a link that means "read the feedback" has to
+ * say so; the fellow's record links its skill history here with `report`.
+ */
+export const REVIEW_TABS = ["work", "report", "conversation", "history"] as const;
+export type ReviewTab = (typeof REVIEW_TABS)[number];
+
+export function isReviewTab(value: string | null): value is ReviewTab {
+  return value !== null && (REVIEW_TABS as readonly string[]).includes(value);
 }
 
 /**

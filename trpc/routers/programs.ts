@@ -12,6 +12,8 @@ import { allUnits, cellsFor, groupByUnit, published, workOf } from "@/lib/gradeb
 import { recentWorkByStudent, type RecentWork } from "@/lib/gradebook/summary";
 import { parseRecentWindow } from "@/lib/recent-window";
 import { cohortSelectionInput, parseCohortSelection } from "@/lib/programs/cohorts";
+import { skillFigures, skillHistory } from "@/lib/skills";
+import { loadSkillEvidence } from "@/lib/skills/evidence";
 import {
   gradedCompletionByStudent,
   onTimeByStudent,
@@ -29,7 +31,7 @@ import {
 import { defaultEndsAt, isUnsettled } from "@/lib/attendance/window";
 import { UNIT_CATEGORIES } from "@/lib/course-units";
 import { newJoinToken } from "@/lib/courses/join-token";
-import type { CourseUnitCategory } from "@/lib/generated/prisma/enums";
+import type { CourseUnitCategory, Discipline } from "@/lib/generated/prisma/enums";
 import { displayNameSchema } from "@/lib/people";
 import { assertOwnsProgram, ownerOf } from "@/lib/programs/ownership";
 import {
@@ -737,6 +739,110 @@ export const programsRouter = createTRPCRouter({
             courses: readingsByStudent.get(studentId)!,
           };
         }),
+      };
+    }),
+
+  /**
+   * Every real fellow on the roster, with their term's figure for each skill.
+   *
+   * **The Skills tab of the Fellows screen.** Points earned over points possible on every approved
+   * section that counts toward each skill, so far this term — read from the drafts at request time
+   * by `loadSkillEvidence` and summed by `skillFigures` in lib/skills.ts, so a corrected grade is
+   * read correctly and a renamed skill renames its column. No window, no bars, no groups: the tab
+   * renders the figures and nothing judges them.
+   *
+   * The same roster as `performance`: active, real fellows, narrowed by the cohort picker. The
+   * skills are the ones this program's discipline is offered, in the list's order.
+   */
+  skills: programProcedure
+    .input(z.object({ cohort: cohortSelectionInput }))
+    .query(async ({ ctx, input }) => {
+      const programId = input.programId;
+
+      const [program, enrollments] = await Promise.all([
+        ctx.db.program.findUniqueOrThrow({
+          where: { id: programId },
+          select: { discipline: true },
+        }),
+        ctx.db.enrollment.findMany({
+          where: {
+            ...enrollmentsIn(programId, parseCohortSelection(input.cohort)),
+            status: "ACTIVE",
+            student: { testStudentNumber: null },
+          },
+          select: { id: true, cohortId: true, student: { select: personSelect } },
+        }),
+      ]);
+
+      const studentIds = enrollments.map((enrollment) => enrollment.student.id);
+      const [groups, evidence] = await Promise.all([
+        loadTaxonomy(ctx.db, program.discipline),
+        loadSkillEvidence(ctx.db, { programId, studentIds }),
+      ]);
+      const skills = groups.flatMap((group) => group.skills);
+      // Grouped once, since a term's evidence is read for every fellow of the roster.
+      const byStudent = new Map<string, typeof evidence>();
+      for (const item of evidence) {
+        const own = byStudent.get(item.studentId);
+        if (own) own.push(item);
+        else byStudent.set(item.studentId, [item]);
+      }
+
+      return {
+        /** This program's taxonomy: the groups in order, each holding its skills in order. */
+        groups,
+        fellows: enrollments.map((enrollment) => {
+          const own = byStudent.get(enrollment.student.id) ?? [];
+          return {
+            enrollmentId: enrollment.id,
+            cohortId: enrollment.cohortId,
+            student: enrollment.student,
+            /** Keyed by skill id, one entry for every skill in `groups`. */
+            figures: Object.fromEntries(skillFigures(own, skills)),
+          };
+        }),
+      };
+    }),
+
+  /**
+   * One fellow's figure for each skill, and every section behind those figures in date order.
+   *
+   * **The Skills tab of the fellow's record.** The figures are what `skills` above computes for a
+   * roster, for one person; the history is the reading of development a single figure hides —
+   * each contributing assignment under the skill it counted toward, oldest due date first.
+   *
+   * Its own procedure rather than a field on `student`, because that payload feeds every tab of
+   * the record and the coaching session form, and skills are read on one tab.
+   */
+  studentSkills: programProcedure
+    .input(z.object({ studentId: z.string().uuid() }))
+    .query(async ({ ctx, input }) => {
+      const enrollment = await ctx.db.enrollment.findUnique({
+        where: {
+          programId_studentId: { programId: input.programId, studentId: input.studentId },
+        },
+        select: { id: true, program: { select: { discipline: true } } },
+      });
+      if (!enrollment) {
+        throw new TRPCError({
+          code: "NOT_FOUND",
+          message: "That person is not on this program's roster.",
+        });
+      }
+
+      const [groups, evidence] = await Promise.all([
+        loadTaxonomy(ctx.db, enrollment.program.discipline),
+        loadSkillEvidence(ctx.db, {
+          programId: input.programId,
+          studentIds: [input.studentId],
+        }),
+      ]);
+      const skills = groups.flatMap((group) => group.skills);
+
+      return {
+        groups,
+        figures: Object.fromEntries(skillFigures(evidence, skills)),
+        history: skillHistory(evidence, skills),
       };
     }),
 
@@ -1855,6 +1961,25 @@ export const programsRouter = createTRPCRouter({
  * reversible, so somebody who meant "take this off my list" gets exactly that before reaching
  * anything that cannot be undone.
  */
+/**
+ * A discipline's taxonomy as the Skills tabs read it: the groups in order, each holding its skills
+ * in order. A discipline with no taxonomy reads as no groups, and the tabs say so.
+ */
+function loadTaxonomy(db: Tx, discipline: Discipline) {
+  return db.skillGroup.findMany({
+    where: { taxonomy: { discipline } },
+    orderBy: { position: "asc" },
+    select: {
+      id: true,
+      name: true,
+      skills: {
+        orderBy: { position: "asc" },
+        select: { id: true, canonicalId: true, name: true, definition: true },
+      },
+    },
+  });
+}
+
 async function assertArchivedAndOwned(ctx: AuthedCtx, programId: string, action: string) {
   const program = await ctx.db.program.findUnique({
     where: { id: programId },

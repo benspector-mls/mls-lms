@@ -1948,8 +1948,25 @@ model GradingDraft {
   /// through earlier rounds of feedback, which is the point of grading a resubmission
   /// rather than overwriting the first attempt.
   postedPrCommentId BigInt?            @map("posted_pr_comment_id")
-  createdAt         DateTime           @default(now()) @map("created_at") @db.Timestamptz(6)
-  updatedAt         DateTime           @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  /// The opening of the round's report, which the student reads before the first scored section:
+  /// the overall assessment, with no score of its own. Written by the model or typed by the
+  /// instructor; `editedSummaryMarkdown` is the instructor's revision of a model's, kept beside
+  /// it for the reason the sections keep both versions. Null on a round written before the summary
+  /// belonged to the round, whose sections then carry their own.
+  summaryMarkdown       String?     @map("summary_markdown")
+  editedSummaryMarkdown String?     @map("edited_summary_markdown")
+  /// What the model told the instructor about the whole round, never the student: short flag
+  /// codes, caveats in prose, how sure it was, and the "you pushed to a branch that is not
+  /// `draft`" note. One set per round, since one run grades the round; the cross-check's own
+  /// codes and the test-evidence code are added to `flags`.
+  flags                 String[]    @default([])
+  instructorNotes       String[]    @default([]) @map("instructor_notes")
+  confidence            Confidence?
+  submissionProcessNote String?     @map("submission_process_note")
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
 
   submission Submission            @relation(fields: [submissionId], references: [id], onDelete: Cascade)
   approvedBy Profile?              @relation("ApprovedDrafts", fields: [approvedById], references: [id], onDelete: SetNull)
@@ -1965,16 +1982,41 @@ model GradingDraft {
   @@schema("public")
 }
 
-/// Child rows of a GradingDraft — one submission can have more than one graded
-/// section per run. The submission's final score on approval is the sum of a
-/// run's section scores; the review interface renders each section separately.
+/// Child rows of a GradingDraft: one scored unit each, matching one section the assignment
+/// declares. The submission's final score on approval is the sum of a round's section scores;
+/// the review screen draws each section with its score and its feedback, under the round's
+/// summary.
 model GradingDraftSection {
-  id                    String      @id @default(uuid()) @db.Uuid
-  gradingDraftId        String      @map("grading_draft_id") @db.Uuid
-  sectionType           String      @map("section_type")
-  reportMarkdown        String?     @map("report_markdown")
-  scoreEarned           Float?      @map("score_earned")
-  scorePossible         Float?      @map("score_possible")
+  id             String  @id @default(uuid()) @db.Uuid
+  gradingDraftId String  @map("grading_draft_id") @db.Uuid
+  /// The `key` of the declared section this scores, copied at grading time so the round still
+  /// reads correctly after the assignment is edited, and the join the Skills tabs make to find
+  /// the skill the section is tagged with. Null on a section written before sections had keys,
+  /// which is matched by `sectionType` instead.
+  sectionKey     String? @map("section_key")
+  /// The declared section's label as it stood when the round was graded: "Question 1: is_even".
+  label          String?
+  /// The heading the declared section sat under when the round was created, so the comment and
+  /// the review screen group it the same way after the declaration is edited or loses the key.
+  heading        String?
+  /// The skill the declared section was tagged with when the round was created: what this score
+  /// is evidence of, read by the Skills tabs. Copied rather than looked up so a round outlives
+  /// the key it was graded under; re-tagging a section offers to rewrite it on every round
+  /// carrying the same key. Null where the section was untagged.
+  skillId        String? @map("skill_id") @db.Uuid
+  skill          Skill?  @relation(fields: [skillId], references: [id], onDelete: Restrict)
+  /// The instrument that filled this section — a type from lib/section-types.ts — or `manual`
+  /// for a section an instructor scored. On a section written before keys it holds the type for
+  /// a generated section and the declared label for a hand-graded one.
+  sectionType    String  @map("section_type")
+  /// What the student reads for this section: its feedback, as markdown bullets. The round's
+  /// comment is composed from the summary and every section's label, score and feedback.
+  reportMarkdown String? @map("report_markdown")
+  scoreEarned    Float?  @map("score_earned")
+  scorePossible  Float?  @map("score_possible")
+  /// Why the model gave this score, for the instructor. Shown beside the feedback on the review
+  /// screen and never posted. Null when there is nothing to explain, and on a hand grade.
+  modelReasoning String? @map("model_reasoning")
   /// One entry per scored row: its label, its score, the feedback the student reads beneath it,
   /// and the model's reasoning for the instructor. A model-generated report is assembled from
   /// these and `summaryMarkdown` (`composeReport` in lib/grade/report-text.ts), and the result is
@@ -2020,6 +2062,7 @@ model GradingDraftSection {
   gradingDraft GradingDraft @relation(fields: [gradingDraftId], references: [id], onDelete: Cascade)
   editedBy     Profile?     @relation("EditedSections", fields: [editedById], references: [id], onDelete: SetNull)
 
+  @@index([skillId])
   @@map("grading_draft_sections")
   @@schema("public")
 }
@@ -2850,6 +2893,101 @@ model CompetencyEntry {
 
   @@index([competencyId, position])
   @@map("competency_entries")
+  @@schema("public")
+}
+
+// ---------------------------------------------------------------------------
+// Skills: one taxonomy per discipline, groups under it, skills under the groups.
+//
+// What a graded section is evidence of. Every section of an assignment names one skill by id in
+// `assignments.sections`, and the Skills tabs read a fellow's figures from the approved rounds at
+// request time (`lib/skills.ts`); nothing here holds evidence. Admins write the three levels on
+// the Skills screen. The seed is the taxonomy documents in the curriculum repository
+// (`skills-taxonomy-swe.csv`, `skills-taxonomy-da.csv`), and `canonicalId` is the identifier a
+// skill carries there.
+// ---------------------------------------------------------------------------
+
+/// One discipline's list of graded skills. Groups are its columns on the Fellows Skills tab;
+/// skills are what a section is tagged with. One taxonomy per discipline, so a program's taxonomy
+/// is found from its discipline alone. A skill belongs to one taxonomy and never to two: the two
+/// fellowships keep separate rows even where a skill is called the same thing in both.
+model SkillTaxonomy {
+  id String @id @default(uuid()) @db.Uuid
+
+  discipline Discipline @unique
+
+  name String
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  groups SkillGroup[]
+  skills Skill[]
+
+  @@map("skill_taxonomies")
+  @@schema("public")
+}
+
+/// A heading over skills: Technical Reasoning, Implementation, Professional. A group is never
+/// tagged; it is how the skills are read together on the Fellows Skills tab.
+model SkillGroup {
+  id         String @id @default(uuid()) @db.Uuid
+  taxonomyId String @map("taxonomy_id") @db.Uuid
+
+  name String
+
+  /// Where the group sits in its taxonomy, which is the order of the Fellows tab's columns.
+  position Int
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  taxonomy SkillTaxonomy @relation(fields: [taxonomyId], references: [id], onDelete: Restrict)
+  skills   Skill[]
+
+  @@unique([taxonomyId, name])
+  @@index([taxonomyId, position])
+  @@map("skill_groups")
+  @@schema("public")
+}
+
+/// One graded skill: what a section of an assignment is tagged with.
+model Skill {
+  id String @id @default(uuid()) @db.Uuid
+
+  /// Its group's taxonomy, repeated here so that `canonicalId` is unique within a taxonomy by
+  /// index and a picker reads one taxonomy's skills in one query. The router checks on save that
+  /// the group belongs to this taxonomy.
+  taxonomyId String @map("taxonomy_id") @db.Uuid
+  groupId    String @map("group_id") @db.Uuid
+
+  /// The identifier from the taxonomy document: `python-programming`, `reading-a-traceback`.
+  /// Unique within its taxonomy and allowed to repeat across taxonomies, since the two
+  /// fellowships keep separate rows for a skill they both teach.
+  canonicalId String @map("canonical_id")
+
+  name String
+
+  /// What the skill is, in one or two sentences: the definition the taxonomy document gives it.
+  definition String
+
+  /// Where the skill sits in its group.
+  position Int
+
+  /// The round sections graded as evidence of this skill. A skill with any cannot be deleted.
+  roundSections GradingDraftSection[]
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  /// `Restrict` on both: a group is emptied before it is removed, as a competency group is, and
+  /// a taxonomy is never removed while it has skills.
+  taxonomy SkillTaxonomy @relation(fields: [taxonomyId], references: [id], onDelete: Restrict)
+  group    SkillGroup    @relation(fields: [groupId], references: [id], onDelete: Restrict)
+
+  @@unique([taxonomyId, canonicalId])
+  @@index([groupId, position])
+  @@map("skills")
   @@schema("public")
 }
 

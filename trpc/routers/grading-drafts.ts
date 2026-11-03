@@ -1,7 +1,12 @@
 import { TRPCError } from "@trpc/server";
 import { z } from "zod";
 
-import { blankSections, inDeclaredOrder, isManualOnly } from "@/lib/assignments/spec";
+import {
+  declaredUnits,
+  hasUnconvertedSections,
+  inDeclaredOrder,
+  isManualOnly,
+} from "@/lib/assignments/spec";
 import {
   assertWithinRate,
   DRAFT_GENERATION_LIMIT,
@@ -21,7 +26,6 @@ import { inTransaction } from "@/lib/prisma";
 import { GradingAssetsError } from "@/lib/grade/assets";
 import { generateReportForSubmission, ReportGenerationError } from "@/lib/grade/generate-report";
 import { ProviderError } from "@/lib/grade/provider";
-import { composeReport, readReportRows, rowTotals } from "@/lib/grade/report-text";
 import { ReportValidationError } from "@/lib/grade/schema";
 import { createTRPCRouter, instructorProcedure } from "../init";
 
@@ -61,16 +65,28 @@ const draftFields = {
   // "who told the student this", which is the question a released round prompts.
   approvedBy: { select: { displayName: true } },
   postedPrCommentId: true,
+  // The round's own summary and what the run told the instructor about the whole round. Null
+  // and empty on a round written before these belonged to the round, whose sections carry them.
+  summaryMarkdown: true,
+  editedSummaryMarkdown: true,
+  flags: true,
+  instructorNotes: true,
+  confidence: true,
+  submissionProcessNote: true,
   sections: {
     orderBy: sectionFetchOrder,
     select: {
       id: true,
+      sectionKey: true,
+      label: true,
+      heading: true,
       sectionType: true,
       reportMarkdown: true,
       scoreEarned: true,
       scorePossible: true,
-      rubricItems: true,
-      summaryMarkdown: true,
+      modelReasoning: true,
+      // What a section written before sections were scored units carries of its own: its flags
+      // and notes, which the review screen shows beside such a section.
       flags: true,
       instructorNotes: true,
       confidence: true,
@@ -79,8 +95,6 @@ const draftFields = {
       // has to be able to say what the model wrote and offer a way back to it.
       editedReportMarkdown: true,
       editedScoreEarned: true,
-      editedRubricItems: true,
-      editedSummaryMarkdown: true,
       editedAt: true,
     },
   },
@@ -96,7 +110,7 @@ const draftFields = {
  */
 const openedManualDraft = {
   id: true,
-  sections: { select: { id: true, sectionType: true } },
+  sections: { select: { id: true, sectionKey: true, sectionType: true } },
 } as const;
 
 /**
@@ -239,7 +253,14 @@ export const gradingDraftsRouter = createTRPCRouter({
 
       refuseIfMirror(submission, "graded");
 
-      const sections = blankSections(submission.assignment.sections);
+      if (hasUnconvertedSections(submission.assignment.sections)) {
+        throw new TRPCError({
+          code: "PRECONDITION_FAILED",
+          message:
+            "This assignment's sections have not been converted to scored units yet. Run convert:sections, then try again.",
+        });
+      }
+      const sections = declaredUnits(submission.assignment.sections);
 
       if (sections.length === 0) {
         throw new TRPCError({
@@ -315,11 +336,16 @@ export const gradingDraftsRouter = createTRPCRouter({
           // Null is what marks this as hand-written rather than generated. The review screen
           // reads it to decide whether to show what a model claimed.
           modelMetadata: undefined,
+          // Empty rather than null: the summary belongs to the round, and the instructor
+          // writes it in the box the review screen draws above the sections.
+          summaryMarkdown: "",
           sections: {
             create: sections.map((section) => ({
-              // The instructor's own label, which is what a manual section has instead of a
-              // type. It is what the review screen and the feedback history call it.
-              sectionType: section.label,
+              sectionKey: section.key,
+              label: section.label,
+              heading: section.heading,
+              skillId: section.skillId,
+              sectionType: section.type,
               reportMarkdown: null,
               scoreEarned: null,
               scorePossible: section.pointValue,
@@ -390,10 +416,16 @@ export const gradingDraftsRouter = createTRPCRouter({
         where: { submissionId: submission.id, status: "APPROVED" },
         orderBy: { approvedAt: "desc" },
         select: {
+          summaryMarkdown: true,
+          editedSummaryMarkdown: true,
           sections: {
             // Deterministic, so the corrected round reads in the order the released one did.
             orderBy: [{ createdAt: "asc" }, { id: "asc" }],
             select: {
+              sectionKey: true,
+              label: true,
+              heading: true,
+              skillId: true,
               sectionType: true,
               reportMarkdown: true,
               scoreEarned: true,
@@ -426,6 +458,8 @@ export const gradingDraftsRouter = createTRPCRouter({
           status: "READY",
           // Null marks this as written by a person rather than a model — see the note above.
           modelMetadata: undefined,
+          // The summary as the student read it, which the correction opens holding.
+          summaryMarkdown: released.editedSummaryMarkdown ?? released.summaryMarkdown,
           sections: {
             create: released.sections.map((section) => {
               // The instructor's edit where they made one, the model's output where they did not.
@@ -434,6 +468,10 @@ export const gradingDraftsRouter = createTRPCRouter({
               const sent = effectiveSection(section);
 
               return {
+                sectionKey: sent.sectionKey,
+                label: sent.label,
+                heading: section.heading,
+                skillId: section.skillId,
                 sectionType: sent.sectionType,
                 reportMarkdown: sent.reportMarkdown,
                 scoreEarned: sent.scoreEarned,
@@ -479,10 +517,16 @@ export const gradingDraftsRouter = createTRPCRouter({
           approvedAt: true,
           headSha: true,
           modelMetadata: true,
+          summaryMarkdown: true,
+          editedSummaryMarkdown: true,
           sections: {
             // Deterministic, so the new round's rows are written in the order the old one's were.
             orderBy: [{ createdAt: "asc" }, { id: "asc" }],
             select: {
+              sectionKey: true,
+              label: true,
+              heading: true,
+              skillId: true,
               sectionType: true,
               reportMarkdown: true,
               scoreEarned: true,
@@ -560,11 +604,16 @@ export const gradingDraftsRouter = createTRPCRouter({
             status: "READY",
             // Null, because a person wrote this — the same marker every hand-written round carries.
             modelMetadata: undefined,
+            summaryMarkdown: draft.editedSummaryMarkdown ?? draft.summaryMarkdown,
             sections: {
               create: draft.sections.map((section) => {
                 const sent = effectiveSection(section);
 
                 return {
+                  sectionKey: sent.sectionKey,
+                  label: sent.label,
+                  heading: section.heading,
+                  skillId: section.skillId,
                   sectionType: sent.sectionType,
                   reportMarkdown: sent.reportMarkdown,
                   scoreEarned: sent.scoreEarned,
@@ -688,7 +737,7 @@ export const gradingDraftsRouter = createTRPCRouter({
       // triage asks to decide the bucket and the two must not disagree — one saying there is
       // a report to generate while the other says the work is waiting on a person.
       const manualOnly = isManualOnly(submission.assignment.sections);
-      const handSections = blankSections(submission.assignment.sections);
+      const handSections = declaredUnits(submission.assignment.sections);
 
       const graded = await ctx.db.submission.findUnique({
         where: { id: input.submissionId },
@@ -727,8 +776,7 @@ export const gradingDraftsRouter = createTRPCRouter({
         canGradeByHand: handSections.length > 0,
         /**
          * The sections a person scores when writing the report themselves: the key each is
-         * stored under and what it is out of. See `blankSections` for why an AI section's key is
-         * its type.
+         * stored under, what it is called, and what it is out of.
          *
          * Sent so the review screen can draw the form before any round exists. Grading by hand
          * means typing into boxes, and the boxes are the assignment's own sections — reading them
@@ -810,7 +858,7 @@ export const gradingDraftsRouter = createTRPCRouter({
     }),
 
   /**
-   * Revises one section of a draft before it is approved.
+   * Revises one section of a draft before it is approved: its score, its feedback, or both.
    *
    * The edit is stored beside the model's output rather than over it. Overwriting would
    * destroy the only record of what the model actually produced, and that record is
@@ -818,43 +866,42 @@ export const gradingDraftsRouter = createTRPCRouter({
    *
    * Passing null for a field discards the edit and restores the model's version, which
    * is why the inputs are nullable rather than optional.
-   *
-   * **A model-generated report is edited as parts.** Its summary and the score and feedback of
-   * each row arrive in `parts`, and this assembles the text and adds up the score — so the
-   * per-question score an instructor types is the only number they change, and the title and
-   * the gradebook follow it. `reportMarkdown` and `scoreEarned` are for a section written as one
-   * block of text: a hand grade, a correction, or a report generated before reports had rows.
    */
   updateSection: instructorProcedure
     .input(
       z.object({
         sectionId: z.string().uuid(),
-        reportMarkdown: z.string().trim().min(1).nullable(),
+        /**
+         * The feedback as the instructor left it. Null withdraws the edit and restores the
+         * model's text; an empty string is an edit that removes the feedback, which a section
+         * at full marks often has none of.
+         */
+        reportMarkdown: z.string().trim().nullable(),
         scoreEarned: z.number().min(0).nullable(),
-        /*
-          Optional rather than only nullable, so a tab still running the previous release —
-          which sends no `parts` at all — can still discard its edits during a deploy.
-        */
-        parts: z
-          .object({
-            summaryMarkdown: z.string(),
-            rows: z.array(
-              z.object({ scoreEarned: z.number().min(0), feedbackMarkdown: z.string() }),
-            ),
-          })
-          .nullable()
-          .optional(),
+        /**
+         * The row-by-row edit a tab loaded before sections were scored units still sends.
+         * Declared so it is not stripped: unknown keys are dropped in parsing, and an old
+         * tab's edit would then read as a request to discard the stored edit.
+         */
+        parts: z.unknown().optional(),
       }),
     )
     .mutation(async ({ ctx, input }) => {
+      if (input.parts !== undefined) {
+        throw new TRPCError({
+          code: "PRECONDITION_FAILED",
+          message:
+            "This page is from before an update and its edit cannot be saved as it is. " +
+            "Reload the page and make the change again.",
+        });
+      }
       const section = await ctx.db.gradingDraftSection.findUnique({
         where: { id: input.sectionId },
         select: {
           id: true,
+          label: true,
           sectionType: true,
           scorePossible: true,
-          summaryMarkdown: true,
-          rubricItems: true,
           gradingDraft: { select: { submissionId: true, approvedAt: true } },
         },
       });
@@ -874,66 +921,6 @@ export const gradingDraftsRouter = createTRPCRouter({
         });
       }
 
-      const assembled = section.summaryMarkdown !== null;
-      const discarding =
-        !input.parts && input.reportMarkdown === null && input.scoreEarned === null;
-
-      /*
-        Text written whole onto a report assembled from rows would leave the rows saying one thing
-        and the posted comment another, and the next edit to a row would silently overwrite it. The
-        one way that happens is a tab loaded before this release, so the refusal says to reload.
-      */
-      if (assembled && !input.parts && !discarding) {
-        throw new TRPCError({
-          code: "BAD_REQUEST",
-          message:
-            "This report is now edited question by question. Reload the page and make the " +
-            "change again — nothing you typed in this tab has been saved to this section.",
-        });
-      }
-
-      if (input.parts) {
-        const rows = readReportRows(section.rubricItems);
-        if (!assembled || input.parts.rows.length !== rows.length) {
-          throw new TRPCError({
-            code: "BAD_REQUEST",
-            message:
-              "These rows do not match the report being edited. Reload the page to see the " +
-              "current version.",
-          });
-        }
-
-        const edited = rows.map((row, index) => ({
-          ...row,
-          scoreEarned: input.parts!.rows[index].scoreEarned,
-          feedbackMarkdown: input.parts!.rows[index].feedbackMarkdown,
-        }));
-        const over = edited.find((row) => (row.scoreEarned ?? 0) > row.scorePossible);
-        if (over) {
-          throw new TRPCError({
-            code: "BAD_REQUEST",
-            message: `"${over.label}" is out of ${over.scorePossible} points.`,
-          });
-        }
-
-        return ctx.db.gradingDraftSection.update({
-          where: { id: section.id },
-          data: {
-            editedRubricItems: edited,
-            editedSummaryMarkdown: input.parts.summaryMarkdown,
-            editedReportMarkdown: composeReport({
-              sectionType: section.sectionType,
-              summaryMarkdown: input.parts.summaryMarkdown,
-              rows: edited,
-            }),
-            editedScoreEarned: rowTotals(edited).earned,
-            editedAt: new Date(),
-            editedById: ctx.profile.id,
-          },
-          select: { id: true, editedAt: true },
-        });
-      }
-
       if (
         input.scoreEarned !== null &&
         section.scorePossible !== null &&
@@ -941,24 +928,60 @@ export const gradingDraftsRouter = createTRPCRouter({
       ) {
         throw new TRPCError({
           code: "BAD_REQUEST",
-          message: `This section is out of ${section.scorePossible} points.`,
+          message: `"${section.label ?? section.sectionType}" is out of ${section.scorePossible} points.`,
         });
       }
 
+      const discarding = input.reportMarkdown === null && input.scoreEarned === null;
       return ctx.db.gradingDraftSection.update({
         where: { id: section.id },
         data: {
           editedReportMarkdown: input.reportMarkdown,
           editedScoreEarned: input.scoreEarned,
-          // Discarding an edit to a report assembled from rows discards its rows as well.
-          ...(discarding ? { editedRubricItems: Prisma.DbNull, editedSummaryMarkdown: null } : {}),
           // Cleared alongside the edit, so a section restored to the model's version
           // does not keep claiming it was revised.
-          editedAt: input.reportMarkdown === null && input.scoreEarned === null ? null : new Date(),
-          editedById:
-            input.reportMarkdown === null && input.scoreEarned === null ? null : ctx.profile.id,
+          editedAt: discarding ? null : new Date(),
+          editedById: discarding ? null : ctx.profile.id,
         },
         select: { id: true, editedAt: true },
+      });
+    }),
+
+  /**
+   * Revises a round's summary before it is approved. Null discards the edit and restores the
+   * model's summary, as `updateSection` does for a section.
+   */
+  updateSummary: instructorProcedure
+    .input(z.object({ draftId: z.string().uuid(), summaryMarkdown: z.string().nullable() }))
+    .mutation(async ({ ctx, input }) => {
+      const draft = await ctx.db.gradingDraft.findUnique({
+        where: { id: input.draftId },
+        select: { id: true, submissionId: true, approvedAt: true, summaryMarkdown: true },
+      });
+      if (!draft) throw new TRPCError({ code: "NOT_FOUND", message: "Draft not found." });
+
+      await teachableSubmission(ctx, draft.submissionId, { id: true });
+
+      if (draft.approvedAt !== null) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message:
+            "This draft has already been sent to the student. Open a correction to revise it.",
+        });
+      }
+      if (draft.summaryMarkdown === null) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message:
+            "This round was written before rounds had a summary of their own, so its sections " +
+            "carry the text. Edit them instead.",
+        });
+      }
+
+      return ctx.db.gradingDraft.update({
+        where: { id: draft.id },
+        data: { editedSummaryMarkdown: input.summaryMarkdown },
+        select: { id: true },
       });
     }),
 

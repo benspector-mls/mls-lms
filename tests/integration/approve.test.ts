@@ -39,7 +39,6 @@
  */
 import { db } from "@/lib/prisma";
 import { approveDraft, ApprovalError } from "@/lib/grade/approve";
-import { composeReport } from "@/lib/grade/report-text";
 import { claimRun, CLAIM_EXPIRY_MS, ReportGenerationError } from "@/lib/grade/generate-report";
 import {
   DRAFT_GENERATION_LIMIT,
@@ -82,6 +81,9 @@ async function refusal(work: () => Promise<unknown>): Promise<string> {
 
 /** A commit, long enough to be sliced for a message the way a real one is. */
 const HEAD_SHA = "1111111111111111111111111111111111111111";
+
+/** A rubric id for a section declaration; nothing here reads the rubric itself. */
+const RUBRIC = "3f2504e0-4f89-11d3-9a0c-0305e82c3301";
 
 describe("a draft that has already been released", () => {
   const tx = withRollback();
@@ -239,31 +241,11 @@ describe("a report whose text contradicts the recorded score", () => {
  * single block of text made them edit by hand — and forgetting one was how a report came to state
  * a different score than the gradebook.
  */
-describe("a model-generated report edited question by question", () => {
+describe("a round edited section by section", () => {
   const tx = withRollback();
   let world: World;
+  let draftId: string;
   let sectionId: string;
-
-  const rows = [
-    {
-      label: "Question 1: Scope",
-      group: null,
-      criterion: "technical",
-      scoreEarned: 2,
-      scorePossible: 3,
-      feedbackMarkdown: "- Accuracy: block scope is never named.",
-      modelReasoning: "Correct example, missing term.",
-    },
-    {
-      label: "Writing Quality Score (Entire Assignment)",
-      group: null,
-      criterion: "writing_quality",
-      scoreEarned: 3,
-      scorePossible: 3,
-      feedbackMarkdown: "- Praise: clear throughout.",
-      modelReasoning: null,
-    },
-  ];
 
   beforeAll(async () => {
     world = await makeWorld(tx());
@@ -271,6 +253,24 @@ describe("a model-generated report edited question by question", () => {
       courseId: world.courseId,
       courseUnitId: world.unitId,
       pointValue: 6,
+      sections: [
+        {
+          grading: "ai",
+          key: "q1",
+          label: "Question 1: Scope",
+          type: "short_response",
+          pointValue: 3,
+          rubricId: RUBRIC,
+        },
+        {
+          grading: "ai",
+          key: "writing",
+          label: "Writing Quality",
+          type: "short_response_writing",
+          pointValue: 3,
+          rubricId: RUBRIC,
+        },
+      ],
     });
     const submission = await makeSubmission(tx(), {
       assignmentId: assignment.id,
@@ -281,116 +281,143 @@ describe("a model-generated report edited question by question", () => {
       data: {
         submissionId: submission.id,
         status: "READY",
+        summaryMarkdown: "Nice work on this.",
         sections: {
           create: [
             {
+              sectionKey: "q1",
+              label: "Question 1: Scope",
               sectionType: "short_response",
-              summaryMarkdown: "Nice work on this.",
-              rubricItems: rows,
-              reportMarkdown: composeReport({
-                sectionType: "short_response",
-                summaryMarkdown: "Nice work on this.",
-                rows,
-              }),
-              scoreEarned: 5,
-              scorePossible: 6,
+              reportMarkdown: "- Accuracy: block scope is never named.",
+              scoreEarned: 2,
+              scorePossible: 3,
+              modelReasoning: "Correct example, missing term.",
+            },
+            {
+              sectionKey: "writing",
+              label: "Writing Quality",
+              sectionType: "short_response_writing",
+              reportMarkdown: "- Praise: clear throughout.",
+              scoreEarned: 3,
+              scorePossible: 3,
             },
           ],
         },
       },
-      select: { sections: { select: { id: true } } },
+      select: { id: true, sections: { where: { sectionKey: "q1" }, select: { id: true } } },
     });
+    draftId = draft.id;
     sectionId = draft.sections[0]!.id;
   });
 
-  it("moves the title's total and the recorded score with one question's score", async () => {
+  it("stores a section's edited score and feedback beside the model's", async () => {
     await createCaller(tx(), world.instructorId).gradingDrafts.updateSection({
       sectionId,
-      reportMarkdown: null,
-      scoreEarned: null,
-      parts: {
-        summaryMarkdown: "Nice work on this.",
-        rows: [
-          { scoreEarned: 3, feedbackMarkdown: "- Praise: you name block scope." },
-          { scoreEarned: 3, feedbackMarkdown: "- Praise: clear throughout." },
-        ],
-      },
+      reportMarkdown: "- Praise: you name block scope.",
+      scoreEarned: 3,
     });
 
     const saved = await tx().gradingDraftSection.findUniqueOrThrow({
       where: { id: sectionId },
-      select: { editedReportMarkdown: true, editedScoreEarned: true, editedRubricItems: true },
+      select: {
+        reportMarkdown: true,
+        scoreEarned: true,
+        editedReportMarkdown: true,
+        editedScoreEarned: true,
+        modelReasoning: true,
+      },
     });
-    expect(saved.editedScoreEarned).toBe(6);
-    expect(saved.editedReportMarkdown).toMatch(/^# Short Response Score Report: 6\/6 = 100%/);
-    expect(saved.editedReportMarkdown).toContain(
-      "## Question 1: Scope: 3/3\n\n- Praise: you name block scope.",
-    );
-    // The model's reasoning is kept on the edited rows, so the review screen still shows it.
-    expect(saved.editedRubricItems).toEqual([
-      { ...rows[0], scoreEarned: 3, feedbackMarkdown: "- Praise: you name block scope." },
-      rows[1],
-    ]);
+    expect(saved).toEqual({
+      reportMarkdown: "- Accuracy: block scope is never named.",
+      scoreEarned: 2,
+      editedReportMarkdown: "- Praise: you name block scope.",
+      editedScoreEarned: 3,
+      // The model's reasoning is kept, so the review screen still shows it.
+      modelReasoning: "Correct example, missing term.",
+    });
   });
 
-  it("refuses a question scored above its own maximum", async () => {
+  it("refuses a section scored above its own points", async () => {
     expect(
       await refusal(() =>
         createCaller(tx(), world.instructorId).gradingDrafts.updateSection({
           sectionId,
           reportMarkdown: null,
-          scoreEarned: null,
-          parts: {
-            summaryMarkdown: "",
-            rows: [
-              { scoreEarned: 4, feedbackMarkdown: "" },
-              { scoreEarned: 0, feedbackMarkdown: "" },
-            ],
-          },
+          scoreEarned: 4,
         }),
       ),
     ).toBe("BAD_REQUEST");
   });
 
-  /*
-    A tab loaded before this release sends the whole text and a section score. Accepting it would
-    leave the rows saying one thing and the posted comment another.
-  */
-  it("refuses text written whole, as a tab from the previous release would send", async () => {
+  it("stores an edited summary beside the model's, and null restores it", async () => {
+    const caller = createCaller(tx(), world.instructorId);
+    await caller.gradingDrafts.updateSummary({ draftId, summaryMarkdown: "Good work on this." });
     expect(
-      await refusal(() =>
-        createCaller(tx(), world.instructorId).gradingDrafts.updateSection({
-          sectionId,
-          reportMarkdown: "# Short Response Score Report\n\nRewritten.",
-          scoreEarned: 5,
-        }),
-      ),
-    ).toBe("BAD_REQUEST");
+      await tx().gradingDraft.findUniqueOrThrow({
+        where: { id: draftId },
+        select: { summaryMarkdown: true, editedSummaryMarkdown: true },
+      }),
+    ).toEqual({
+      summaryMarkdown: "Nice work on this.",
+      editedSummaryMarkdown: "Good work on this.",
+    });
+
+    await caller.gradingDrafts.updateSummary({ draftId, summaryMarkdown: null });
+    expect(
+      (
+        await tx().gradingDraft.findUniqueOrThrow({
+          where: { id: draftId },
+          select: { editedSummaryMarkdown: true },
+        })
+      ).editedSummaryMarkdown,
+    ).toBeNull();
   });
 
-  it("discarding the edit discards the edited rows as well", async () => {
+  it("discarding a section's edit restores the model's version", async () => {
     await createCaller(tx(), world.instructorId).gradingDrafts.updateSection({
       sectionId,
       reportMarkdown: null,
       scoreEarned: null,
-      parts: null,
     });
 
     const restored = await tx().gradingDraftSection.findUniqueOrThrow({
       where: { id: sectionId },
-      select: {
-        editedReportMarkdown: true,
-        editedScoreEarned: true,
-        editedRubricItems: true,
-        editedSummaryMarkdown: true,
-      },
+      select: { editedReportMarkdown: true, editedScoreEarned: true, editedAt: true },
     });
     expect(restored).toEqual({
       editedReportMarkdown: null,
       editedScoreEarned: null,
-      editedRubricItems: null,
-      editedSummaryMarkdown: null,
+      editedAt: null,
     });
+  });
+
+  it("releases the round as one document composed from the summary and the sections", async () => {
+    const released = await createCaller(tx(), world.instructorId).gradingDrafts.approve({
+      draftId,
+    });
+    expect([released.finalScore, released.finalScorePossible]).toEqual([5, 6]);
+
+    const submission = await tx().submission.findUniqueOrThrow({
+      where: { id: released.submissionId },
+      select: { feedbackMarkdown: true },
+    });
+    expect(submission.feedbackMarkdown).toBe(
+      [
+        "# Short Response Score Report: 5/6 = 83%",
+        "",
+        "Nice work on this.",
+        "",
+        "---",
+        "",
+        "## Question 1: Scope: 2/3",
+        "",
+        "- Accuracy: block scope is never named.",
+        "",
+        "## Writing Quality: 3/3",
+        "",
+        "- Praise: clear throughout.",
+      ].join("\n"),
+    );
   });
 });
 
@@ -444,7 +471,7 @@ describe("a hand-graded assignment, from authoring to a released grade", () => {
           dueAt: null,
           templateDriveUrl: "https://docs.google.com/document/d/1AbC_dEF-123/view",
           submissionInstructions: "Take a copy, write your reflection, submit the link.",
-          sections: [{ grading: "manual", label: "Reflection", pointValue: 20 }],
+          sections: [{ grading: "manual", key: "s1", label: "Reflection", pointValue: 20 }],
         },
       });
       assignmentId = created.assignment.id;
@@ -540,15 +567,18 @@ describe("a hand-graded assignment, from authoring to a released grade", () => {
       expect(againId).toBe(openedDraftId);
     });
 
-    it("the draft has one blank section per declared section", () => {
+    it("the draft has one blank section per declared section, keyed and labelled", () => {
       expect(
         blank.sections.map((section) => [
+          section.sectionKey,
+          section.label,
           section.sectionType,
           section.scoreEarned,
           section.scorePossible,
           section.reportMarkdown,
         ]),
-      ).toEqual([["Reflection", null, 20, null]]);
+      ).toEqual([["s1", "Reflection", "manual", null, 20, null]]);
+      expect(blank.summaryMarkdown).toBe("");
     });
 
     it("and no model wrote it", () => {
@@ -671,11 +701,12 @@ describe("a hand-graded assignment, from authoring to a released grade", () => {
     it("it opens holding the score that was sent, so one number is one edit", () => {
       expect(
         prefilled.sections.map((section) => [
-          section.sectionType,
+          section.sectionKey,
+          section.label,
           section.scoreEarned,
           section.scorePossible,
         ]),
-      ).toEqual([["Reflection", 17, 20]]);
+      ).toEqual([["s1", "Reflection", 17, 20]]);
     });
 
     it("...and the text, rather than making the instructor retype the report", () => {
@@ -695,31 +726,38 @@ describe("a hand-graded assignment, from authoring to a released grade", () => {
     });
 
     /*
-      Changing the score alone leaves the copied report still stating the old one, and that is the
-      one edit that must not go out — so the guard that catches it has to catch it here too, on text
-      this procedure wrote rather than a model.
+      The score an instructor types on the section is the only number they change: the comment's
+      heading for the section and the title's total are composed from it on release, so a changed
+      score cannot leave the text stating the old one.
     */
-    it("correcting the score and not the report is refused", async () => {
-      await asInstructor().gradingDrafts.updateSection({
-        sectionId: correctionSectionId,
-        reportMarkdown: null,
-        scoreEarned: 19,
-      });
-
+    it("refuses an edit shaped for the previous release rather than reading it as a discard", async () => {
       await expect(
-        asInstructor().gradingDrafts.approve({ draftId: correctionDraftId }),
-      ).rejects.toThrow(/says 17\/20 but the score being recorded is 19/);
+        asInstructor().gradingDrafts.updateSection({
+          sectionId: correctionSectionId,
+          reportMarkdown: null,
+          scoreEarned: null,
+          parts: { summaryMarkdown: "", rows: [] },
+        }),
+      ).rejects.toThrow(/Reload the page/);
     });
 
-    it("releasing the correction records the new score", async () => {
+    it("releasing the correction records the new score, and composes the comment from it", async () => {
       await asInstructor().gradingDrafts.updateSection({
         sectionId: correctionSectionId,
-        reportMarkdown: "## Reflection Score: 19/20 = 95%\n\nBetter than I first credited.",
+        reportMarkdown: "Better than I first credited.",
         scoreEarned: 19,
       });
 
       const corrected = await asInstructor().gradingDrafts.approve({ draftId: correctionDraftId });
       expect(corrected.finalScore).toBe(19);
+      const released = await tx().submission.findUniqueOrThrow({
+        where: { id: submissionId },
+        select: { feedbackMarkdown: true },
+      });
+      expect(released.feedbackMarkdown).toContain("# Score Report: 19/20 = 95%");
+      expect(released.feedbackMarkdown).toContain(
+        "## Reflection: 19/20\n\nBetter than I first credited.",
+      );
     });
 
     it("both rounds are on record rather than one being rewritten", async () => {
@@ -1032,7 +1070,12 @@ describe("a round whose sections are stored in one order and declared in another
   const REORDERED = [TASKS[2]!, TASKS[3]!, TASKS[0]!, TASKS[1]!];
 
   const declare = (labels: string[]) =>
-    labels.map((label) => ({ grading: "manual", label, pointValue: 1 }));
+    labels.map((label) => ({
+      grading: "manual",
+      key: label.toLowerCase().replace(/[^a-z0-9]+/g, "-"),
+      label,
+      pointValue: 1,
+    }));
 
   let world: World;
   const asInstructor = () => createCaller(tx(), world.instructorId);
@@ -1041,7 +1084,7 @@ describe("a round whose sections are stored in one order and declared in another
   let submissionId: string;
   let draftId: string;
   /** The sections as the round was opened, which is also the order its rows were written in. */
-  let opened: string[];
+  let opened: (string | null)[];
 
   beforeAll(async () => {
     world = await makeWorld(tx());
@@ -1061,7 +1104,7 @@ describe("a round whose sections are stored in one order and declared in another
 
     draftId = (await asInstructor().gradingDrafts.startManual({ submissionId })).id;
     opened = (await asInstructor().gradingDrafts.get({ draftId })).sections.map(
-      (section) => section.sectionType,
+      (section) => section.label,
     );
 
     /*
@@ -1069,7 +1112,7 @@ describe("a round whose sections are stored in one order and declared in another
       order alone, which is what the second check below says.
     */
     const third = (await asInstructor().gradingDrafts.get({ draftId })).sections.find(
-      (section) => section.sectionType === TASKS[2],
+      (section) => section.label === TASKS[2],
     );
     await asInstructor().gradingDrafts.updateSection({
       sectionId: third!.id,
@@ -1084,7 +1127,7 @@ describe("a round whose sections are stored in one order and declared in another
 
   it("...and writing into one leaves them where they were", async () => {
     const afterEdit = await asInstructor().gradingDrafts.get({ draftId });
-    expect(afterEdit.sections.map((section) => section.sectionType)).toEqual(TASKS);
+    expect(afterEdit.sections.map((section) => section.label)).toEqual(TASKS);
   });
 
   describe("the assignment's sections reordered under a round that already exists", () => {
@@ -1097,12 +1140,12 @@ describe("a round whose sections are stored in one order and declared in another
 
     it("the review screen follows the assignment", async () => {
       const draft = await asInstructor().gradingDrafts.get({ draftId });
-      expect(draft.sections.map((section) => section.sectionType)).toEqual(REORDERED);
+      expect(draft.sections.map((section) => section.label)).toEqual(REORDERED);
     });
 
     it("and so does the list the grading queue reads", async () => {
       const listed = await asInstructor().gradingDrafts.listForSubmission({ submissionId });
-      expect(listed.drafts[0]!.sections.map((section) => section.sectionType)).toEqual(REORDERED);
+      expect(listed.drafts[0]!.sections.map((section) => section.label)).toEqual(REORDERED);
     });
   });
 });
@@ -1140,8 +1183,22 @@ describe("a report written by hand on an assignment the pipeline grades", () => 
       kind: "REPO",
       pointValue: 30,
       sections: [
-        { grading: "ai", type: "coding_algorithm", pointValue: 20, rubricId: crypto.randomUUID() },
-        { grading: "ai", type: "short_response", pointValue: 10, rubricId: crypto.randomUUID() },
+        {
+          grading: "ai",
+          key: "code",
+          label: "Coding",
+          type: "coding_algorithm",
+          pointValue: 20,
+          rubricId: crypto.randomUUID(),
+        },
+        {
+          grading: "ai",
+          key: "sr",
+          label: "Short Response",
+          type: "short_response",
+          pointValue: 10,
+          rubricId: crypto.randomUUID(),
+        },
       ],
     });
     assignmentId = assignment.id;
@@ -1185,12 +1242,16 @@ describe("a report written by hand on an assignment the pipeline grades", () => 
 
   it("the review screen is sent the AI sections to write into", async () => {
     const listed = await asInstructor().gradingDrafts.listForSubmission({ submissionId });
-    expect([listed.manualOnly, listed.canGradeByHand, listed.handSections]).toEqual([
+    expect([
+      listed.manualOnly,
+      listed.canGradeByHand,
+      listed.handSections.map((unit) => [unit.key, unit.label, unit.type, unit.pointValue]),
+    ]).toEqual([
       false,
       true,
       [
-        { label: "coding_algorithm", pointValue: 20 },
-        { label: "short_response", pointValue: 10 },
+        ["code", "Coding", "coding_algorithm", 20],
+        ["sr", "Short Response", "short_response", 10],
       ],
     ]);
   });
@@ -1295,7 +1356,14 @@ describe("a hand-written round started again on a newer commit", () => {
       kind: "REPO",
       pointValue: 20,
       sections: [
-        { grading: "ai", type: "coding_algorithm", pointValue: 20, rubricId: crypto.randomUUID() },
+        {
+          grading: "ai",
+          key: "code",
+          label: "Coding",
+          type: "coding_algorithm",
+          pointValue: 20,
+          rubricId: crypto.randomUUID(),
+        },
       ],
     });
     const submission = await makeSubmission(tx(), {

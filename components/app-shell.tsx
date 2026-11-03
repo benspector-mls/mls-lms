@@ -82,6 +82,7 @@ import {
   attendanceHref,
   coachingFormsHref,
   competenciesHref,
+  skillsAdminHref,
   curriculumHref,
   courseSettingsHref,
   gradebookHref,
@@ -1375,6 +1376,16 @@ function AdminGroup({ isAdmin, pathname }: { isAdmin: boolean; pathname: string 
           >
             <ListChecks />
             <span>Competencies</span>
+          </SidebarMenuButton>
+        </SidebarMenuItem>
+        <SidebarMenuItem>
+          <SidebarMenuButton
+            isActive={pathname === skillsAdminHref()}
+            tooltip="Skills"
+            render={<Link href={skillsAdminHref()} />}
+          >
+            <Target />
+            <span>Skills</span>
           </SidebarMenuButton>
         </SidebarMenuItem>
         <SidebarMenuItem>

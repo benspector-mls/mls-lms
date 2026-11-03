@@ -33,6 +33,7 @@
  */
 export const SECTION_TYPES = [
   "short_response",
+  "short_response_writing",
   "coding_algorithm",
   "coding_sql",
   "coding_frontend",
@@ -72,6 +73,19 @@ export type SectionTypeEntry = {
    * would be a second place the score could disagree with the rows.
    */
   reportTitle: string;
+  /**
+   * The type whose model call this section is filled from.
+   *
+   * A companion is declared beside its primary, carries its own point value and its own draft
+   * section, and is never sent to the model on its own: the primary's call returns rows for both,
+   * and `partitionRows` in lib/grade/companions.ts divides them. A short response is the case —
+   * one file, one report, two scores. The writing score used to live as one row inside the
+   * technical section, so an instructor grading by hand had nowhere to record it, and nothing
+   * reading grades could tell the two scores apart. Absent on a type with a call of its own.
+   */
+  companionOf?: SectionType;
+  /** What a new companion is worth when the authoring form adds it beside its primary. */
+  defaultPointValue?: number;
 };
 
 /**
@@ -94,6 +108,22 @@ export const SECTION_TYPE_REGISTRY = {
     */
     sampleFile: "sample-short-response-report-1.md",
     reportTitle: "Short Response Score Report",
+  },
+  short_response_writing: {
+    label: "Writing Quality",
+    /*
+      The same rubric row and heading as its primary, because the same call grades it: the
+      rubric's Writing Quality band is what scores this section. The heading and the sample are
+      never sent for this type on its own, but the registry asks for them and the truthful answer
+      is "the short response's".
+    */
+    rubricName: "SHORT_RESPONSE",
+    rubricHeading: "SHORT RESPONSE",
+    sampleFile: "sample-short-response-report-1.md",
+    reportTitle: "Writing Quality Report",
+    companionOf: "short_response",
+    // One score out of 3 for the whole submission, which is what the rubric's band says.
+    defaultPointValue: 3,
   },
   coding_algorithm: {
     label: "Algorithm Fluency",
@@ -136,3 +166,36 @@ export const SECTION_TYPE_REGISTRY = {
 export function isSectionType(value: string): value is SectionType {
   return (SECTION_TYPES as readonly string[]).includes(value);
 }
+
+/**
+ * The registry entry as the common shape, so the optional fields can be read. `satisfies` keeps
+ * each entry's literal type, and a union of literals has no `companionOf` on the entries that
+ * leave it out.
+ */
+export function sectionTypeEntry(type: SectionType): SectionTypeEntry {
+  return SECTION_TYPE_REGISTRY[type];
+}
+
+/** True for a type filled from another type's model call; see `SectionTypeEntry.companionOf`. */
+export function isCompanion(type: SectionType): boolean {
+  return sectionTypeEntry(type).companionOf !== undefined;
+}
+
+/** The type a companion is filled from, or null for a type with a call of its own. */
+export function companionOf(type: SectionType): SectionType | null {
+  return sectionTypeEntry(type).companionOf ?? null;
+}
+
+/** The companions a primary fills, in the order the types are listed. Empty for most types. */
+export function companionsOf(primary: SectionType): SectionType[] {
+  return SECTION_TYPES.filter((type) => sectionTypeEntry(type).companionOf === primary);
+}
+
+/**
+ * The types an instructor chooses between. A companion is never chosen: the form adds it beside
+ * its primary and removes it with it, so offering it in the select would only create a way to
+ * declare a writing section with nothing to fill it.
+ */
+export const PRIMARY_SECTION_TYPES: readonly SectionType[] = SECTION_TYPES.filter(
+  (type) => !isCompanion(type),
+);

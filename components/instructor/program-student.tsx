@@ -72,6 +72,7 @@ export const SECTIONS: Record<RecordTab, OutlineSection[]> = {
     { id: "coursework", label: "Coursework" },
     { id: "gcf", label: "GCF" },
   ],
+  skills: [{ id: "skills", label: "Skills" }],
   coaching: [
     { id: "topics", label: "Discussion topics" },
     { id: "goals", label: "Goals" },

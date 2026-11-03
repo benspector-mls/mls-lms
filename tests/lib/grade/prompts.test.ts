@@ -27,7 +27,10 @@ const context = (over: Partial<SubmissionContext> = {}): SubmissionContext => ({
   addressees: [{ githubUsername: "ada" }],
   teamName: null,
   assignmentTitle: "Recursion",
-  pointValue: 10,
+  sections: [
+    { key: "q1", label: "Question 1: fib", heading: null, pointValue: 7, skill: null, tests: null },
+    { key: "q2", label: "Question 2: sum", heading: null, pointValue: 3, skill: "Python Programming", tests: ["test_sum"] },
+  ],
   readme: null,
   studentFiles: [],
   testResults: null,
@@ -160,10 +163,8 @@ describe("the cache boundary", () => {
 
   it("puts the previous review in the user half, under its own heading", () => {
     const user = buildUserPrompt({ assets, context: context({ previousReview: review() }) });
-    // After the section's point value, so it is plainly past the cacheable prefix.
-    expect(user.indexOf("## Previous review")).toBeGreaterThan(
-      user.indexOf("This section is out of"),
-    );
+    // After the sections to score, so it is plainly past the cacheable prefix.
+    expect(user.indexOf("## Previous review")).toBeGreaterThan(user.indexOf("Score these"));
   });
 
   it("puts the whole address block in the user half instead", () => {
@@ -177,8 +178,8 @@ describe("the cache boundary", () => {
 
     expect(user).toContain("@ada");
     expect(user).toContain('working as "Team 3"');
-    // Before the section's point value, so the prefix boundary is visibly unchanged.
-    expect(user.indexOf("@ada")).toBeLessThan(user.indexOf("This section is out of"));
+    // Before the sections to score, so the prefix boundary is visibly unchanged.
+    expect(user.indexOf("@ada")).toBeLessThan(user.indexOf("Score these"));
   });
 });
 
@@ -208,7 +209,7 @@ describe("the previous review block", () => {
 
   it("names the round as the student saw it and the commit it described", () => {
     const text = user();
-    expect(text).toContain("already received Review 1 of this section");
+    expect(text).toContain("already received Review 1 of this work");
     expect(text).toContain("written against commit a1b2c3d");
   });
 

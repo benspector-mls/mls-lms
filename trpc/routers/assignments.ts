@@ -11,9 +11,16 @@ import {
   type Accepted,
 } from "@/lib/assignments/accept";
 import { detectRunnerPreset, NOT_A_REPOSITORY } from "@/lib/assignments/detect";
+import { proposeSections } from "@/lib/assignments/propose-sections";
 import { normalizeRepoRef, repoNameFromRef } from "@/lib/assignments/repo-ref";
 import { distributedToStudent } from "@/lib/assignments/scope";
-import { assertKindImplemented } from "@/lib/assignments/spec";
+import {
+  assertKindImplemented,
+  declaredUnits,
+  hasUnconvertedSections,
+  newSectionKey,
+} from "@/lib/assignments/spec";
+import { readTemplateForProposal, readTemplateTests } from "@/lib/assignments/template-contents";
 import {
   hasErrors,
   validateAssignmentDraft,
@@ -23,6 +30,7 @@ import { assertActiveStudent, assertCourseMember, assertTeaches } from "@/lib/co
 import { teachableAssignment } from "@/lib/courses/scope";
 import { CATEGORY_META, type CourseUnitCategory } from "@/lib/course-units";
 import type { HandInMethod } from "@/lib/generated/prisma/enums";
+import { isGithubAppConfigured } from "@/lib/github/app-client";
 import { effectiveSection } from "@/lib/grade/approve";
 import {
   commentExcerpt,
@@ -31,6 +39,7 @@ import {
   type ThreadComment,
   unreadCount,
 } from "@/lib/submissions/comments";
+import { suggestSkills } from "@/lib/skills/suggest";
 import { effectiveDueAt } from "@/lib/submissions/hand-in";
 import { teamForStudent } from "@/lib/submissions/team";
 import {
@@ -140,14 +149,18 @@ const studentWorkSelect = {
       id: true,
       approvedAt: true,
       headSha: true,
+      // Both columns, because what the student is owed is the instructor's revision where one
+      // exists. They are collapsed below and never leave this procedure separately.
+      summaryMarkdown: true,
+      editedSummaryMarkdown: true,
       sections: {
         select: {
+          sectionKey: true,
+          label: true,
           sectionType: true,
           reportMarkdown: true,
           scoreEarned: true,
           scorePossible: true,
-          // Both columns, because what the student is owed is the instructor's revision where one
-          // exists. They are collapsed below and never leave this procedure separately.
           editedReportMarkdown: true,
           editedScoreEarned: true,
         },
@@ -742,7 +755,11 @@ export const assignmentsRouter = createTRPCRouter({
             // The panel seeds its badge from this before the Comments tab has been opened.
             unreadCommentCount: unreadComments.get(threadSubmissionId(own))?.unreadCount ?? 0,
             gradingDrafts: work.gradingDrafts.map((draft) => ({
-              ...draft,
+              id: draft.id,
+              approvedAt: draft.approvedAt,
+              headSha: draft.headSha,
+              /** The summary the student reads first, or null on a round written before rounds had one. */
+              summaryMarkdown: draft.editedSummaryMarkdown ?? draft.summaryMarkdown,
               sections: draft.sections.map(effectiveSection),
             })),
           };
@@ -869,7 +886,7 @@ export const assignmentsRouter = createTRPCRouter({
           name: true,
           slug: true,
           programId: true,
-          program: { select: { term: true } },
+          program: { select: { term: true, discipline: true } },
         },
       }),
       // The course's own units, which are the only ones an assignment may be filed under.
@@ -903,7 +920,9 @@ export const assignmentsRouter = createTRPCRouter({
           _count: { select: { teams: true } },
           teams: {
             select: {
-              _count: { select: { memberships: { where: { enrollment: { status: "ACTIVE" } } } } },
+              _count: {
+                select: { memberships: { where: { enrollment: { status: "ACTIVE" } } } },
+              },
             },
           },
         },
@@ -916,6 +935,18 @@ export const assignmentsRouter = createTRPCRouter({
     ]);
 
     if (!course) throw new TRPCError({ code: "NOT_FOUND", message: "Course not found." });
+
+    // The taxonomy of the course's program's discipline, as groups holding skills: what a
+    // section's "Skill Assessed" offers. After the course read, because the discipline is on it.
+    const skillGroups = await ctx.db.skillGroup.findMany({
+      where: { taxonomy: { discipline: course.program.discipline } },
+      orderBy: { position: "asc" },
+      select: {
+        id: true,
+        name: true,
+        skills: { orderBy: { position: "asc" }, select: { id: true, name: true } },
+      },
+    });
 
     /*
         Whatever this course's other repository assignments use, for the two fields that are
@@ -947,6 +978,8 @@ export const assignmentsRouter = createTRPCRouter({
         courseUnits,
       },
       rubrics,
+      /** This program's taxonomy as the picker shows it: groups in order, each holding its skills. */
+      skillGroups,
       defaultGithubOrg,
       defaultAnswerKeyRepo,
       teamSets: teamSets.map((set) => {
@@ -1099,6 +1132,133 @@ export const assignmentsRouter = createTRPCRouter({
     }),
 
   /**
+   * The sections the template repository implies, for the form to adopt.
+   *
+   * One per question of the short response file, one per exercise of a coding README with the
+   * tests named after its function, one per checklist item of a frontend README. Read by code,
+   * not by a model (`lib/assignments/propose-sections.ts`), so the same template proposes the
+   * same sections every time. A mutation rather than a query because it is pressed for and
+   * reads several files; the form never calls it on its own.
+   */
+  /**
+   * The tests the template's suite declares, for the section editor's picker. Read from the
+   * repository at the assignment's ref, so a test added to the template appears once the
+   * template changes; cached by the browser for as long as the form is open.
+   */
+  templateTests: courseProcedure
+    .input(z.object({ templateRepo: z.string().min(3), templateRef: z.string().nullable() }))
+    .query(async ({ input }) => {
+      const fullName = normalizeRepoRef(input.templateRepo);
+      if (!fullName) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: "That is not a GitHub repository, so its tests cannot be read.",
+        });
+      }
+      if (!isGithubAppConfigured()) {
+        throw new TRPCError({
+          code: "PRECONDITION_FAILED",
+          message: "The GitHub App is not configured here, so the template cannot be read.",
+        });
+      }
+      try {
+        return await readTemplateTests({ templateRepo: fullName, templateRef: input.templateRef });
+      } catch (err) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: err instanceof Error ? err.message : String(err),
+        });
+      }
+    }),
+
+  proposeSections: courseProcedure
+    .input(
+      z.object({
+        templateRepo: z.string().min(3),
+        templateRef: z.string().nullable(),
+        runnerPreset: z.string(),
+      }),
+    )
+    .mutation(async ({ input }) => {
+      const fullName = normalizeRepoRef(input.templateRepo);
+      if (!fullName) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: "That is not a GitHub repository, so nothing could be read from it.",
+        });
+      }
+      if (!isGithubAppConfigured()) {
+        throw new TRPCError({
+          code: "PRECONDITION_FAILED",
+          message: "The GitHub App is not configured here, so the template cannot be read.",
+        });
+      }
+      let template;
+      try {
+        template = await readTemplateForProposal({
+          templateRepo: fullName,
+          templateRef: input.templateRef,
+          hasRunner: input.runnerPreset !== "none",
+        });
+      } catch (err) {
+        throw new TRPCError({
+          code: "BAD_REQUEST",
+          message: err instanceof Error ? err.message : String(err),
+        });
+      }
+      return proposeSections(template, newSectionKey);
+    }),
+
+  /**
+   * A suggested skill for each section, from the model, for the instructor to confirm.
+   *
+   * The taxonomy is the course's program's discipline's, the same list the picker offers, so a
+   * suggestion is always something the picker can hold. Returned as suggestions with a reason
+   * each; nothing is written.
+   */
+  suggestSkills: courseProcedure
+    .input(
+      z.object({
+        title: z.string(),
+        sections: z
+          .array(
+            z.object({
+              key: z.string().min(1),
+              label: z.string().min(1),
+              heading: z.string().optional(),
+              text: z.string().max(4000).optional(),
+            }),
+          )
+          .min(1)
+          .max(60),
+      }),
+    )
+    .mutation(async ({ ctx, input }) => {
+      const course = await ctx.db.course.findUnique({
+        where: { id: input.courseId },
+        select: { program: { select: { discipline: true } } },
+      });
+      if (!course) throw new TRPCError({ code: "NOT_FOUND", message: "Course not found." });
+      const skills = await ctx.db.skill.findMany({
+        where: { taxonomy: { discipline: course.program.discipline } },
+        orderBy: [{ group: { position: "asc" } }, { position: "asc" }],
+        select: { id: true, canonicalId: true, name: true, definition: true },
+      });
+      try {
+        return await suggestSkills({
+          assignmentTitle: input.title,
+          sections: input.sections,
+          skills,
+        });
+      } catch (err) {
+        throw new TRPCError({
+          code: "INTERNAL_SERVER_ERROR",
+          message: err instanceof Error ? err.message : String(err),
+        });
+      }
+    }),
+
+  /**
    * Creates an assignment, unpublished.
    *
    * `pointValue` comes from the validated spec rather than from input, so there is no
@@ -1134,16 +1294,110 @@ export const assignmentsRouter = createTRPCRouter({
    * repositories are already named after it: renaming it here would not rename theirs, and
    * every later lookup would miss.
    */
+  /**
+   * What saving these sections would change about rounds already graded: each section whose
+   * skill differs from the stored declaration, with how many round sections carry its key.
+   *
+   * Asked by the form before it saves, so the instructor can decide whether the rounds follow
+   * the new tag or stay under the one they were graded as evidence of. A section with no graded
+   * rounds is left out, since there is nothing to decide about it.
+   */
+  retagImpact: instructorProcedure
+    .input(z.object({ assignmentId: z.string().uuid(), sections: z.unknown() }))
+    // A mutation only for the transport: it reads, but the sections it is handed are the whole
+    // declaration, which a query would carry in the address and a long assignment would overflow.
+    .mutation(async ({ ctx, input }) => {
+      const existing = await teachableAssignment(ctx, input.assignmentId, { sections: true });
+      const changes = retagsBetween(existing.sections, input.sections).filter(
+        (change) => change.skill !== null,
+      );
+      if (changes.length === 0) return [];
+      const skillIds = [
+        ...new Set(changes.flatMap((change) => [change.skill!.from, change.skill!.to])),
+      ].filter((id): id is string => id !== null);
+      const names = new Map(
+        (
+          await ctx.db.skill.findMany({
+            where: { id: { in: skillIds } },
+            select: { id: true, name: true },
+          })
+        ).map((skill) => [skill.id, skill.name]),
+      );
+      const nameOf = (id: string | null) => (id === null ? null : (names.get(id) ?? null));
+
+      // One read of the assignment's round sections, counted per change in memory.
+      const graded = await ctx.db.gradingDraftSection.findMany({
+        where: {
+          gradingDraft: {
+            submission: { assignmentId: input.assignmentId },
+            // A superseded or failed round is never read again, so it is neither counted nor
+            // rewritten: what the dialog reports is exactly what the save changes.
+            status: { notIn: ["SUPERSEDED", "FAILED"] },
+          },
+          OR: changes.map((change) => roundSectionsOf(change)),
+        },
+        select: { sectionKey: true, sectionType: true },
+      });
+      const impact: {
+        key: string;
+        label: string;
+        from: string | null;
+        to: string | null;
+        gradedSections: number;
+      }[] = [];
+      for (const change of changes) {
+        const gradedSections = graded.filter(
+          (section) =>
+            section.sectionKey === change.key ||
+            (section.sectionKey === null && section.sectionType === change.previousLabel),
+        ).length;
+        if (gradedSections === 0) continue;
+        impact.push({
+          key: change.key,
+          label: change.label,
+          from: nameOf(change.skill!.from),
+          to: nameOf(change.skill!.to),
+          gradedSections,
+        });
+      }
+      return impact;
+    }),
+
   update: instructorProcedure
-    .input(z.object({ assignmentId: z.string().uuid(), draft: z.unknown() }))
+    .input(
+      z.object({
+        assignmentId: z.string().uuid(),
+        draft: z.unknown(),
+        /**
+         * Whether round sections carrying a re-tagged section's key take the new skill. Absent
+         * or false leaves them under the skill they were graded as evidence of; the form sends
+         * what the instructor chose when `retagImpact` reported anything.
+         */
+        retagRounds: z.boolean().optional(),
+      }),
+    )
     .mutation(async ({ ctx, input }) => {
       const existing = await teachableAssignment(ctx, input.assignmentId, {
         courseId: true,
         assignmentRepoName: true,
         distributedAt: true,
         teamSetId: true,
+        sections: true,
         _count: { select: { submissions: true } },
       });
+
+      /*
+        A declaration from before keys is saved only by `convert:sections`. Saved here, the form's
+        derived keys would replace the type-keyed sections its rounds were graded under, and a
+        short response would gain a second writing score beside the one its total still holds.
+      */
+      if (hasUnconvertedSections(existing.sections)) {
+        throw new TRPCError({
+          code: "PRECONDITION_FAILED",
+          message:
+            "This assignment's sections have not been converted to scored units yet. Run convert:sections, then try again.",
+        });
+      }
 
       const { findings, spec, pointValue } = await validateAssignmentDraft(ctx.db, {
         courseId: existing.courseId,
@@ -1193,6 +1447,44 @@ export const assignmentsRouter = createTRPCRouter({
             `and their repositories are named after "${existing.assignmentRepoName}". ` +
             `Renaming it here would not rename theirs. Create a new assignment instead.`,
         });
+      }
+
+      /*
+        Written through to the rounds graded under each changed section's key, before the
+        declaration itself is saved. The order is what makes a failure recoverable: the change
+        is computed from the stored declaration, so if a write-through fails the declaration is
+        still the old one, the form reports the error, and a retry finds the same changes and
+        writes them again, which is harmless where it already succeeded. Saved first, a failure
+        midway would leave some rounds re-tagged and a retry finding nothing left to do.
+
+        A renamed heading always, because a heading is presentation and a round grouped under a
+        name the declaration no longer uses would read as a different assignment. A new skill
+        only when the instructor said so: a round section's skill is what its score was evidence
+        of, and whether a later re-tag revises that reading is a judgment the save path cannot
+        make.
+      */
+      for (const change of retagsBetween(existing.sections, spec.sections)) {
+        const rounds = {
+          gradingDraft: {
+            submission: { assignmentId: input.assignmentId },
+            // A superseded or failed round is never read again, so it is neither counted nor
+            // rewritten: what the dialog reports is exactly what the save changes.
+            status: { notIn: ["SUPERSEDED", "FAILED"] },
+          },
+          ...roundSectionsOf(change),
+        } satisfies Prisma.GradingDraftSectionWhereInput;
+        if (change.heading !== null) {
+          await ctx.db.gradingDraftSection.updateMany({
+            where: rounds,
+            data: { heading: change.heading.to },
+          });
+        }
+        if (change.skill !== null && input.retagRounds === true) {
+          await ctx.db.gradingDraftSection.updateMany({
+            where: rounds,
+            data: { skillId: change.skill.to },
+          });
+        }
       }
 
       const assignment = await ctx.db.assignment.update({
@@ -1607,4 +1899,44 @@ async function freeRepoNameIn(db: Db, courseId: string, base: string): Promise<s
       `This course already holds ten copies of "${base}". Give the next one a repository ` +
       `name of its own, or remove the ones that are not being used.`,
   });
+}
+
+/**
+ * The sections whose skill or heading differs between a stored declaration and the one about
+ * to replace it, matched by key. A section new to the declaration or gone from it has no rounds
+ * to carry anything across, so neither appears here.
+ */
+function retagsBetween(
+  before: unknown,
+  after: unknown,
+): {
+  key: string;
+  label: string;
+  /** The label as the stored declaration had it, which an unconverted round stores as its type. */
+  previousLabel: string;
+  skill: { from: string | null; to: string | null } | null;
+  heading: { from: string | null; to: string | null } | null;
+}[] {
+  const was = new Map(declaredUnits(before).map((unit) => [unit.key, unit]));
+  const changes = [];
+  for (const unit of declaredUnits(after)) {
+    const old = was.get(unit.key);
+    if (!old) continue;
+    const skill = old.skillId !== unit.skillId ? { from: old.skillId, to: unit.skillId } : null;
+    const heading = old.heading !== unit.heading ? { from: old.heading, to: unit.heading } : null;
+    if (skill === null && heading === null) continue;
+    changes.push({ key: unit.key, label: unit.label, previousLabel: old.label, skill, heading });
+  }
+  return changes;
+}
+
+/**
+ * The round sections a declared section's change reaches: those keyed by it, and a hand-written
+ * section from before keys that the conversion has not reached, which stores the label the
+ * declaration had when it was graded as its type.
+ */
+function roundSectionsOf(change: { key: string; previousLabel: string }) {
+  return {
+    OR: [{ sectionKey: change.key }, { sectionKey: null, sectionType: change.previousLabel }],
+  };
 }

@@ -1693,7 +1693,11 @@ interface FeedbackRound {
   gradedAt: Date | null;
   earned: number | null;
   possible: number | null;
+  /** The round's opening, read before the sections. Null on a round written before rounds had one. */
+  summaryMarkdown: string | null;
   sections: {
+    sectionKey: string | null;
+    label: string | null;
     sectionType: string;
     reportMarkdown: string | null;
     scoreEarned: number | null;
@@ -1720,6 +1724,7 @@ function feedbackRounds(submission: Submission): FeedbackRound[] {
       gradedAt: draft.approvedAt,
       earned: sumOrNull(draft.sections.map((s) => s.scoreEarned)),
       possible: sumOrNull(draft.sections.map((s) => s.scorePossible)),
+      summaryMarkdown: draft.summaryMarkdown,
       sections: draft.sections,
     }));
   }
@@ -1733,8 +1738,11 @@ function feedbackRounds(submission: Submission): FeedbackRound[] {
       gradedAt: submission.gradedAt,
       earned: submission.finalScore,
       possible: submission.finalScorePossible,
+      summaryMarkdown: null,
       sections: [
         {
+          sectionKey: null,
+          label: null,
           sectionType: "feedback",
           reportMarkdown: submission.feedbackMarkdown,
           scoreEarned: submission.finalScore,
@@ -1906,20 +1914,24 @@ function RoundComments({
 }
 
 /**
- * A round's sections. Each is scored and reported separately, so they are headed
- * separately — except where there is only one, which needs no heading to tell it apart
- * from itself.
+ * A round's summary and sections. The summary opens the round; each section is scored and
+ * reported separately, so they are headed separately — except where there is only one section
+ * and no summary, which needs no heading to tell it apart from itself.
  */
 function RoundSections({ round }: { round: FeedbackRound }) {
-  const single = round.sections.length === 1;
+  const summary = round.summaryMarkdown?.trim() ?? "";
+  const single = round.sections.length === 1 && summary === "";
 
   return (
     <div className="flex flex-col gap-5">
-      {round.sections.map((section) => (
-        <div key={section.sectionType} className="flex flex-col gap-2">
+      {summary !== "" && <Markdown content={summary} />}
+      {round.sections.map((section, index) => (
+        <div key={section.sectionKey ?? `${section.sectionType}-${index}`} className="flex flex-col gap-2">
           {!single && (
             <div className="flex flex-wrap items-baseline justify-between gap-2">
-              <h4 className="text-sm font-semibold">{sectionLabel(section.sectionType)}</h4>
+              <h4 className="text-sm font-semibold">
+                {section.label ?? sectionLabel(section.sectionType)}
+              </h4>
               {section.scoreEarned != null && (
                 <span className="text-sm tabular-nums text-muted-foreground">
                   {section.scoreEarned}/{section.scorePossible}

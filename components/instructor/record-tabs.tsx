@@ -6,6 +6,7 @@ import { RECORD_TABS, programStudentHref, type RecordTab } from "@/lib/links";
 
 const TAB_LABEL: Record<RecordTab, string> = {
   performance: "Performance",
+  skills: "Skills",
   coaching: "Coaching",
   trends: "Trends",
 };

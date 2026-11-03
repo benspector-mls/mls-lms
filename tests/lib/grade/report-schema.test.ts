@@ -15,43 +15,9 @@ import type { GradingReport } from "@/lib/grade/schema";
 function report(overrides: Partial<GradingReport> = {}): GradingReport {
   return {
     summaryMarkdown: "Nice work.",
-    rubricItems: [
-      {
-        label: "Q1",
-        criterion: "algorithm",
-        scoreEarned: 3,
-        scorePossible: 3,
-        group: null,
-        feedbackMarkdown: "",
-        modelReasoning: null,
-      },
-      {
-        label: "Q1 style",
-        criterion: "code_style",
-        scoreEarned: 1,
-        scorePossible: 1,
-        group: null,
-        feedbackMarkdown: "",
-        modelReasoning: null,
-      },
-      {
-        label: "Q2",
-        criterion: "algorithm",
-        scoreEarned: 5,
-        scorePossible: 7,
-        group: null,
-        feedbackMarkdown: "",
-        modelReasoning: "off by one",
-      },
-      {
-        label: "Q2 style",
-        criterion: "code_style",
-        scoreEarned: 1,
-        scorePossible: 1,
-        group: null,
-        feedbackMarkdown: "",
-        modelReasoning: null,
-      },
+    sections: [
+      { key: "q1", scoreEarned: 3, feedbackMarkdown: "", modelReasoning: null },
+      { key: "q2", scoreEarned: 5, feedbackMarkdown: "", modelReasoning: "off by one" },
     ],
     flags: [],
     instructorNotes: [],
@@ -98,7 +64,7 @@ describe("parseGradingReport", () => {
   });
 
   it("accepts a complete one", () => {
-    expect(parseGradingReport(report()).rubricItems).toHaveLength(4);
+    expect(parseGradingReport(report()).sections).toHaveLength(2);
   });
 
   // Given `flags` as an unconstrained string array and no description, a real model used it as a

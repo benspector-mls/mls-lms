@@ -1,16 +1,16 @@
 "use client";
 
 /**
- * A report an instructor is reading and changing: the score, the sections, the reasoning behind
- * each score, and what it took to produce it.
+ * A round an instructor is reading and changing: the summary, one line per section with its
+ * score and feedback, the reasoning behind each score, and what it took to produce it.
  *
  * One editor whether or not a round exists yet. A grade written by hand is a `GradingDraft` like
  * any other and has to exist before a score can be stored against it, but the *form* does not:
  * it is drawn from the assignment's declared sections from the first render, the round is created
  * quietly underneath the first score or the first opened feedback box, and nothing on the screen
- * is replaced when it arrives. Sections are keyed by their own label — the one identity the
- * declared section and the stored row share — which is what lets the same boxes, the same focus
- * and the same typed text survive the row coming into existence.
+ * is replaced when it arrives. Sections are keyed by the declared section's key — the one
+ * identity the declaration and the stored row share — which is what lets the same boxes, the same
+ * focus and the same typed text survive the row coming into existence.
  */
 
 import { useMutation, useQueryClient } from "@tanstack/react-query";
@@ -19,26 +19,31 @@ import { AlertTriangle, CheckCircle2, Eye, Loader2, Pencil, RotateCcw, X } from 
 import { toast } from "sonner";
 import { useServerMutation } from "@/hooks/use-server-mutation";
 import type { ReleaseGrade } from "@/hooks/use-release-grade";
+import { Markdown } from "@/components/markdown";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
-import { panelSurface } from "@/components/ui/card";
-import { composeReport, rowTotals, statedScoreInText } from "@/lib/grade/report-text";
+import { Card, CardContent, panelSurface } from "@/components/ui/card";
+import { composeRound, rowTotals, statedScoreInText } from "@/lib/grade/report-text";
 import { completionMeta, sectionLabel, shortSha } from "@/lib/status";
 import { cn } from "@/lib/utils";
 import { useTRPC, useTRPCClient } from "@/trpc/client";
 import {
-  AssembledSectionEditor,
-  SectionEditor,
+  LegacySectionEditor,
+  RoundNotes,
+  SectionHeadingRow,
+  SectionRow,
+  SummaryEditor,
 } from "@/components/instructor/review/section-editor";
 import {
+  DeclaredSection,
   Draft,
   QueueSubmission,
-  ReportParts,
   Section,
-  effectiveParts,
   effectiveReport,
   effectiveScore,
+  effectiveSummary,
   listNames,
+  sectionKeyOf,
   useGenerateReport,
 } from "@/components/instructor/review/shared";
 
@@ -54,88 +59,97 @@ import {
 const SAVE_DEBOUNCE_MS = 2500;
 
 /** What opening a round in the background hands back: the round, and the sections it created. */
-export type OpenedRound = { id: string; sections: { id: string; sectionType: string }[] };
+export type OpenedRound = {
+  id: string;
+  sections: { id: string; sectionKey: string | null; sectionType: string }[];
+};
 
 /**
- * What the editor draws before a round exists to draw from: each section's label, what it is out
- * of, and the values it opens holding. Blank for a hand grade being written from nothing; the
- * released values for a correction, which opens holding what the student was sent.
+ * What the editor draws before a round exists to draw from: the summary, and each section's
+ * label, what it is out of, and the values it opens holding. Blank for a hand grade being
+ * written from nothing; the released values for a correction, which opens holding what the
+ * student was sent.
  */
 export type Blueprint = {
-  key: string;
-  scorePossible: number | null;
-  score: number | null;
-  report: string;
+  /** Null for a correction of a round written before rounds had a summary of their own. */
+  summary: string | null;
+  sections: {
+    key: string;
+    label: string;
+    heading: string | null;
+    type: string;
+    scorePossible: number | null;
+    score: number | null;
+    report: string;
+    /** True for a section written whole, before sections were scored units. */
+    legacy: boolean;
+  }[];
 };
 
-/**
- * What the server holds for each section, by the section's label, as far as this editor knows.
- *
- * `parts` is set for a model-generated section, which is edited row by row. Its `score` and
- * `report` are then the rows' sum and the assembled comment — derived, and kept beside the parts
- * so the total, the dirty check and the score-in-text check read every section the same way.
- */
-type SavedValues = Record<
-  string,
-  { score: number | null; report: string; parts: ReportParts | null }
->;
+/** What the server holds for each section, by key, as far as this editor knows. */
+type SavedValues = {
+  summary: string;
+  sections: Record<string, { score: number | null; report: string }>;
+};
 
-/**
- * One row the editor draws: the label both sides hold, what it is out of, and the stored section
- * where a round exists to hold one.
- */
+/** One row the editor draws: what it is called, what it is out of, and the stored section if any. */
 type EditorRow = {
   key: string;
+  label: string;
+  heading: string | null;
+  type: string;
   scorePossible: number | null;
   stored: Section | null;
+  legacy: boolean;
 };
 
-function rowsOf(draft: Draft | null, blueprint: Blueprint[]): EditorRow[] {
+function rowsOf(
+  draft: Draft | null,
+  blueprint: Blueprint,
+  declared: DeclaredSection[],
+): EditorRow[] {
   if (draft) {
-    return draft.sections.map((section) => ({
-      key: section.sectionType,
-      scorePossible: section.scorePossible,
-      stored: section,
-    }));
+    const byKey = new Map(declared.map((unit) => [unit.key, unit]));
+    return draft.sections.map((section) => {
+      const unit = section.sectionKey === null ? undefined : byKey.get(section.sectionKey);
+      return {
+        key: sectionKeyOf(section),
+        label: section.label ?? unit?.label ?? sectionLabel(section.sectionType),
+        heading: section.heading ?? unit?.heading ?? null,
+        type: section.sectionType,
+        scorePossible: section.scorePossible,
+        stored: section,
+        legacy: section.sectionKey === null,
+      };
+    });
   }
-  return blueprint.map((section) => ({
+  return blueprint.sections.map((section) => ({
     key: section.key,
+    label: section.label,
+    heading: section.heading,
+    type: section.type,
     scorePossible: section.scorePossible,
     stored: null,
+    legacy: section.legacy,
   }));
 }
 
-function savedOf(rows: EditorRow[], blueprint: Blueprint[]): SavedValues {
-  const seeds = new Map(blueprint.map((section) => [section.key, section]));
-  return Object.fromEntries(
-    rows.map((row) => [
-      row.key,
-      {
-        score: row.stored ? effectiveScore(row.stored) : (seeds.get(row.key)?.score ?? null),
-        report: row.stored
-          ? (effectiveReport(row.stored) ?? "")
-          : (seeds.get(row.key)?.report ?? ""),
-        parts: row.stored ? effectiveParts(row.stored) : null,
-      },
-    ]),
-  );
-}
-
-function scoresOf(saved: SavedValues): Record<string, number | null> {
-  return Object.fromEntries(Object.entries(saved).map(([key, value]) => [key, value.score]));
-}
-
-function reportsOf(saved: SavedValues): Record<string, string> {
-  return Object.fromEntries(Object.entries(saved).map(([key, value]) => [key, value.report]));
-}
-
-function partsOf(saved: SavedValues): Record<string, ReportParts | null> {
-  return Object.fromEntries(Object.entries(saved).map(([key, value]) => [key, value.parts]));
-}
-
-/** Whether a row-by-row section has a box emptied, which can be neither saved nor released. */
-function hasEmptyRow(parts: ReportParts | null | undefined): boolean {
-  return parts?.rows.some((row) => row.scoreEarned === null) ?? false;
+function savedOf(draft: Draft | null, rows: EditorRow[], blueprint: Blueprint): SavedValues {
+  const seeds = new Map(blueprint.sections.map((section) => [section.key, section]));
+  return {
+    summary: draft ? (effectiveSummary(draft) ?? "") : (blueprint.summary ?? ""),
+    sections: Object.fromEntries(
+      rows.map((row) => [
+        row.key,
+        {
+          score: row.stored ? effectiveScore(row.stored) : (seeds.get(row.key)?.score ?? null),
+          report: row.stored
+            ? (effectiveReport(row.stored) ?? "")
+            : (seeds.get(row.key)?.report ?? ""),
+        },
+      ]),
+    ),
+  };
 }
 
 export function DraftEditor({
@@ -143,6 +157,7 @@ export function DraftEditor({
   completionThreshold,
   draft,
   blueprint,
+  declared,
   start,
   autoOpen = false,
   approvalBlocked,
@@ -156,7 +171,9 @@ export function DraftEditor({
   /** Null on a submission whose round has not been opened yet. The form works anyway. */
   draft: Draft | null;
   /** What to draw and hold before a round exists — see `Blueprint`. Unread once `draft` is set. */
-  blueprint: Blueprint[];
+  blueprint: Blueprint;
+  /** The assignment's declared sections, for the headings a stored round does not carry. */
+  declared: DeclaredSection[];
   /**
    * How a round is created when there is none: opening a hand grade, or opening a correction.
    * Absent on a round that can only ever arrive already made — a generated report.
@@ -188,7 +205,9 @@ export function DraftEditor({
   const settled = useServerMutation();
   const queryClient = useQueryClient();
 
-  const rows = rowsOf(draft, blueprint);
+  const rows = rowsOf(draft, blueprint, declared);
+  /** Whether this round has a summary of its own to edit. A round from before summaries has none. */
+  const hasSummary = draft ? draft.summaryMarkdown !== null : blueprint.summary !== null;
 
   /*
     Null where a section has no score yet, which is a different thing from a score of zero and
@@ -200,23 +219,22 @@ export function DraftEditor({
     document, a section not attempted — is a grade an instructor is entitled to give, and the
     approval guard has always been willing to record it. It was never reaching the server.
   */
-
+  /** The values the editor opened holding, read once and seeding the four states below. */
+  const [initial] = React.useState<SavedValues>(() => savedOf(draft, rows, blueprint));
   const [scores, setScores] = React.useState<Record<string, number | null>>(() =>
-    scoresOf(savedOf(rows, blueprint)),
+    Object.fromEntries(Object.entries(initial.sections).map(([key, v]) => [key, v.score])),
   );
   const [reports, setReports] = React.useState<Record<string, string>>(() =>
-    reportsOf(savedOf(rows, blueprint)),
+    Object.fromEntries(Object.entries(initial.sections).map(([key, v]) => [key, v.report])),
   );
-  const [parts, setParts] = React.useState<Record<string, ReportParts | null>>(() =>
-    partsOf(savedOf(rows, blueprint)),
-  );
+  const [summary, setSummary] = React.useState<string>(() => initial.summary);
   /** What the server holds, mirrored into state only so the badges and the bar can render it. */
-  const [lastSaved, setLastSaved] = React.useState<SavedValues>(() => savedOf(rows, blueprint));
+  const [lastSaved, setLastSaved] = React.useState<SavedValues>(initial);
 
   const [savingCount, setSavingCount] = React.useState(0);
   const [saveFailed, setSaveFailed] = React.useState(false);
   const [armed, setArmed] = React.useState(false);
-  /** Whether the row-by-row sections show their assembled comments instead of their rows. */
+  /** Whether the sections show the composed comment instead of their boxes. */
   const [previewing, setPreviewing] = React.useState(false);
   const [opening, setOpening] = React.useState(false);
   /*
@@ -235,7 +253,7 @@ export function DraftEditor({
     The same values, readable from outside a render. What a save sends is what has been typed by
     the time the request goes out, not what had been typed when it was scheduled.
   */
-  const latest = React.useRef({ scores, reports, parts });
+  const latest = React.useRef({ scores, reports, summary });
   const savedRef = React.useRef<SavedValues>(lastSaved);
   const draftRef = React.useRef(draft);
   draftRef.current = draft;
@@ -268,16 +286,19 @@ export function DraftEditor({
     if (heldDraftId === null && id !== null) {
       startedRef.current = true;
     } else {
-      const nextRows = rowsOf(draft, blueprint);
-      const saved = savedOf(nextRows, blueprint);
-      const nextScores = scoresOf(saved);
-      const nextReports = reportsOf(saved);
-      const nextParts = partsOf(saved);
-      latest.current = { scores: nextScores, reports: nextReports, parts: nextParts };
+      const nextRows = rowsOf(draft, blueprint, declared);
+      const saved = savedOf(draft, nextRows, blueprint);
+      const nextScores = Object.fromEntries(
+        Object.entries(saved.sections).map(([key, v]) => [key, v.score]),
+      );
+      const nextReports = Object.fromEntries(
+        Object.entries(saved.sections).map(([key, v]) => [key, v.report]),
+      );
+      latest.current = { scores: nextScores, reports: nextReports, summary: saved.summary };
       savedRef.current = saved;
       setScores(nextScores);
       setReports(nextReports);
-      setParts(nextParts);
+      setSummary(saved.summary);
       setLastSaved(saved);
       startedRef.current = id !== null;
       openedRef.current = null;
@@ -326,18 +347,24 @@ export function DraftEditor({
       });
   }
 
-  /** Where each dirty value goes: the section's id, and the model's raw values null is measured against. */
-  async function sectionTargets(): Promise<
-    { key: string; id: string; modelReport: string | null; modelScore: number | null }[]
-  > {
+  /** Where each dirty value goes: the round's id, and each section's id with the model's raw values null is measured against. */
+  async function targets(): Promise<{
+    draftId: string;
+    modelSummary: string | null;
+    sections: { key: string; id: string; modelReport: string | null; modelScore: number | null }[];
+  } | null> {
     const current = draftRef.current;
     if (current) {
-      return current.sections.map((section) => ({
-        key: section.sectionType,
-        id: section.id,
-        modelReport: section.reportMarkdown,
-        modelScore: section.scoreEarned,
-      }));
+      return {
+        draftId: current.id,
+        modelSummary: current.summaryMarkdown,
+        sections: current.sections.map((section) => ({
+          key: sectionKeyOf(section),
+          id: section.id,
+          modelReport: section.reportMarkdown,
+          modelScore: section.scoreEarned,
+        })),
+      };
     }
     /*
       No round and none asked for: nothing to write to, and saving is not what opens one. The
@@ -345,29 +372,34 @@ export function DraftEditor({
       from leaving a round behind.
     */
     const opened = openedRef.current;
-    if (!opened) return [];
+    if (!opened) return null;
     const round = await opened;
     /*
       Until the refetch delivers the full round, its stored values are known from the blueprint:
       a round opened blank stores nulls, and a correction stores the values it was seeded with.
     */
-    const seeds = new Map(blueprint.map((section) => [section.key, section]));
-    return round.sections.map((section) => {
-      const seed = seeds.get(section.sectionType);
-      const seededReport = (seed?.report ?? "").trim();
-      return {
-        key: section.sectionType,
-        id: section.id,
-        modelReport: seededReport === "" ? null : (seed?.report ?? null),
-        modelScore: seed?.score ?? null,
-      };
-    });
+    const seeds = new Map(blueprint.sections.map((section) => [section.key, section]));
+    return {
+      draftId: round.id,
+      modelSummary: blueprint.summary,
+      sections: round.sections.map((section) => {
+        const key = sectionKeyOf(section);
+        const seed = seeds.get(key);
+        const seededReport = (seed?.report ?? "").trim();
+        return {
+          key,
+          id: section.id,
+          modelReport: seededReport === "" ? null : (seed?.report ?? null),
+          modelScore: seed?.score ?? null,
+        };
+      }),
+    };
   }
 
   /**
-   * Writes every section that differs from the last completed save.
+   * Writes every value that differs from the last completed save.
    *
-   * Two different comparisons, deliberately. Which sections are *dirty* compares against what the
+   * Two different comparisons, deliberately. Which values are *dirty* compares against what the
    * server holds. Whether each field is sent as an edit or as null compares against the *model's*
    * values, because null is how an edit is discarded: typing a score back to what the model
    * proposed withdraws the edit rather than making a new one. The model's raw value, not that
@@ -375,73 +407,63 @@ export function DraftEditor({
    * of 0 against null-or-zero made a deliberate zero look like a withdrawn edit.
    */
   async function saveDirty(): Promise<void> {
-    const targets = await sectionTargets();
-    if (targets.length === 0) return;
+    const target = await targets();
+    if (!target) return;
 
     const current = latest.current;
     const saved = savedRef.current;
-    /*
-      A row-by-row section with an emptied score box waits, still dirty, until the box is filled.
-      Its rows cannot be stored without a score on each, and the release refuses while one is
-      empty, so nothing is sent on the strength of a box an instructor is midway through retyping.
-    */
-    const dirty = targets.filter(
+    const dirtySections = target.sections.filter(
       ({ key }) =>
-        !hasEmptyRow(current.parts[key]) &&
-        ((current.scores[key] ?? null) !== (saved[key]?.score ?? null) ||
-          (current.reports[key] ?? "") !== (saved[key]?.report ?? "")),
+        (current.scores[key] ?? null) !== (saved.sections[key]?.score ?? null) ||
+        (current.reports[key] ?? "") !== (saved.sections[key]?.report ?? ""),
     );
-    if (dirty.length === 0) return;
+    const summaryDirty = hasSummary && current.summary !== saved.summary;
+    if (dirtySections.length === 0 && !summaryDirty) return;
 
     setSavingCount((count) => count + 1);
     try {
       // In parallel — mutations travel unbatched, one request each — and recorded only if every
       // one of them landed, so a half-saved pass stays dirty and the next pass sends it again.
-      await Promise.all(
-        dirty.map((target) => {
-          const report = current.reports[target.key] ?? "";
-          const score = current.scores[target.key] ?? null;
-          const assembled = current.parts[target.key];
-          if (assembled) {
-            /*
-              The server assembles the comment and adds up the score from these, so only the
-              parts travel. Rows put back exactly as the model wrote them assemble the model's own
-              comment, and that withdraws the edit rather than storing a copy of the original.
-            */
-            const unchanged = report === (target.modelReport ?? "");
-            return client.gradingDrafts.updateSection.mutate({
-              sectionId: target.id,
-              reportMarkdown: null,
-              scoreEarned: null,
-              parts: unchanged
-                ? null
-                : {
-                    summaryMarkdown: assembled.summaryMarkdown,
-                    rows: assembled.rows.map((row) => ({
-                      scoreEarned: row.scoreEarned ?? 0,
-                      feedbackMarkdown: row.feedbackMarkdown,
-                    })),
-                  },
-            });
-          }
+      await Promise.all([
+        ...dirtySections.map((section) => {
+          const report = current.reports[section.key] ?? "";
+          const score = current.scores[section.key] ?? null;
           return client.gradingDrafts.updateSection.mutate({
-            sectionId: target.id,
-            // An emptied box also goes as null: the input refuses an empty string, and on a
-            // hand-written section null and "nothing written" are the same fact.
+            sectionId: section.id,
+            // Text put back as the model wrote it withdraws the edit. An emptied box is an
+            // edit of its own, sent as an empty string, so the model's text is not restored
+            // under feedback the instructor removed; on a hand-written section the model
+            // wrote nothing, so an emptied box is the same as no edit.
             reportMarkdown:
-              report.trim() === "" || report.trim() === (target.modelReport ?? "").trim()
+              report.trim() === (section.modelReport ?? "").trim()
                 ? null
-                : report,
-            scoreEarned: score === target.modelScore ? null : score,
+                : report.trim() === ""
+                  ? ""
+                  : report,
+            scoreEarned: score === section.modelScore ? null : score,
           });
         }),
-      );
-      const sent = { ...savedRef.current };
-      for (const target of dirty) {
-        sent[target.key] = {
-          score: current.scores[target.key] ?? null,
-          report: current.reports[target.key] ?? "",
-          parts: current.parts[target.key] ?? null,
+        ...(summaryDirty
+          ? [
+              client.gradingDrafts.updateSummary.mutate({
+                draftId: target.draftId,
+                // Put back exactly as the model wrote it, the edit is withdrawn rather than stored.
+                summaryMarkdown:
+                  current.summary.trim() === (target.modelSummary ?? "").trim()
+                    ? null
+                    : current.summary,
+              }),
+            ]
+          : []),
+      ]);
+      const sent: SavedValues = {
+        summary: summaryDirty ? current.summary : savedRef.current.summary,
+        sections: { ...savedRef.current.sections },
+      };
+      for (const section of dirtySections) {
+        sent.sections[section.key] = {
+          score: current.scores[section.key] ?? null,
+          report: current.reports[section.key] ?? "",
         };
       }
       savedRef.current = sent;
@@ -530,25 +552,11 @@ export function DraftEditor({
     scheduleSave();
   }
 
-  /**
-   * A row-by-row section's new parts, with the score and the comment they add up to.
-   *
-   * The score and the comment are derived here rather than stored by the caller, so the total in
-   * the bar, the dirty check and the score-in-text check need no knowledge of rows.
-   */
-  function writeParts(key: string, next: ReportParts) {
+  function writeSummary(value: string) {
     setArmed(false);
     dirtiedRef.current = true;
-    const nextParts = { ...latest.current.parts, [key]: next };
-    const nextScores = { ...latest.current.scores, [key]: rowTotals(next.rows).earned };
-    const nextReports = {
-      ...latest.current.reports,
-      [key]: composeReport({ sectionType: key, ...next }),
-    };
-    latest.current = { scores: nextScores, reports: nextReports, parts: nextParts };
-    setParts(nextParts);
-    setScores(nextScores);
-    setReports(nextReports);
+    latest.current = { ...latest.current, summary: value };
+    setSummary(value);
     scheduleSave();
   }
 
@@ -562,14 +570,21 @@ export function DraftEditor({
    */
   function scoreSettled() {
     if (draftRef.current === null && !startedRef.current && openFailure === null) {
-      const anything = rows.some(
-        (row) =>
-          (latest.current.scores[row.key] ?? null) !== null ||
-          (latest.current.reports[row.key] ?? "").trim() !== "",
-      );
+      const anything =
+        latest.current.summary.trim() !== "" ||
+        rows.some(
+          (row) =>
+            (latest.current.scores[row.key] ?? null) !== null ||
+            (latest.current.reports[row.key] ?? "").trim() !== "",
+        );
       if (anything) openRound();
     }
     void flushNow().catch(() => {});
+  }
+
+  /** Opening a feedback box or the summary box is what opens a round that does not exist yet. */
+  function boxOpened(open: boolean) {
+    if (open) openRound();
   }
 
   const discard = useMutation(
@@ -589,17 +604,19 @@ export function DraftEditor({
   const dirtyKeys = rows
     .filter(
       (row) =>
-        (scores[row.key] ?? null) !== (lastSaved[row.key]?.score ?? null) ||
-        (reports[row.key] ?? "") !== (lastSaved[row.key]?.report ?? ""),
+        (scores[row.key] ?? null) !== (lastSaved.sections[row.key]?.score ?? null) ||
+        (reports[row.key] ?? "") !== (lastSaved.sections[row.key]?.report ?? ""),
     )
     .map((row) => row.key);
+  const summaryUnsaved = hasSummary && summary !== lastSaved.summary;
   const saving = savingCount > 0;
-  const unsaved = dirtyKeys.length > 0;
+  const unsaved = dirtyKeys.length > 0 || summaryUnsaved;
 
   /*
-    The same check the approval path performs, run here so the instructor sees it while
-    they can still fix it. The server refusing remains the guard — this only moves the
-    news earlier.
+    The same check the approval path performs, run here so the instructor sees it while they
+    can still fix it. The server refusing remains the guard — this only moves the news earlier.
+    A keyed section's heading carries its score, so a score line typed into its text is a second
+    number the student would read, and it has to agree with the box.
   */
   const mismatches = rows.flatMap((row) => {
     const text = reports[row.key] ?? "";
@@ -615,31 +632,43 @@ export function DraftEditor({
     if (recorded === null) return [];
 
     const possible = row.scorePossible ?? 0;
+    // As on release: on a keyed section a line out of some other total is a part score.
+    if (!row.legacy && stated.possible !== possible) return [];
     if (stated.earned === recorded && stated.possible === possible) return [];
 
-    return [{ key: row.key, stated, recorded, possible }];
+    return [{ key: row.key, label: row.label, stated, recorded, possible }];
   });
 
-  const faults = [...new Set(rows.flatMap((row) => row.stored?.flags ?? []))].filter((code) =>
-    ["TEST_RUN_MISSING", "TEST_MATCH_MISSING", "PROTECTED_PATHS_CHANGED"].includes(code),
+  const faults = [
+    ...new Set([...(draft?.flags ?? []), ...rows.flatMap((row) => row.stored?.flags ?? [])]),
+  ].filter((code) =>
+    [
+      "TEST_RUN_MISSING",
+      "TEST_MATCH_MISSING",
+      "PROTECTED_PATHS_CHANGED",
+      "SECTION_MISSING",
+      "SECTION_UNKNOWN",
+      "SECTION_REPEATED",
+    ].includes(code),
   );
 
-  /** Rows whose score box has been emptied, named so the bar can say why release is refused. */
-  const emptyRows = rows.flatMap((row) =>
-    (parts[row.key]?.rows ?? [])
-      .filter((reportRow) => reportRow.scoreEarned === null)
-      .map((reportRow) => `${sectionLabel(row.key)}: ${reportRow.label}`),
-  );
-
-  const anythingTyped = rows.some(
-    (row) => (scores[row.key] ?? null) !== null || (reports[row.key] ?? "").trim() !== "",
-  );
+  const anythingTyped =
+    summary.trim() !== "" ||
+    rows.some(
+      (row) => (scores[row.key] ?? null) !== null || (reports[row.key] ?? "").trim() !== "",
+    );
+  /*
+    An emptied score box is not a score. The save path sends it as a withdrawn edit, which puts
+    the model's number back on the server, so a release from this screen would record a score the
+    instructor had removed from view; the release waits until every box holds a number.
+  */
+  const everyBoxScored = rows.every((row) => (scores[row.key] ?? null) !== null);
   const canApprove =
     !approvalBlocked &&
     mismatches.length === 0 &&
-    emptyRows.length === 0 &&
     totalPossible > 0 &&
     (draft !== null || anythingTyped) &&
+    everyBoxScored &&
     !releasing;
 
   const releaseLabel = submission.team
@@ -704,9 +733,6 @@ export function DraftEditor({
    * what aborts a release that would otherwise go out missing its last edits.
    */
   async function flushForRelease(): Promise<string> {
-    if (Object.values(latest.current.parts).some(hasEmptyRow)) {
-      throw new Error("A question has no score. Give every question a score before releasing.");
-    }
     if (draftRef.current === null) openRound();
     await flushNow();
     const current = draftRef.current;
@@ -732,14 +758,28 @@ export function DraftEditor({
   }
 
   function resetRow(key: string) {
-    const saved = savedRef.current[key] ?? { score: null, report: "", parts: null };
-    if (saved.parts) {
-      writeParts(key, saved.parts);
-      return;
-    }
+    const saved = savedRef.current.sections[key] ?? { score: null, report: "" };
     writeScore(key, saved.score);
     writeReport(key, saved.report);
   }
+
+  /** The comment as it will be posted, from what is on the screen. */
+  const composed = composeRound({
+    summaryMarkdown: hasSummary ? summary : "",
+    sections: rows
+      .filter((row) => !row.legacy)
+      .map((row) => ({
+        label: row.label,
+        heading: row.heading,
+        type: row.type,
+        scoreEarned: scores[row.key] ?? null,
+        scorePossible: row.scorePossible ?? 0,
+        feedbackMarkdown: reports[row.key] ?? "",
+      })),
+  });
+
+  const keyedRows = rows.filter((row) => !row.legacy);
+  const legacyRows = rows.filter((row) => row.legacy);
 
   return (
     <div className="flex flex-col gap-4">
@@ -766,10 +806,11 @@ export function DraftEditor({
       {faults.length > 0 && (
         <Alert variant="destructive">
           <AlertTriangle />
-          <AlertTitle>Check this against the code before approving</AlertTitle>
+          <AlertTitle>Check this against the work before approving</AlertTitle>
           <AlertDescription>
             This report carries {faults.length === 1 ? "a fault flag" : "fault flags"} (
-            {faults.join(", ")}), so its score is not backed by test results.
+            {faults.join(", ")}), so part of it rests on nothing the pipeline could verify, or a
+            section the assignment declares was not scored.
           </AlertDescription>
         </Alert>
       )}
@@ -781,10 +822,10 @@ export function DraftEditor({
           <AlertDescription className="flex flex-col gap-2">
             <p>Change whichever is wrong. Approving is refused until they match.</p>
             <ul className="ml-4 list-disc text-sm">
-              {mismatches.map(({ key, stated, recorded, possible }) => (
+              {mismatches.map(({ key, label, stated, recorded, possible }) => (
                 <li key={key}>
-                  {sectionLabel(key)}: the text says {stated.earned}/{stated.possible}, the score is{" "}
-                  {recorded}/{possible}.
+                  {label}: the text says {stated.earned}/{stated.possible}, the score is {recorded}/
+                  {possible}.
                 </li>
               ))}
             </ul>
@@ -792,59 +833,107 @@ export function DraftEditor({
         </Alert>
       )}
 
-      {emptyRows.length > 0 && (
-        <Alert variant="destructive">
-          <AlertTriangle />
-          <AlertTitle>A question has no score</AlertTitle>
-          <AlertDescription className="flex flex-col gap-2">
-            <p>Releasing is refused, and the report is not saved, until every question has one.</p>
-            <ul className="ml-4 list-disc text-sm">
-              {emptyRows.map((name) => (
-                <li key={name}>{name}</li>
-              ))}
-            </ul>
-          </AlertDescription>
-        </Alert>
-      )}
-
       <div className="flex flex-col gap-4" onKeyDown={armFromKeyboard}>
-        {rows.map((row) => {
-          const assembled = parts[row.key];
-          if (assembled && row.stored) {
-            return (
-              <AssembledSectionEditor
-                key={row.key}
-                section={row.stored}
-                parts={assembled}
-                onParts={(next) => writeParts(row.key, next)}
-                onScoreBlur={scoreSettled}
-                onReset={() => resetRow(row.key)}
-                unsaved={dirtyKeys.includes(row.key)}
-                previewing={previewing}
-              />
-            );
-          }
-          return (
-            <SectionEditor
-              key={row.key}
-              section={row.stored ?? { sectionType: row.key, scorePossible: row.scorePossible }}
-              score={scores[row.key] ?? null}
-              report={reports[row.key] ?? ""}
-              onScore={(value) => writeScore(row.key, value)}
-              onScoreBlur={scoreSettled}
-              onReport={(value) => writeReport(row.key, value)}
-              onReset={() => resetRow(row.key)}
-              unsaved={dirtyKeys.includes(row.key)}
-              /*
-              Opened on the click rather than on the first keystroke, because the box being asked
-              for belongs to the round. With no round yet, asking for the box is what opens one.
-            */
-              onEditingChange={(open) => {
-                if (open) openRound();
-              }}
-            />
-          );
-        })}
+        {/*
+          What the run told the instructor, first, directly under the alerts: a note here can
+          change how everything below it should be read — a file the model never received, an
+          assumption it had to make — and read last it arrives after the instructor has already
+          judged the sections.
+        */}
+        {draft && <RoundNotes notes={draft} />}
+
+        {previewing ? (
+          <Card>
+            <CardContent className="rounded-md border border-border bg-muted/20 p-4">
+              <Markdown content={composed} />
+            </CardContent>
+          </Card>
+        ) : (
+          <>
+            {hasSummary && (
+              <Card>
+                <CardContent>
+                  <SummaryEditor
+                    value={summary}
+                    onChange={writeSummary}
+                    onEditingChange={boxOpened}
+                    unsaved={summaryUnsaved}
+                    onReset={() => writeSummary(savedRef.current.summary)}
+                  />
+                </CardContent>
+              </Card>
+            )}
+
+            {keyedRows.length > 0 && (
+              <Card>
+                <CardContent>
+                  {/*
+                    One bordered list with a divider between sections, rather than a box per
+                    section with a gap between boxes: the sections read as one table, and the
+                    gaps were height every section paid for. `@container` lets each row measure
+                    the list's width rather than the window's, because the grade column can be
+                    dragged narrower — see the tabs in `grading-review.tsx`.
+                  */}
+                  <div className="@container divide-y divide-border rounded-md border border-border">
+                    {keyedRows.map((row, index) => {
+                      const opensHeading =
+                        row.heading !== null && keyedRows[index - 1]?.heading !== row.heading;
+                      const members = opensHeading
+                        ? keyedRows.filter((candidate) => candidate.heading === row.heading)
+                        : [];
+                      const subtotal = opensHeading
+                        ? rowTotals(
+                            members.map((member) => ({
+                              scoreEarned: scores[member.key] ?? null,
+                              scorePossible: member.scorePossible ?? 0,
+                            })),
+                          )
+                        : null;
+                      return (
+                        <React.Fragment key={row.key}>
+                          {subtotal && row.heading !== null && (
+                            <SectionHeadingRow
+                              heading={row.heading}
+                              earned={subtotal.earned}
+                              possible={subtotal.possible}
+                            />
+                          )}
+                          <SectionRow
+                            label={row.label}
+                            possible={row.scorePossible ?? 0}
+                            score={scores[row.key] ?? null}
+                            feedback={reports[row.key] ?? ""}
+                            reasoning={row.stored?.modelReasoning ?? null}
+                            unsaved={dirtyKeys.includes(row.key)}
+                            onScore={(value) => writeScore(row.key, value)}
+                            onScoreBlur={scoreSettled}
+                            onFeedback={(value) => writeReport(row.key, value)}
+                            onEditingChange={boxOpened}
+                          />
+                        </React.Fragment>
+                      );
+                    })}
+                  </div>
+                </CardContent>
+              </Card>
+            )}
+          </>
+        )}
+
+        {legacyRows.map((row) => (
+          <LegacySectionEditor
+            key={row.key}
+            section={row.stored ?? { sectionType: row.key, scorePossible: row.scorePossible }}
+            score={scores[row.key] ?? null}
+            report={reports[row.key] ?? ""}
+            onScore={(value) => writeScore(row.key, value)}
+            onScoreBlur={scoreSettled}
+            onReport={(value) => writeReport(row.key, value)}
+            onReset={() => resetRow(row.key)}
+            unsaved={dirtyKeys.includes(row.key)}
+            onEditingChange={boxOpened}
+          />
+        ))}
       </div>
 
       {/*
@@ -873,11 +962,11 @@ export function DraftEditor({
           <div className="flex flex-col">
             <span className="text-xs text-muted-foreground">Total</span>
             {/*
-                  Whether the score clears the completion threshold is said in its colour
-                  rather than in a badge beside it: green at or above, red below. The classes
-                  come from `completionMeta`, so this pane, the queue, and the student's own
-                  page use the same green and the same red to mean the same thing.
-                */}
+              Whether the score clears the completion threshold is said in its colour
+              rather than in a badge beside it: green at or above, red below. The classes
+              come from `completionMeta`, so this pane, the queue, and the student's own
+              page use the same green and the same red to mean the same thing.
+            */}
             <span
               className={cn(
                 "text-lg font-semibold tabular-nums",
@@ -889,10 +978,10 @@ export function DraftEditor({
             </span>
           </div>
           {/*
-                What the autosave is doing, said quietly beside the number it protects — and only
-                while something is actually happening: each section's own icon already says saved,
-                so a "Saved" here would say it twice.
-              */}
+            What the autosave is doing, said quietly beside the number it protects — and only
+            while something is actually happening: each section's own icon already says saved,
+            so a "Saved" here would say it twice.
+          */}
           {saving ? (
             <span className="flex items-center gap-1 text-xs text-muted-foreground">
               <Loader2 className="size-3 animate-spin" />
@@ -904,11 +993,11 @@ export function DraftEditor({
             </span>
           ) : null}
           {/*
-                Every member named, not counted. This is the last moment before several people are
-                given a grade, and a count cannot show a team whose membership is wrong — which is
-                exactly the mistake worth catching here, since fixing it afterwards means
-                correcting several released grades rather than one.
-              */}
+            Every member named, not counted. This is the last moment before several people are
+            given a grade, and a count cannot show a team whose membership is wrong — which is
+            exactly the mistake worth catching here, since fixing it afterwards means
+            correcting several released grades rather than one.
+          */}
           {armed && submission.team && (
             <span className="max-w-sm text-xs text-muted-foreground">
               Releases to {listNames(submission.team.members)}.
@@ -917,31 +1006,31 @@ export function DraftEditor({
         </div>
 
         {/*
-            Every row-by-row section's comment as it will be posted, in place of its rows. In the
-            bar rather than on each card, because reading what the student will receive is the
-            last thing an instructor does before releasing it. It stays while the release is
-            armed, because a press inside the bar does not cancel the release.
-          */}
-        {rows.some((row) => parts[row.key]) && (
+          The comment as it will be posted, in place of the boxes. In the bar rather than on each
+          card, because reading what the student will receive is the last thing an instructor
+          does before releasing it. It stays while the release is armed, because a press inside
+          the bar does not cancel the release.
+        */}
+        {keyedRows.length > 0 && (
           <Button
             variant="ghost"
             className="order-2 @2xl:order-3"
             onClick={() => setPreviewing((open) => !open)}
           >
             {previewing ? <Pencil data-icon="inline-start" /> : <Eye data-icon="inline-start" />}
-            {previewing ? "Edit rows" : "Preview comment"}
+            {previewing ? "Edit sections" : "Preview comment"}
           </Button>
         )}
         <div className="order-3 flex w-full items-center gap-2 @2xl:contents">
           {/*
-                The way out, beside the way on. A round opened and then not wanted — a correction
-                to a grade that turned out to be right, a report an instructor would rather write
-                themselves — otherwise had no exit but approving something, and approving a
-                correction nobody needed sends a student a second comment for no reason.
+            The way out, beside the way on. A round opened and then not wanted — a correction
+            to a grade that turned out to be right, a report an instructor would rather write
+            themselves — otherwise had no exit but approving something, and approving a
+            correction nobody needed sends a student a second comment for no reason.
 
-                Discarding hides the round everywhere an instructor looks. The row itself stays,
-                which is why the message says nothing was sent rather than nothing was kept.
-              */}
+            Discarding hides the round everywhere an instructor looks. The row itself stays,
+            which is why the message says nothing was sent rather than nothing was kept.
+          */}
           {draft && !armed && (
             <Button
               variant="ghost"
@@ -954,18 +1043,18 @@ export function DraftEditor({
             </Button>
           )}
           {/*
-                Two presses where a dialog used to stand. The first arms the button and renames it
-                to say exactly what the second does and to whom; the second releases and the queue
-                moves on without waiting for the reply.
-              */}
+            Two presses where a dialog used to stand. The first arms the button and renames it
+            to say exactly what the second does and to whom; the second releases and the queue
+            moves on without waiting for the reply.
+          */}
           <div className="ml-auto flex items-center gap-2 @2xl:order-4">
             {armed ? (
               <>
                 {/*
-                The way to stand the button down, visible. Escape and a click elsewhere both
-                cancel too, but an armed destructive button whose only exits are invisible asks
-                the instructor to already know them.
-              */}
+                  The way to stand the button down, visible. Escape and a click elsewhere both
+                  cancel too, but an armed destructive button whose only exits are invisible asks
+                  the instructor to already know them.
+                */}
                 <Button
                   variant="ghost"
                   size="icon"
@@ -980,10 +1069,10 @@ export function DraftEditor({
                   variant="destructive"
                   onClick={releaseNow}
                   /*
-                  A held Enter repeats, and focus arrives here while the Enter of Ctrl+Enter may
-                  still be down — so a repeat would release with no second press at all. Only a
-                  fresh press counts.
-                */
+                    A held Enter repeats, and focus arrives here while the Enter of Ctrl+Enter may
+                    still be down — so a repeat would release with no second press at all. Only a
+                    fresh press counts.
+                  */
                   onKeyDown={(event) => {
                     if (event.key === "Enter" && event.repeat) event.preventDefault();
                   }}

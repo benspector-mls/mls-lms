@@ -94,6 +94,9 @@ describe("undeliveredApprovalWhere", () => {
 
 describe("effectiveSection", () => {
   const model = {
+    sectionKey: null,
+    label: null,
+    heading: null,
     sectionType: "short_response",
     reportMarkdown: "model text",
     scoreEarned: 9,

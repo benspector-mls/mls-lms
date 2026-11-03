@@ -64,9 +64,10 @@ the answer key.
 
 ## Arithmetic
 
-The section's score is the sum of your \`rubricItems\`, added up by the application.
-Their \`scorePossible\` values must add up exactly to the section's point value, and no
-row may score more than its own \`scorePossible\`. Both are verified.
+The sections you are asked to score are listed below by key, each with what it is worth.
+Return exactly one entry in \`sections\` per key — no key left out, no key invented, no
+key twice — and give no section more than its points. The round's score is the sum of
+your sections, added up by the application. All of this is verified.
 
 **Band scores are whole numbers. Checklist scores may be halved.** The two scales work
 differently and the rule follows from that.
@@ -176,93 +177,79 @@ documentation URLs are worse than no links at all. Omit the section entirely.
 `.trim();
 
 /**
- * Section-specific scoring arithmetic that the rubric states in prose and that is
- * easy to get subtly wrong.
+ * How the sections of each type are scored: the rubric states it in prose, and these are the
+ * parts of it that are easy to get subtly wrong. The sections themselves are listed in the user
+ * half of the prompt, by key, with what each is worth.
  */
 const SECTION_RULES: Record<SectionType, string> = {
   short_response: `
-## Scoring this section
+## Scoring these sections
 
-The Writing Quality score is a **single score out of 3 for the whole submission**,
-not per question. The total is therefore:
-
-> (3 technical points x number of questions) + 3 writing points
-
-A four-question assignment is out of 15, and a one-question assignment is out of 6.
-Put the writing score in \`rubricItems\` as one entry with
-\`criterion: "writing_quality"\` and the label \`Writing Quality Score (Entire
-Assignment)\`, placed last. Give each question its own entry with
-\`criterion: "technical"\` and a label of the form \`Question 3: Flexbox vs. CSS Grid\`.
-Set \`group\` to null on every entry.
-
-**Every short response report has exactly one writing entry, whatever the number of
-questions.** A one-question submission has two entries: the question's technical score
-and the writing score, even though both describe the same answer. Leaving the writing
-entry out scores the section out of 3 when it is worth 6. Do not add a writing score
-to each question as well — that inflates the denominator.
+Each question is one section, scored against the **Technical Score** band out of the points
+listed for it. The **Writing Quality** section is a single score out of its points for the
+whole submission, not per question: the same answer is read once for its content and once,
+with every other answer, for its writing.
 
 Markdown that does not render (a wrong code fence language, escaped characters) is a
-**writing** deduction, never a technical one. If the underlying content is correct,
-the technical score stands — deduct from writing and raise \`MARKDOWN\`.
+**writing** deduction, never a technical one. If the underlying content is correct, the
+question's score stands — deduct from the Writing Quality section and raise \`MARKDOWN\`.
 
-This section carries both scores, so both groups of flags are available to it. A
-submission with obvious typos is still graded; \`MECHANICAL\` is what tells an
-instructor to ask for a clean resubmission.
+A submission with obvious typos is still graded; \`MECHANICAL\` is what tells an instructor
+to ask for a clean resubmission.
+`.trim(),
+
+  /*
+    Never sent. The writing section is a companion of `short_response`, filled by that call
+    beside the questions; the rules above already tell the model how its score is made. The
+    entry exists because every section type needs one here, and refusing at the call is clearer
+    than a prompt that reads as if it were meant.
+  */
+  short_response_writing: `
+## Scoring these sections
+
+This section is never graded on its own. It is scored by the short response call beside the
+questions.
 `.trim(),
 
   coding_algorithm: `
-## Scoring this section
+## Scoring these sections
 
-**Each question is worth 3 points, scored as a single number.** Give each question one
-entry in \`rubricItems\` with \`criterion: "algorithm"\`, \`scorePossible: 3\`, a
-label of the form \`Question 2: is_even\`, and \`group\` set to null — even where the
-README lists questions under headings such as "Modify Questions". Ten questions means a
-30-point assignment.
+Each exercise is one section, scored as a single number out of the points listed for it.
 
-Code style is **part of that one score**, not a separate line item. The rubric's bands
-fold it in: a 3 requires clean code as well as passing tests, and linting errors or poor
-variable names pull the question down a band even when the tests pass. Do not add a
-separate code style entry — that inflates the denominator.
+Code style is **part of that one score**, not a separate deduction elsewhere. The rubric's
+bands fold it in: full marks require clean code as well as passing tests, and linting errors
+or poor variable names pull the exercise down a band even when the tests pass.
 
 **Commented-out code never costs points, and the report does not mention it.** Executed
 code that nothing reads costs points only when it changes the program's behaviour or
-contradicts what the question asks for; otherwise note it in a bullet labelled
-\`Note (not scored)\` under the row of the function it sits closest to, and never in
+contradicts what the exercise asks for; otherwise note it in a bullet labelled
+\`Note (not scored)\` under the section of the exercise it sits closest to, and never in
 \`summaryMarkdown\`.
 
-A question the student did not attempt scores 0.
+An exercise the student did not attempt scores 0.
 `.trim(),
 
   coding_sql: `
-## Scoring this section
+## Scoring these sections
 
-Each numbered query task is worth 1 point, awarded only when the query runs and
-produces the expected rows, columns, and ordering. Give each task its own entry in
-\`rubricItems\` with \`criterion: "query_task"\`, a label of the form
-\`Task 3: customers with no orders\`, and \`group\` set to null.
+Each query task is one section, awarded its points only when the query runs and produces the
+expected rows, columns, and ordering.
 `.trim(),
 
   coding_frontend: `
-## Scoring this section
+## Scoring these sections
 
-This section is checklist-based. Give each checklist item its own entry in
-\`rubricItems\` with \`criterion: "checklist"\`. Its \`label\` is the item copied
-**verbatim** from the assignment README — do not paraphrase the requirement, and do not
-fold your grading note into it. Its \`group\` is the README section the item is listed
-under, written as \`Section 3: Fetch Helpers\`, identical for every item in that
-section. The application writes each item as a checkbox under its section's heading,
-ticked when the item earns full marks.
+Each checklist item is one section. The application writes each item as a checkbox under its
+heading, ticked when the item earns full marks.
 
-Only write \`feedbackMarkdown\` where there is a deviation: a bug, missing behaviour, or
-a style issue, as bullets such as \`- Half Credit: …\` or \`- Note: …\`. A correctly
-implemented item has empty \`feedbackMarkdown\`. For an item that was clearly not
-attempted, write \`- Note: not attempted\` rather than a longer explanation.
+Only write \`feedbackMarkdown\` where there is a deviation: a bug, missing behaviour, or a
+style issue, as bullets such as \`- Half Credit: …\` or \`- Note: …\`. A correctly
+implemented item has empty \`feedbackMarkdown\`. For an item that was clearly not attempted,
+write \`- Note: not attempted\` rather than a longer explanation.
 
-Award half credit when one checklist item bundles two distinguishable requirements and
-the student satisfied only one. Do not force a binary 0 or 1 onto an item that is
-really two requirements in one box.
-
-The score is the number of satisfied items over the total number of items.
+Award half credit when one checklist item bundles two distinguishable requirements and the
+student satisfied only one. Do not force a binary 0 or 1 onto an item that is really two
+requirements in one box.
 `.trim(),
 };
 
@@ -305,24 +292,25 @@ export function buildSystemPrompt(params: {
     "",
     "You do not write the report as one document. You return its parts, and the",
     "application assembles them into the comment the student reads. It writes the title",
-    "with the total, the `---` rule after the summary, one `##` heading per row carrying",
-    "that row's score, and the checkboxes of a checklist. Never write a title, a heading,",
-    "or a score into any field: the application adds every one of them, and a score you",
-    "wrote would appear twice.",
+    "with the total, the `---` rule after the summary, one heading per section carrying",
+    "that section's label and score, and the checkboxes of a checklist. Never write a",
+    "title, a heading, a label or a score into any field: the application adds every one",
+    "of them, and a score you wrote would appear twice.",
     "",
-    "- `summaryMarkdown` is the opening the student reads before the first scored row:",
+    "- `summaryMarkdown` is the opening the student reads before the first scored section:",
     "  the three beats the tone rules describe (what they showed, the one thing to focus",
     "  on, why it is within reach) and the closing line that points down.",
-    "- Each entry in `rubricItems` is one scored row. `label` is its heading without the",
-    "  score. `feedbackMarkdown` is what the student reads beneath that heading, as",
-    "  bullets, and is empty when there is nothing to say. `modelReasoning` is why you",
-    "  gave the score, written for the instructor reviewing your draft — it is shown",
-    "  beside the feedback and never posted.",
+    "- Each entry in `sections` scores one of the sections listed in the submission, by",
+    "  its `key`. `feedbackMarkdown` is what the student reads beneath that section's",
+    "  heading, as bullets, and is empty when there is nothing to say. `modelReasoning` is",
+    "  why you gave the score, written for the instructor reviewing your draft — it is",
+    "  shown beside the feedback and never posted.",
     "",
     "The sample below is a finished report, showing what these parts become once",
-    "assembled. Match its tone, its ordering and its level of detail: one row per graded",
-    "item, with notes beneath the specific row they concern rather than collected at the",
-    "end. Its title, headings and scores are written by the application, not by you.",
+    "assembled. Match its tone, its ordering and its level of detail: one heading per",
+    "graded section, with notes beneath the specific section they concern rather than",
+    "collected at the end. Its title, headings and scores are written by the application,",
+    "not by you.",
     "",
     params.assets.sampleReport,
     "",
@@ -350,20 +338,16 @@ export type SubmissionContext = {
   teamName: string | null;
   assignmentTitle: string;
   /**
-   * The assignment's recorded maximum, or null when it has none.
+   * The sections this call scores, as the assignment declares them, in order.
    *
-   * What **this section** is worth, not the assignment total. A checkpoint's short
-   * response and coding sections are scored against different rubrics with different
-   * maximums, and each is a separate call producing a separate report.
-   *
-   * Required, because without it the model derives a scale from the rubric and the
-   * number of questions it can see, and reasonable readings disagree — one run scored
-   * a 13-test assignment out of 40 while the assignment record said 12. Both are
-   * internally consistent, so the arithmetic check cannot catch it; only telling the
-   * model the denominator can. `generate-report.ts` refuses to call a section that
-   * has no point value rather than passing null through to here.
+   * Listed by key with what each is worth, because without the maximums the model derives a
+   * scale from the rubric and the number of questions it can see, and reasonable readings
+   * disagree — one run scored a 13-test assignment out of 40 while the assignment record said
+   * 12. A checkpoint's short response and coding sections are scored against different rubrics
+   * in separate calls, so a call sees only its own sections. `generate-report.ts` refuses to
+   * call a section with no point value rather than passing one through to here.
    */
-  pointValue: number;
+  sections: PromptSection[];
   /** The assignment's README, which carries the verbatim checklists. */
   readme: string | null;
   /** Path and contents of each file the pull request changed. */
@@ -383,6 +367,19 @@ export type SubmissionContext = {
    * and cannot say which of the earlier requests are still open.
    */
   previousReview: PreviousReview | null;
+};
+
+/** One section as the prompt lists it: what to call it, what it is worth, and what it scores. */
+export type PromptSection = {
+  key: string;
+  label: string;
+  /** The heading it sits under in the README or the rubric, or null. */
+  heading: string | null;
+  pointValue: number;
+  /** The skill it is tagged with, by name, or null when the assignment names none. */
+  skill: string | null;
+  /** The names of the tests that count toward this section alone, or null when none are named. */
+  tests: string[] | null;
 };
 
 export type PreviousReview = {
@@ -441,10 +438,10 @@ function previousReviewBlock(review: PreviousReview): string[] {
     "",
     "## Previous review",
     "",
-    `This is a resubmission. The student has already received ${name} of this section${commit}` +
+    `This is a resubmission. The student has already received ${name} of this work${commit}` +
       `${score}. It is reproduced below exactly as the student read it, followed by the changes ` +
-      `they have made to this section's files since then. The rules for grading a resubmission ` +
-      `are in your instructions.`,
+      `they have made to these sections' files since then. The rules for grading a ` +
+      `resubmission are in your instructions.`,
     "",
     `### ${name}, as the student read it`,
     "",
@@ -506,6 +503,35 @@ function previousReviewBlock(review: PreviousReview): string[] {
     }
   }
 
+  return lines;
+}
+
+/**
+ * The sections this call scores, as the lines that list them.
+ *
+ * Exported so the list can be read in a test without building a whole prompt. The total is
+ * stated as well as the parts, because a model told the parts alone has been seen to derive a
+ * total of its own and scale the parts to fit it.
+ */
+export function sectionsBlock(sections: PromptSection[]): string[] {
+  const total = sections.reduce((sum, section) => sum + section.pointValue, 0);
+  const lines = [
+    `**Score these ${sections.length === 1 ? "section" : `${sections.length} sections`}, ` +
+      `worth ${total} points in total.** Return one entry in \`sections\` per key below, ` +
+      `exactly once, with \`scoreEarned\` between 0 and the section's points. The label and ` +
+      `the points are written by the application, so do not repeat them. Other sections of ` +
+      `this assignment are graded separately and are not your concern.`,
+    "",
+  ];
+  for (const section of sections) {
+    const parts = [`${section.pointValue} point${section.pointValue === 1 ? "" : "s"}`];
+    if (section.skill) parts.push(`skill: ${section.skill}`);
+    if (section.tests && section.tests.length > 0) {
+      parts.push(`tests: ${section.tests.map((name) => `"${name}"`).join(", ")}`);
+    }
+    const where = section.heading ? `${section.heading} › ` : "";
+    lines.push(`- \`${section.key}\` — ${where}${section.label} (${parts.join("; ")})`);
+  }
   return lines;
 }
 
@@ -572,9 +598,10 @@ export function addressBlock(context: SubmissionContext): string[] {
       `wrong person is worse than one that names nobody.`,
   );
   /*
-    Load-bearing. `rubricItems[].criterion` is free text, so a model told "four students" invents
-    a row per member. Those rows still sum, so `crossCheck` passes them, and a per-member
-    breakdown reaches the students under one shared score.
+    This sentence is what stops a per-member breakdown reaching the feedback. A model told
+    "four students" has been seen to invent a score per member. The sections list fixes what is
+    scored, so an invented member row is now a key the cross-check names; the prose is the
+    other place such a breakdown could appear, and this is what keeps it out.
   */
   lines.push(
     `One score for the submission. It is recorded as the same grade for every member, so do not ` +
@@ -611,13 +638,7 @@ export function buildUserPrompt(params: {
   parts.push(...addressBlock(context));
   parts.push("");
 
-  parts.push(
-    `**This section is out of ${context.pointValue} points.** The \`scorePossible\` ` +
-      `values of your \`rubricItems\` must add up to exactly ${context.pointValue}. Do not ` +
-      `derive your own scale from the number of questions — use this number. This is ` +
-      `what this section alone is worth; other sections of this assignment are graded ` +
-      `separately and are not your concern.`,
-  );
+  parts.push(...sectionsBlock(context.sections));
   parts.push("");
 
   // The process note is a rule from agent-rules.md: work that did not come from a

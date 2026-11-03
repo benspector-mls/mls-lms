@@ -1,5 +1,7 @@
 import type { Prisma } from "../generated/prisma/client";
 
+import { sectionLabel } from "../status";
+
 /**
  * Everything approval decides before it writes anything.
  *
@@ -88,6 +90,12 @@ export function deliveryOutcome(
 
 /** A section as it stands: the instructor's edit where there is one, else the model's. */
 export type EffectiveSection = {
+  /** The declared section's key, or null on a section written before sections had keys. */
+  sectionKey: string | null;
+  /** The declared section's label, or null on a section written before sections had labels. */
+  label: string | null;
+  /** The heading the section was graded under, or null for one with none or stored before headings. */
+  heading: string | null;
   sectionType: string;
   reportMarkdown: string | null;
   scoreEarned: number | null;
@@ -101,6 +109,9 @@ export type EffectiveSection = {
  * so `||` would silently restore the model's score every time an instructor zeroed a section.
  */
 export function effectiveSection(section: {
+  sectionKey?: string | null;
+  label?: string | null;
+  heading?: string | null;
   sectionType: string;
   reportMarkdown: string | null;
   scoreEarned: number | null;
@@ -109,11 +120,19 @@ export function effectiveSection(section: {
   editedScoreEarned?: number | null;
 }): EffectiveSection {
   return {
+    sectionKey: section.sectionKey ?? null,
+    label: section.label ?? null,
+    heading: section.heading ?? null,
     sectionType: section.sectionType,
     reportMarkdown: section.editedReportMarkdown ?? section.reportMarkdown,
     scoreEarned: section.editedScoreEarned ?? section.scoreEarned,
     scorePossible: section.scorePossible,
   };
+}
+
+/** What a section is called in a message: its label, or for a section written before labels its type. */
+export function sectionName(section: { label?: string | null; sectionType: string }): string {
+  return section.label ?? sectionLabel(section.sectionType);
 }
 
 /**
@@ -144,20 +163,27 @@ export function effectiveSection(section: {
  * database or a GitHub client behind it.
  */
 export function blankSectionRefusal(
-  sections: { sectionType: string; reportMarkdown: string | null; scoreEarned: number | null }[],
+  sections: {
+    label?: string | null;
+    sectionType: string;
+    reportMarkdown: string | null;
+    scoreEarned: number | null;
+  }[],
   options: {
     /**
      * Whether this submission has a pull request to post the feedback comment to.
      * `hasSomewhereToPost` above is what answers it at the call site.
      */
     hasPullRequest: boolean;
+    /** The round's summary, which is feedback too: a round with one is not blank. */
+    summaryMarkdown?: string | null;
   },
 ): string | null {
   const noScore = sections.filter((section) => section.scoreEarned === null);
 
   if (noScore.length > 0) {
     const named =
-      `${noScore.map((section) => `"${section.sectionType}"`).join(", ")} ` +
+      `${noScore.map((section) => `"${sectionName(section)}"`).join(", ")} ` +
       `${noScore.length === 1 ? "has" : "have"}`;
 
     return (
@@ -167,7 +193,11 @@ export function blankSectionRefusal(
     );
   }
 
-  if (options.hasPullRequest && sections.every((section) => !section.reportMarkdown?.trim())) {
+  if (
+    options.hasPullRequest &&
+    !options.summaryMarkdown?.trim() &&
+    sections.every((section) => !section.reportMarkdown?.trim())
+  ) {
     return (
       `Every section is blank, and this grade posts a comment to the pull request — which is ` +
       `where the student reads their feedback, so an empty one tells them nothing. Write ` +

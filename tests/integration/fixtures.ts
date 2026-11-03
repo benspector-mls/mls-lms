@@ -224,7 +224,9 @@ export async function makeAssignment(
       distributedAt: options.published === false ? null : new Date("2026-01-02T09:00:00Z"),
       sections:
         options.sections ??
-        (kind === "TASK" ? [] : [{ grading: "manual", label: "Overall", pointValue }]),
+        (kind === "TASK"
+          ? []
+          : [{ grading: "manual", key: "overall", label: "Overall", pointValue }]),
       teamSetId: options.teamSetId ?? null,
       studentMayMarkDone: options.studentMayMarkDone ?? (kind === "TASK" ? true : null),
     },

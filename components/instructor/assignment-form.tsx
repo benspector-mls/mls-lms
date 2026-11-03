@@ -15,7 +15,12 @@ import {
 } from "lucide-react";
 import { toast } from "sonner";
 
-import { Field, SectionEditor, type SectionDraft } from "@/components/instructor/section-editor";
+import {
+  Field,
+  SectionList,
+  withCompanions,
+  type SectionDraft,
+} from "@/components/instructor/section-editor";
 import { studentRepoName } from "@/lib/courses/course-slug";
 import { Markdown } from "@/components/markdown";
 import { MarkdownEditor } from "@/components/markdown-editor";
@@ -24,6 +29,14 @@ import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+  Dialog,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import {
   Select,
@@ -56,6 +69,7 @@ import {
   type SchoolClock,
   type SchoolDay,
 } from "@/lib/school-time";
+import { hasUnconvertedSections, newSectionKey, withDerivedFields } from "@/lib/assignments/spec";
 import { SECTION_TYPE_REGISTRY } from "@/lib/section-types";
 import type { AssignmentKind, HandInMethod } from "@/lib/generated/prisma/enums";
 import { NO_RUNNER, RUNNER_PRESETS } from "@/lib/sandbox/presets";
@@ -68,7 +82,7 @@ import {
   UPLOAD_FILE_TYPES,
   type UploadFileTypeKey,
 } from "@/lib/uploads/file-types";
-import { useTRPC } from "@/trpc/client";
+import { useTRPC, useTRPCClient } from "@/trpc/client";
 import type { RouterOutputs } from "@/trpc/types";
 
 /**
@@ -364,7 +378,7 @@ export function AssignmentForm({
   if (context.isPending) return <FormSkeleton />;
   if (context.error) {
     return (
-      <div className="mx-auto w-full max-w-3xl p-4 md:p-6">
+      <div className="mx-auto w-full max-w-5xl p-4 md:p-6">
         <Alert variant="destructive">
           <AlertTriangle />
           <AlertTitle>Could not open the form</AlertTitle>
@@ -699,16 +713,46 @@ function Editor({
     }),
   );
   /*
+    Saving an existing assignment first asks what the new tags would change about rounds already
+    graded. Nothing to report means the save goes straight through; otherwise the question below
+    is put to the instructor, and the save carries their answer.
+  */
+  const client = useTRPCClient();
+  const [checking, setChecking] = React.useState(false);
+  const [retag, setRetag] = React.useState<{
+    draft: unknown;
+    impact: RouterOutputs["assignments"]["retagImpact"];
+  } | null>(null);
+  async function saveExisting() {
+    if (!state || !existing) return;
+    const draft = toDraft(state);
+    setChecking(true);
+    try {
+      const impact = await client.assignments.retagImpact.mutate({
+        assignmentId: existing.id,
+        sections: state.sections,
+      });
+      if (impact.length === 0) update.mutate({ assignmentId: existing.id, draft });
+      else setRetag({ draft, impact });
+    } catch (error) {
+      toast.error(error instanceof Error ? error.message : "Could not check the graded rounds.");
+    } finally {
+      setChecking(false);
+    }
+  }
+  /*
     No `onError` of its own: a failure here is reported by `createAssignment` together with the
     fact that the assignment was created anyway, which is the part the instructor needs to know.
   */
   const publish = useMutation(trpc.assignments.publish.mutationOptions({}));
 
-  const busy = create.isPending || update.isPending || publish.isPending;
+  const busy = create.isPending || update.isPending || publish.isPending || checking;
   // Deliberately not "no errors": a draft the server has not seen yet has no findings, which
   // is not the same as being valid. Saving is refused until the settled draft has been checked.
   const checked = settled === state && validation.isSuccess;
-  const canSave = state !== null && checked && errors.length === 0 && !busy;
+  /** True for an assignment stored before sections were scored units, which only `convert:sections` may save. */
+  const unconverted = existing !== undefined && hasUnconvertedSections(existing.sections);
+  const canSave = state !== null && checked && errors.length === 0 && !busy && !unconverted;
 
   const pointTotal = (state?.sections ?? []).reduce(
     (total, section) => total + (Number.isFinite(section.pointValue) ? section.pointValue : 0),
@@ -764,7 +808,7 @@ function Editor({
   const hasManualSection = (state?.sections ?? []).some((section) => section.grading === "manual");
 
   return (
-    <div className="mx-auto flex w-full max-w-3xl flex-col gap-6 p-4 md:p-6">
+    <div className="mx-auto flex w-full max-w-5xl flex-col gap-6 p-4 md:p-6">
       <PageHeader
         title={existing ? `Edit ${existing.title}` : "New assignment"}
         /*
@@ -1196,14 +1240,7 @@ function Editor({
                     }}
                   />
                 </Field>
-                <Field
-                  label="Due time"
-                  hint={
-                    state.dueAt
-                      ? "New York time."
-                      : "Set a date first."
-                  }
-                >
+                <Field label="Due time" hint={state.dueAt ? "New York time." : "Set a date first."}>
                   <Input
                     type="time"
                     disabled={state.dueAt === null}
@@ -1466,34 +1503,25 @@ function Editor({
                   </Field>
                 )}
 
-                {state.sections.map((section, index) => (
-                  <SectionEditor
-                    key={index}
-                    section={section}
-                    index={index}
-                    rubrics={context.rubrics}
-                    findings={findings}
-                    hasRunner={state.runnerPreset !== NO_RUNNER}
-                    onChange={(next) =>
-                      setState({
-                        ...state,
-                        sections: state.sections.map((old, i) => (i === index ? next : old)),
-                      })
-                    }
-                    onRemove={() =>
-                      setState({
-                        ...state,
-                        sections: state.sections.filter((_, i) => i !== index),
-                      })
-                    }
-                  />
-                ))}
-
-                {fieldFindings("sections").map((finding, index) => (
-                  <p key={index} className="text-xs text-destructive">
-                    {finding.message}
-                  </p>
-                ))}
+                <SectionList
+                  sections={state.sections}
+                  rubrics={context.rubrics}
+                  skillGroups={context.skillGroups}
+                  findings={findings}
+                  hasRunner={state.runnerPreset !== NO_RUNNER}
+                  courseId={courseId}
+                  title={state.title}
+                  template={
+                    isRepoKind(state.kind)
+                      ? {
+                          templateRepo: state.templateRepo,
+                          templateRef: state.templateRef,
+                          runnerPreset: state.runnerPreset,
+                        }
+                      : null
+                  }
+                  onChange={(sections) => setState({ ...state, sections })}
+                />
 
                 {/*
                 One grading mode per assignment. A mixed assignment is refused by the schema —
@@ -1581,6 +1609,18 @@ function Editor({
 
           <Findings errors={errors} warnings={warnings} checking={!checked} />
 
+          {unconverted && (
+            <Alert variant="destructive">
+              <AlertTriangle />
+              <AlertTitle>This assignment has not been converted yet</AlertTitle>
+              <AlertDescription>
+                Its sections are from before sections were scored units. Saving it here would give
+                them new keys and detach every round graded under them, so saving is off until
+                convert:sections has run.
+              </AlertDescription>
+            </Alert>
+          )}
+
           {/*
             At the end, after every field it commits and after the findings that say why it is
             disabled.
@@ -1598,13 +1638,7 @@ function Editor({
           */}
           <div className="flex flex-wrap items-center justify-end gap-2">
             {existing ? (
-              <Button
-                disabled={!canSave}
-                onClick={() => {
-                  if (!state) return;
-                  update.mutate({ assignmentId: existing.id, draft: toDraft(state) });
-                }}
-              >
+              <Button disabled={!canSave} onClick={() => void saveExisting()}>
                 {busy ? (
                   <Loader2 data-icon="inline-start" className="animate-spin" />
                 ) : (
@@ -1644,6 +1678,66 @@ function Editor({
           </div>
         </>
       )}
+
+      {/*
+        Put once, at the save, because it is the one moment the two readings part. A round
+        section's skill is what its score was evidence of when it was graded; the declaration's
+        new tag is what future rounds will be evidence of. Applying makes the past follow the
+        present, which is right when the old tag was a mistake; keeping is right when the
+        taxonomy's reading changed. Applying is the default because a corrected mistake is the
+        commoner reason to re-tag.
+      */}
+      <Dialog open={retag !== null} onOpenChange={(open) => !open && setRetag(null)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Apply the new skills to graded rounds?</DialogTitle>
+            <DialogDescription>
+              These sections are tagged differently from when their rounds were graded. Applying
+              changes what those rounds count toward on the Skills tabs. Keeping leaves each round
+              under the skill it was graded as evidence of, and only new rounds take the new tag.
+            </DialogDescription>
+          </DialogHeader>
+          <ul className="flex flex-col gap-1 text-sm">
+            {retag?.impact.map((entry) => (
+              <li key={entry.key} className="flex flex-wrap items-baseline gap-x-2">
+                <span className="font-medium">{entry.label}</span>
+                <span className="text-muted-foreground">
+                  {entry.from ?? "Nothing"} to {entry.to ?? "Nothing"},{" "}
+                  {entry.gradedSections === 1
+                    ? "1 graded section"
+                    : `${entry.gradedSections} graded sections`}
+                </span>
+              </li>
+            ))}
+          </ul>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => {
+                if (!retag || !existing) return;
+                update.mutate({
+                  assignmentId: existing.id,
+                  draft: retag.draft,
+                  retagRounds: false,
+                });
+                setRetag(null);
+              }}
+            >
+              Keep them as graded
+            </Button>
+            <Button
+              autoFocus
+              onClick={() => {
+                if (!retag || !existing) return;
+                update.mutate({ assignmentId: existing.id, draft: retag.draft, retagRounds: true });
+                setRetag(null);
+              }}
+            >
+              Apply to graded rounds
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }
@@ -1913,7 +2007,7 @@ function AnswerKeyBrowser({
 
 function FormSkeleton() {
   return (
-    <div className="mx-auto flex w-full max-w-3xl flex-col gap-4 p-4 md:p-6">
+    <div className="mx-auto flex w-full max-w-5xl flex-col gap-4 p-4 md:p-6">
       <Skeleton className="h-10 w-64" />
       <Skeleton className="h-40 w-full" />
       <Skeleton className="h-64 w-full" />
@@ -1936,6 +2030,8 @@ function aiSection({ rubrics }: { rubrics: { id: string; name: string }[] }): Se
   const type = "coding_algorithm" as const;
   return {
     grading: "ai",
+    key: newSectionKey(),
+    label: "",
     type,
     pointValue: DEFAULT_POINT_VALUE,
     rubricId: rubrics.find((r) => r.name === SECTION_TYPE_REGISTRY[type].rubricName)?.id ?? "",
@@ -1952,7 +2048,12 @@ function aiSection({ rubrics }: { rubrics: { id: string; name: string }[] }): Se
  * renames each for what it is.
  */
 function manualSection(): SectionDraft {
-  return { grading: "manual", label: "Total Score", pointValue: DEFAULT_POINT_VALUE };
+  return {
+    grading: "manual",
+    key: newSectionKey(),
+    label: "Total Score",
+    pointValue: DEFAULT_POINT_VALUE,
+  };
 }
 
 /**
@@ -2119,7 +2220,12 @@ function fromDraft(draft: Draft): FormState {
     acceptedFileTypes: (draft.acceptedFileTypes ?? []).filter(isUploadFileTypeKey),
     submissionInstructions: draft.submissionInstructions ?? "",
     teamSetId: draft.teamSetId ?? null,
-    sections: (draft.sections as SectionDraft[]) ?? [],
+    // Keys and labels a section saved before them lacks come from the same rule the server
+    // applies on save, so the form and the record agree about what such a section is called.
+    sections: withCompanions(
+      ((withDerivedFields(draft) as { sections?: SectionDraft[] }).sections ??
+        []) as SectionDraft[],
+    ),
   };
 }
 

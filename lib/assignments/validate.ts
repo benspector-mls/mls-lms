@@ -103,7 +103,7 @@ export async function validateAssignmentDraft(
   // which the name-length check below needs.
   const course = await db.course.findUnique({
     where: { id: input.courseId },
-    select: { id: true, slug: true },
+    select: { id: true, slug: true, program: { select: { discipline: true } } },
   });
 
   if (!course) {
@@ -240,6 +240,26 @@ export async function validateAssignmentDraft(
         );
       }
     }
+  }
+
+  // ---- Skills: every "Skill Assessed" has to be in this program's taxonomy ----
+  //
+  // The taxonomy is the one for the course's program's discipline. A skill from the other
+  // discipline's taxonomy is refused like a deleted one, because the Skills tabs read one
+  // taxonomy per program and a section tagged outside it would count toward nothing.
+  const skillIds = spec.sections.flatMap((section) => (section.skillId ? [section.skillId] : []));
+  if (skillIds.length > 0) {
+    const skills = await db.skill.findMany({
+      where: { id: { in: skillIds }, taxonomy: { discipline: course.program.discipline } },
+      select: { id: true },
+    });
+    const known = new Set(skills.map((skill) => skill.id));
+    spec.sections.forEach((section, index) => {
+      if (section.skillId && !known.has(section.skillId)) {
+        // An admin deleted it since the form was opened; the picker shows the current list.
+        error(`sections.${index}.skillId`, "That skill is not in this program's taxonomy.");
+      }
+    });
   }
 
   // ---- The two repositories an assignment names ----

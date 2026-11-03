@@ -1,4 +1,5 @@
-import type { GradingReport } from "./schema";
+import { testMatches, type DeclaredTest } from "../assignments/test-names";
+import { FLAG_FAMILY, type GradingReport } from "./schema";
 
 /**
  * Verifying a report against the facts, before an instructor ever sees it.
@@ -14,7 +15,8 @@ import type { GradingReport } from "./schema";
  * would call that correct judgment an error.
  *
  * What is checked instead: the model's *claims about test outcomes* against the
- * run, and its arithmetic against itself. Never its score against the pass rate.
+ * run, each score against the section it was declared for, and every declared section
+ * present exactly once. Never its score against the pass rate.
  *
  * Pure, so every rule below is checkable without a model or a database.
  */
@@ -25,23 +27,31 @@ export type TestOutcome = {
   status: "passed" | "failed" | "skipped";
 };
 
-/** The verified facts a section is checked against. Absent fields mean no evidence. */
+/** One section the model was asked to fill, as the assignment declares it. */
+export type DeclaredSection = {
+  key: string;
+  label: string;
+  /** The instrument: a type from lib/section-types.ts. */
+  type: string;
+  pointValue: number;
+  /** The tests that count toward this section alone; absent or empty means the whole suite. */
+  tests?: DeclaredTest[];
+};
+
+/** The verified facts a report is checked against. Absent fields mean no evidence. */
 export type Facts = {
   /**
-   * Per-test results from the run, or null when the section has no test evidence —
+   * Per-test results from the run, or null when the call has no test evidence —
    * which is ordinary for short response and frontend work.
    */
   tests: TestOutcome[] | null;
   /** Protected paths changed in the pull request. Non-empty always routes to review. */
   tamperedPaths: { path: string; kind: string }[];
   /**
-   * What the section is worth, from `assignment.sections`.
-   *
-   * Required rather than optional, so a caller cannot omit the one number that makes the
-   * score mean anything. Every caller has it: the pipeline refuses to grade a section
-   * without a `pointValue` at all, and calibration reads it from the instructor's report.
+   * The sections this call was asked to fill, with what each is worth, from
+   * `assignment.sections`. The report must carry each key exactly once and no other.
    */
-  pointValue: number;
+  sections: DeclaredSection[];
 };
 
 export type CrossCheckFinding = {
@@ -49,34 +59,15 @@ export type CrossCheckFinding = {
   code:
     | "INTERNAL_LABEL_IN_REPORT"
     | "SCORE_OUT_OF_RANGE"
-    | "SCORE_POSSIBLE_MISMATCH"
+    | "SECTION_MISSING"
+    | "SECTION_UNKNOWN"
+    | "SECTION_REPEATED"
     | "TEST_CLAIM_CONTRADICTION"
     | "UNKNOWN_TEST_CLAIMED"
     | "FULL_CREDIT_DESPITE_FAILURES"
     | "FLAG_WITHOUT_DEDUCTION"
     | "PROTECTED_PATHS_CHANGED";
   detail: string;
-};
-
-/**
- * Which rubric band each flag belongs to, so a raised flag can be checked against the marks
- * awarded in the band that scores it. Keyed by the flag vocabulary in `schema.ts`, whose
- * comments already group them as Writing Quality and Technical Score band bullets.
- *
- * Every flag the model may raise appears here. Codes the pipeline writes itself — the
- * cross-check's own findings, TEST_EVIDENCE, LOW_CONFIDENCE — are added after this runs and
- * belong to no band, so they map to nothing and are skipped.
- */
-const FLAG_CRITERION_FAMILY: Partial<
-  Record<GradingReport["flags"][number], "technical" | "writing">
-> = {
-  MECHANICAL: "writing",
-  CLARITY: "writing",
-  MARKDOWN: "writing",
-  STRUCTURE: "writing",
-  INCOMPLETE: "technical",
-  UNDERSTANDING: "technical",
-  TERMINOLOGY: "technical",
 };
 
 export type CrossCheckResult = {
@@ -106,21 +97,47 @@ function sum(values: number[]): number {
 export function crossCheck(report: GradingReport, facts: Facts): CrossCheckResult {
   const findings: CrossCheckFinding[] = [];
 
-  // ---- Arithmetic -------------------------------------------------------
+  // ---- Every declared section, exactly once --------------------------------
   //
-  // The section's score is the sum of its rows, computed here rather than stated by the model,
-  // so a total cannot disagree with its rows. What remains to check is each row against its own
-  // maximum, and the sum against the section's — and for an untested section these are the ONLY
-  // automatic checks available. The schema cannot express either, because Claude's structured
-  // output rejects numeric constraints.
-  const scoreEarned = sum(report.rubricItems.map((item) => item.scoreEarned));
-  const scorePossible = sum(report.rubricItems.map((item) => item.scorePossible));
+  // The model is handed the sections to fill by key. A key it left out is a section with no
+  // score, a key it invented is a score for nothing the assignment declares, and a key it wrote
+  // twice is two scores for one section. All three are contradictions of the declaration rather
+  // than judgments, so each is named and holds the draft.
+  const declared = new Map(facts.sections.map((section) => [section.key, section]));
+  const seen = new Set<string>();
+  for (const section of report.sections) {
+    const match = declared.get(section.key);
+    if (!match) {
+      findings.push({
+        code: "SECTION_UNKNOWN",
+        detail: `The report scores a section "${section.key}", which this call did not ask for.`,
+      });
+      continue;
+    }
+    if (seen.has(section.key)) {
+      findings.push({
+        code: "SECTION_REPEATED",
+        detail: `The report scores "${match.label}" more than once.`,
+      });
+      continue;
+    }
+    seen.add(section.key);
 
-  for (const item of report.rubricItems) {
-    if (item.scoreEarned < -EPSILON || item.scoreEarned - item.scorePossible > EPSILON) {
+    // Each score against the section's own maximum. The schema cannot express this, because
+    // Claude's structured output rejects numeric constraints, and for an untested section it is
+    // the ONLY automatic check on the number.
+    if (section.scoreEarned < -EPSILON || section.scoreEarned - match.pointValue > EPSILON) {
       findings.push({
         code: "SCORE_OUT_OF_RANGE",
-        detail: `"${item.label}" scores ${item.scoreEarned} out of ${item.scorePossible}.`,
+        detail: `"${match.label}" scores ${section.scoreEarned} out of ${match.pointValue}.`,
+      });
+    }
+  }
+  for (const section of facts.sections) {
+    if (!seen.has(section.key)) {
+      findings.push({
+        code: "SECTION_MISSING",
+        detail: `The report has no score for "${section.label}".`,
       });
     }
   }
@@ -134,7 +151,7 @@ export function crossCheck(report: GradingReport, facts: Facts): CrossCheckResul
   // the model ignored an instruction. Every field the student reads is searched.
   const studentText = [
     report.summaryMarkdown,
-    ...report.rubricItems.flatMap((item) => [item.label, item.feedbackMarkdown]),
+    ...report.sections.map((section) => section.feedbackMarkdown),
   ].join("\n");
   const internalLabel = studentText.match(/FLAG:\s*[A-Z][A-Z _-]{3,}/);
   if (internalLabel) {
@@ -147,64 +164,34 @@ export function crossCheck(report: GradingReport, facts: Facts): CrossCheckResul
     });
   }
 
-  if (scorePossible <= 0) {
-    findings.push({
-      code: "SCORE_OUT_OF_RANGE",
-      detail: `The rows are out of ${scorePossible} in total, which cannot be right.`,
-    });
-  }
-
-  /*
-    The denominator, against the one the section actually carries.
-
-    Every check above is the report against itself, and a report can be perfectly consistent
-    about the wrong maximum: 0 out of 3 for a section worth 15 sums correctly, sits in range,
-    and says nothing false about any test. The prompt is told the point value and the model is
-    expected to make its rows add up to it, which makes a different number a contradiction of a
-    fact rather than a judgment — the same shape as a claim about a test outcome.
-
-    This is the second half of a defence whose first half already exists. `generateReportForSubmission`
-    refuses to grade a section with no `pointValue` at all, because a model told nothing about the
-    maximum invents one; what was missing was checking the number that came back. Left unchecked it
-    is not a visible fault but a silent one: approval copies `scorePossible` into
-    `finalScorePossible`, so the gradebook records the invented denominator and computes completion
-    against it.
-  */
-  if (Math.abs(scorePossible - facts.pointValue) > EPSILON) {
-    findings.push({
-      code: "SCORE_POSSIBLE_MISMATCH",
-      detail:
-        `The rows are out of ${scorePossible} in total, but this section is worth ` +
-        `${facts.pointValue}. Every score in it describes a different maximum than the one ` +
-        `the gradebook will record.`,
-    });
-  }
-
   // ---- A flag the score does not reflect --------------------------------
   //
   // Every flag names a defect one of the rubric's bands scores: TERMINOLOGY is what
   // separates "uses correct terminology throughout" from "generally uses correct
   // terminology", and MECHANICAL is a Writing band bullet. So a report that raises a flag
   // and still awards every point in that band has reported a defect and deducted for it
-  // nowhere.
+  // nowhere. The writing band is the Writing Quality section; the technical band is the
+  // short response questions.
   //
   // One direction only, on the same reasoning as FULL_CREDIT_DESPITE_FAILURES: full marks
   // means the defect was accounted for nowhere, while withholding a point without raising
   // a flag is ordinary judgment and is not checked.
+  const scoreOf = new Map(report.sections.map((section) => [section.key, section.scoreEarned]));
   for (const family of ["technical", "writing"] as const) {
-    const raised = report.flags.filter((flag) => FLAG_CRITERION_FAMILY[flag] === family);
+    const raised = report.flags.filter((flag) => FLAG_FAMILY[flag] === family);
     if (raised.length === 0) continue;
 
-    const items = report.rubricItems.filter((item) =>
-      item.criterion.toLowerCase().includes(family),
+    const band = facts.sections.filter((section) =>
+      family === "writing"
+        ? section.type === "short_response_writing"
+        : section.type === "short_response",
     );
-    // No line item names this family, so its scores cannot be located. A check that cannot
-    // see the numbers must say nothing rather than guess — the alternative is a finding on
-    // every report whose criterion labels happen to be worded differently.
-    if (items.length === 0) continue;
+    // No section scores this band, so its marks cannot be located. A check that cannot see
+    // the numbers must say nothing rather than guess.
+    if (band.length === 0) continue;
 
-    const earned = sum(items.map((item) => item.scoreEarned));
-    const possible = sum(items.map((item) => item.scorePossible));
+    const earned = sum(band.map((section) => scoreOf.get(section.key) ?? 0));
+    const possible = sum(band.map((section) => section.pointValue));
     if (possible - earned <= EPSILON) {
       findings.push({
         code: "FLAG_WITHOUT_DEDUCTION",
@@ -267,11 +254,40 @@ export function crossCheck(report: GradingReport, facts: Facts): CrossCheckResul
     // failures were not accounted for anywhere. The reverse — withholding points
     // when everything passed — is legitimate judgment and is deliberately allowed.
     const failed = facts.tests.filter((test) => test.status === "failed");
-    if (failed.length > 0 && scorePossible - scoreEarned <= EPSILON) {
+    // Each declared section's score once, by key: a key the model repeated or invented is
+    // already a finding of its own and must not count toward the total read here.
+    const scored = new Map<string, number>();
+    for (const section of report.sections) {
+      if (!scored.has(section.key)) scored.set(section.key, section.scoreEarned);
+    }
+    const earned = sum(facts.sections.map((section) => scored.get(section.key) ?? 0));
+    const possible = sum(facts.sections.map((section) => section.pointValue));
+
+    // Each section that chose its tests, against those tests: full marks on a section whose own
+    // test failed is the case the call's total hides when another section lost a point.
+    let sectionFound = false;
+    for (const section of facts.sections) {
+      const chosen = section.tests ?? [];
+      if (chosen.length === 0) continue;
+      const own = failed.filter((test) => chosen.some((choice) => testMatches(choice, test)));
+      const score = scored.get(section.key);
+      if (own.length > 0 && score !== undefined && section.pointValue - score <= EPSILON) {
+        sectionFound = true;
+        findings.push({
+          code: "FULL_CREDIT_DESPITE_FAILURES",
+          detail:
+            `${section.label} is given full marks (${score}/${section.pointValue}) while its own ` +
+            `test${own.length === 1 ? "" : "s"} ${own.map((test) => `"${test.name}"`).join(", ")} failed.`,
+        });
+      }
+    }
+
+    // The call as a whole, where no section's own tests already said it.
+    if (!sectionFound && failed.length > 0 && possible > 0 && possible - earned <= EPSILON) {
       findings.push({
         code: "FULL_CREDIT_DESPITE_FAILURES",
         detail:
-          `The report awards full marks (${scoreEarned}/${scorePossible}) ` +
+          `The report awards full marks (${earned}/${possible}) ` +
           `while ${failed.length} test${failed.length === 1 ? "" : "s"} failed.`,
       });
     }
@@ -292,16 +308,16 @@ export function crossCheck(report: GradingReport, facts: Facts): CrossCheckResul
   /*
     Confidence is deliberately not a finding.
 
-    It is a column on the section and a pill on the review screen, which says how sure the model
-    was on every section always rather than conditionally. Low confidence on work with no suite
+    It is a column on the round and a pill on the review screen, which says how sure the model
+    was on every round always rather than conditionally. Low confidence on work with no suite
     to check against is the ordinary condition of most of this curriculum, so treating it as a
-    fault would mark almost every short response and frontend section as exceptional — which is
+    fault would mark almost every short response and frontend round as exceptional — which is
     the fastest way to teach an instructor that the marking means nothing.
   */
 
   return {
     findings,
-    // Every finding is a contradiction — a row scored above its maximum, a claim
+    // Every finding is a contradiction — a section scored above its maximum, a claim
     // about a test that never ran, full marks beside failures — so any of them is a reason a
     // draft must not be passed over.
     needsManualReview: findings.length > 0,

@@ -22,7 +22,8 @@
 import { config as loadEnv } from "dotenv";
 
 import { money, priceUsage, type PricedUsage, type Usage } from "../lib/grade/pricing";
-import { composeReport, rowTotals } from "../lib/grade/report-text";
+import { composeRound, rowTotals } from "../lib/grade/report-text";
+import type { PromptSection } from "../lib/grade/prompts";
 
 loadEnv({ path: ".env.local", quiet: true });
 loadEnv({ quiet: true });
@@ -139,12 +140,12 @@ function formatPair(value: { earned: number; possible: number } | null): string 
   return value ? `${value.earned}/${value.possible}` : "—";
 }
 
-/** Sums the rubric items a generated report assigned to one criterion. */
-function sumCriterion(
-  items: { criterion: string; scoreEarned: number; scorePossible: number }[],
-  predicate: (criterion: string) => boolean,
+/** Sums the sections a generated report scored whose keys the predicate admits. */
+function sumKeys(
+  items: { key: string; scoreEarned: number; scorePossible: number }[],
+  predicate: (key: string) => boolean,
 ): { earned: number; possible: number } | null {
-  const matching = items.filter((item) => predicate(item.criterion.toLowerCase()));
+  const matching = items.filter((item) => predicate(item.key));
   if (matching.length === 0) return null;
   return {
     earned: matching.reduce((sum, item) => sum + item.scoreEarned, 0),
@@ -224,7 +225,30 @@ async function main() {
       );
       process.exit(1);
     }
-    const pointValue = expected.total.possible;
+    /*
+      The sections the model is asked to fill, as the assignment would declare them: one per
+      question the instructor's report scores, keyed q1, q2, …, and the one writing section,
+      each worth what the instructor's line is out of. Production reads these from the
+      assignment; here they are read from the report the model is compared against.
+    */
+    const sections: PromptSection[] = [
+      ...expected.questions.map((question, index) => ({
+        key: `q${index + 1}`,
+        label: question.label,
+        heading: null,
+        pointValue: question.possible,
+        skill: null,
+        tests: null,
+      })),
+      {
+        key: "writing",
+        label: "Writing Quality",
+        heading: null,
+        pointValue: expected.writing!.possible,
+        skill: null,
+        tests: null,
+      },
+    ];
 
     /*
       Graded with the answer key, because that is what production does and a calibration
@@ -256,7 +280,7 @@ async function main() {
           addressees: [{ githubUsername: "sample-student" }],
           teamName: null,
           assignmentTitle: `short response calibration sample ${pair.n}`,
-          pointValue,
+          sections,
           // The sample file carries the questions as well as the answers, so it is
           // self-contained and there is no separate README to supply.
           readme: null,
@@ -271,7 +295,12 @@ async function main() {
     });
 
     const actual = response.output;
-    const items = actual.rubricItems;
+    const possibleOf = new Map(sections.map((section) => [section.key, section.pointValue]));
+    const items = actual.sections.map((section) => ({
+      ...section,
+      scorePossible: possibleOf.get(section.key) ?? 0,
+      label: sections.find((declared) => declared.key === section.key)?.label ?? section.key,
+    }));
     const actualTotal = rowTotals(items);
 
     // The provider reports the two cache counts as optional, because a provider that does
@@ -293,12 +322,17 @@ async function main() {
     const check = crossCheck(actual, {
       tests: null,
       tamperedPaths: [],
-      // The same maximum the prompt was given, so a report scored out of a different one is
-      // reported here rather than silently compared against the instructor's on another scale.
-      pointValue,
+      // The same sections the prompt was given, so a section scored out of a different maximum
+      // or left out is reported here rather than silently compared on another scale.
+      sections: sections.map((section) => ({
+        key: section.key,
+        label: section.label,
+        type: section.key === "writing" ? "short_response_writing" : "short_response",
+        pointValue: section.pointValue,
+      })),
     });
-    const actualTechnical = sumCriterion(items, (c) => c.includes("technical"));
-    const actualWriting = sumCriterion(items, (c) => c.includes("writing"));
+    const actualTechnical = sumKeys(items, (key) => key !== "writing");
+    const actualWriting = sumKeys(items, (key) => key === "writing");
     const actualFlag = actual.flags.includes("MECHANICAL");
 
     const totalDelta = expected.total ? (actualTotal.earned ?? 0) - expected.total.earned : null;
@@ -357,11 +391,9 @@ async function main() {
 
     if (expected.questions.length > 0) {
       console.log(`\n  per question:`);
-      for (const question of expected.questions) {
-        // Matched on the leading question number, because the model writes its own
-        // labels and they will not be character-identical to the instructor's.
-        const number = question.label.match(/^Q(\d+)/)?.[1];
-        const match = items.find((item) => new RegExp(`\\b${number}\\b`).test(item.label));
+      for (const [index, question] of expected.questions.entries()) {
+        // Matched by key, which the model was handed and returns as given.
+        const match = items.find((item) => item.key === `q${index + 1}`);
         const actualText = match ? `${match.scoreEarned}/${match.scorePossible}` : "not found";
         const agrees = match && match.scoreEarned === question.earned;
         console.log(
@@ -377,14 +409,12 @@ async function main() {
       mismatches++;
     }
 
-    // Printed in full because the per-question rows above are matched by question
-    // number against labels the model wrote itself, and a mismatch there would be
-    // indistinguishable from agreement without seeing the underlying items.
-    console.log(`\n  rubric items the model returned:`);
+    // Printed in full, so a key the model left out or invented can be seen beside the finding
+    // that names it.
+    console.log(`\n  sections the model returned:`);
     for (const item of items) {
       console.log(
-        `    ${`${item.scoreEarned}/${item.scorePossible}`.padEnd(8)} ` +
-          `${item.label}  [${item.criterion}]`,
+        `    ${`${item.scoreEarned}/${item.scorePossible}`.padEnd(8)} ${item.label}  [${item.key}]`,
       );
     }
 
@@ -393,10 +423,16 @@ async function main() {
       for (const note of actual.instructorNotes) console.log(`    - ${note}`);
     }
 
-    const assembled = composeReport({
-      sectionType: "short_response",
+    const assembled = composeRound({
       summaryMarkdown: actual.summaryMarkdown,
-      rows: items,
+      sections: items.map((item) => ({
+        label: item.label,
+        heading: null,
+        type: item.key === "writing" ? "short_response_writing" : "short_response",
+        scoreEarned: item.scoreEarned,
+        scorePossible: item.scorePossible,
+        feedbackMarkdown: item.feedbackMarkdown,
+      })),
     });
     console.log(`\n${"─".repeat(74)}\n${assembled}\n`);
   }

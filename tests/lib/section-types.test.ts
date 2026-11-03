@@ -1,4 +1,13 @@
-import { isSectionType, SECTION_TYPES, SECTION_TYPE_REGISTRY } from "@/lib/section-types";
+import {
+  companionOf,
+  companionsOf,
+  isCompanion,
+  isSectionType,
+  PRIMARY_SECTION_TYPES,
+  SECTION_TYPES,
+  SECTION_TYPE_REGISTRY,
+  sectionTypeEntry,
+} from "@/lib/section-types";
 
 /**
  * What the registry has to hold true, now that seven places read it instead of restating it.
@@ -10,6 +19,12 @@ import { isSectionType, SECTION_TYPES, SECTION_TYPE_REGISTRY } from "@/lib/secti
  */
 
 const entries = SECTION_TYPES.map((type) => [type, SECTION_TYPE_REGISTRY[type]] as const);
+
+/*
+  A companion is graded by its primary's call, so it shares that call's rubric, heading and
+  sample. The uniqueness checks below are about the types that have a call of their own.
+*/
+const primaries = entries.filter(([type]) => !isCompanion(type));
 
 describe("SECTION_TYPE_REGISTRY", () => {
   it("has an entry for every type, and no others", () => {
@@ -26,14 +41,28 @@ describe("SECTION_TYPE_REGISTRY", () => {
 
   // A rubric graded against two types is the failure this pairing exists to prevent: a coding
   // section scored against short-response criteria still produces a confident report.
-  it("gives each type its own rubric", () => {
-    const names = entries.map(([, entry]) => entry.rubricName);
+  it("gives each primary type its own rubric", () => {
+    const names = primaries.map(([, entry]) => entry.rubricName);
     expect(new Set(names).size).toBe(names.length);
   });
 
-  it("gives each type its own heading", () => {
-    const headings = entries.map(([, entry]) => entry.rubricHeading);
+  it("gives each primary type its own heading", () => {
+    const headings = primaries.map(([, entry]) => entry.rubricHeading);
     expect(new Set(headings).size).toBe(headings.length);
+  });
+
+  // The same call grades both, so a companion scored against a different rubric than its primary
+  // would describe criteria the model was never shown.
+  it("gives a companion its primary's rubric, heading and sample", () => {
+    for (const type of SECTION_TYPES) {
+      const primary = companionOf(type);
+      if (primary === null) continue;
+      const entry = sectionTypeEntry(type);
+      expect(entry.rubricName).toBe(SECTION_TYPE_REGISTRY[primary].rubricName);
+      expect(entry.rubricHeading).toBe(SECTION_TYPE_REGISTRY[primary].rubricHeading);
+      expect(entry.sampleFile).toBe(SECTION_TYPE_REGISTRY[primary].sampleFile);
+      expect(entry.defaultPointValue).toBeGreaterThan(0);
+    }
   });
 
   // Rubric names are looked up against the `Rubric` table by exact string, so a lowercase one or
@@ -62,15 +91,46 @@ describe("SECTION_TYPE_REGISTRY", () => {
   // Deliberately NOT one-per-type: the toolkit holds no SQL sample, so coding_sql borrows the
   // frontend report. This records that as a known state rather than leaving a future reader to
   // wonder whether it is a copy-and-paste slip — see the comment on the entry.
-  it("shares the frontend sample with coding_sql, and nothing else doubles up", () => {
-    const files = entries.map(([, entry]) => entry.sampleFile);
+  it("shares the frontend sample with coding_sql, and no other primary doubles up", () => {
+    const files = primaries.map(([, entry]) => entry.sampleFile);
     expect(
       files.filter((file) => file === SECTION_TYPE_REGISTRY.coding_frontend.sampleFile),
     ).toEqual([
       SECTION_TYPE_REGISTRY.coding_sql.sampleFile,
       SECTION_TYPE_REGISTRY.coding_frontend.sampleFile,
     ]);
-    expect(new Set(files).size).toBe(SECTION_TYPES.length - 1);
+    expect(new Set(files).size).toBe(primaries.length - 1);
+  });
+});
+
+describe("companions", () => {
+  it("names the writing section as the short response's one companion", () => {
+    expect(companionsOf("short_response")).toEqual(["short_response_writing"]);
+    expect(companionOf("short_response_writing")).toBe("short_response");
+    expect(isCompanion("short_response_writing")).toBe(true);
+  });
+
+  it("gives every other type no companions", () => {
+    for (const type of SECTION_TYPES) {
+      if (type === "short_response") continue;
+      expect(companionsOf(type)).toEqual([]);
+    }
+    for (const type of SECTION_TYPES) {
+      if (type === "short_response_writing") continue;
+      expect(companionOf(type)).toBeNull();
+      expect(isCompanion(type)).toBe(false);
+    }
+  });
+
+  // The select in the section editor lists these; a companion offered there could be declared
+  // with nothing to fill it.
+  it("lists only the types with a call of their own as primaries, in order", () => {
+    expect(PRIMARY_SECTION_TYPES).toEqual([
+      "short_response",
+      "coding_algorithm",
+      "coding_sql",
+      "coding_frontend",
+    ]);
   });
 });
 

@@ -24,6 +24,7 @@ import { UploadedFileRow } from "@/components/uploaded-file";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Skeleton } from "@/components/ui/skeleton";
 import type { AssignmentKind } from "@/lib/generated/prisma/enums";
+import type { ReviewTab } from "@/lib/links";
 import { lateness } from "@/lib/submissions/hand-in";
 import { useTRPC } from "@/trpc/client";
 import { CommentsCard } from "@/components/instructor/review/comments-card";
@@ -46,6 +47,7 @@ export function GradingReview({
   release,
   releasing,
   split,
+  initialTab,
 }: {
   submission: QueueSubmission;
   /**
@@ -99,6 +101,11 @@ export function GradingReview({
    * when the instructor enters or leaves grading mode, never because the window was resized.
    */
   split: boolean;
+  /**
+   * The tab to open on, when the link that brought the instructor here named one. Absent, the
+   * pane opens on the work, or on the feedback in grading mode where the work is the other column.
+   */
+  initialTab?: ReviewTab;
 }) {
   const trpc = useTRPC();
 
@@ -408,11 +415,21 @@ export function GradingReview({
     submission.activeDraft !== null ||
     (submission.status !== "NOT_STARTED" && submission.status !== "ACCEPTED");
 
+  /*
+    A link may name the tab to open on. It falls back when the pane does not draw that tab: in
+    grading mode the work is the other column, before anything is handed in there is no Feedback
+    tab, and a submission with one round has no History tab.
+  */
+  const fallbackTab = split ? (feedbackTab ? "report" : "conversation") : "work";
+  const drawsInitialTab =
+    initialTab !== undefined &&
+    !(split && initialTab === "work") &&
+    !(initialTab === "report" && !feedbackTab) &&
+    !(initialTab === "history" && previous.length === 0);
+  const openTab = drawsInitialTab ? initialTab : fallbackTab;
+
   const tabs = (
-    <Tabs
-      defaultValue={split ? (feedbackTab ? "report" : "conversation") : "work"}
-      className="gap-3"
-    >
+    <Tabs defaultValue={openTab} className="gap-3">
       {/*
         The labels collapse to icons alone when the tab row is too narrow for them. `@container`
         makes the row measure its own width rather than the window's, because the grade column can
@@ -503,7 +520,12 @@ export function GradingReview({
 
       {previous.length > 0 && (
         <TabsContent value="history" keepMounted className="text-base">
-          <DraftHistory submission={submission} drafts={previous} now={now} />
+          <DraftHistory
+            submission={submission}
+            drafts={previous}
+            declared={data.handSections}
+            now={now}
+          />
         </TabsContent>
       )}
     </Tabs>

@@ -1,127 +1,154 @@
-import { composeReport, readReportRows, rowTotals, type ReportRow } from "@/lib/grade/report-text";
+import {
+  composeRound,
+  readReportRows,
+  reportTitle,
+  rowTotals,
+  type ReportSection,
+} from "@/lib/grade/report-text";
 
 /**
- * The comment a student reads, built from the rows an instructor edits.
+ * The comment a student reads, built from the round's summary and its sections.
  *
- * The score an instructor types on a row is the only number they change, so every other number in
- * the posted comment — the title's total and percentage, a checklist section's subtotal — has to
- * come from the rows here, and has to come out the same in the browser's preview and on the server.
+ * The score an instructor types on a section is the only number they change, so every other
+ * number in the posted comment — the title's total and percentage, a heading's subtotal — has to
+ * come from the sections here, and has to come out the same in the browser's preview and on the
+ * server.
  */
 
-function row(overrides: Partial<ReportRow> = {}): ReportRow {
+function section(overrides: Partial<ReportSection> = {}): ReportSection {
   return {
     label: "Question 1: calculate_area",
-    group: null,
-    criterion: "algorithm",
+    heading: null,
+    type: "coding_algorithm",
     scoreEarned: 3,
     scorePossible: 3,
     feedbackMarkdown: "",
-    modelReasoning: null,
     ...overrides,
   };
 }
 
-describe("composeReport", () => {
-  it("writes the title with the total, the summary, a rule, and one heading per row", () => {
-    expect(
-      composeReport({
-        sectionType: "coding_algorithm",
-        summaryMarkdown: "Good start on this.",
-        rows: [
-          row(),
-          row({
-            label: "Question 2: is_even",
-            scoreEarned: 1,
-            feedbackMarkdown: "- The condition checks divisibility by 4.",
-          }),
-        ],
-      }),
-    ).toBe(
+describe("composeRound", () => {
+  it("writes the title with the total, the summary, a rule, and one heading per section", () => {
+    const text = composeRound({
+      summaryMarkdown: "Solid work.",
+      sections: [
+        section(),
+        section({
+          label: "Question 2: is_even",
+          scoreEarned: 1,
+          feedbackMarkdown: "- Accuracy: `3` is reported as even.",
+        }),
+      ],
+    });
+    expect(text).toBe(
       [
         "# Coding Fluency Score Report: 4/6 = 67%",
-        "Good start on this.",
+        "",
+        "Solid work.",
+        "",
         "---",
+        "",
         "## Question 1: calculate_area: 3/3",
-        "## Question 2: is_even: 1/3\n\n- The condition checks divisibility by 4.",
-      ].join("\n\n"),
+        "",
+        "## Question 2: is_even: 1/3",
+        "",
+        "- Accuracy: `3` is reported as even.",
+      ].join("\n"),
     );
   });
 
-  it("gives a short response report its total like every other report", () => {
-    expect(
-      composeReport({
-        sectionType: "short_response",
-        summaryMarkdown: "Nice work.",
-        rows: [row({ label: "Question 1: Scope", criterion: "technical" })],
-      }).split("\n")[0],
-    ).toBe("# Short Response Score Report: 3/3 = 100%");
+  it("titles a round by the one type its sections share, and a mixed or hand-graded round plainly", () => {
+    expect(reportTitle([section({ type: "short_response" })])).toBe("Short Response Score Report");
+    expect(reportTitle([section({ type: "short_response" }), section({ type: "coding_algorithm" })])).toBe(
+      "Score Report",
+    );
+    expect(reportTitle([section({ type: "manual" })])).toBe("Score Report");
   });
 
-  it("follows an edited row score into the title", () => {
-    const rows = [row({ scoreEarned: 2 }), row({ label: "Question 2: is_even" })];
-    const before = composeReport({ sectionType: "coding_algorithm", summaryMarkdown: "", rows });
-    const after = composeReport({
-      sectionType: "coding_algorithm",
+  it("lists sections under their heading with the heading's subtotal, as sub-headings", () => {
+    const text = composeRound({
       summaryMarkdown: "",
-      rows: [{ ...rows[0], scoreEarned: 3 }, rows[1]],
+      sections: [
+        section({ heading: "From Scratch" }),
+        section({ label: "Question 2: is_even", heading: "From Scratch", scoreEarned: 2 }),
+        section({ label: "Question 3: greet", heading: "Modify", scoreEarned: 0, feedbackMarkdown: "- Note: not attempted" }),
+      ],
     });
-    expect(before.split("\n")[0]).toBe("# Coding Fluency Score Report: 5/6 = 83%");
-    expect(after.split("\n")[0]).toBe("# Coding Fluency Score Report: 6/6 = 100%");
-    expect(after).toContain("## Question 1: calculate_area: 3/3");
+    expect(text).toBe(
+      [
+        "# Coding Fluency Score Report: 5/9 = 56%",
+        "",
+        "## From Scratch: 5/6",
+        "",
+        "### Question 1: calculate_area: 3/3",
+        "",
+        "### Question 2: is_even: 2/3",
+        "",
+        "## Modify: 0/3",
+        "",
+        "### Question 3: greet: 0/3",
+        "",
+        "- Note: not attempted",
+      ].join("\n"),
+    );
   });
 
-  it("lists checklist rows as boxes under their group, with the group's subtotal", () => {
-    expect(
-      composeReport({
-        sectionType: "coding_frontend",
-        summaryMarkdown: "Nice work.",
-        rows: [
-          row({
-            label: "`getAll()` returns a copy",
-            group: "Section 2: Class",
-            scorePossible: 1,
-            scoreEarned: 1,
-          }),
-          row({
-            label: "`searchRecipes()` returns `{ data, error }`",
-            group: "Section 3: Fetch",
-            scorePossible: 1,
-            scoreEarned: 0.5,
-            feedbackMarkdown: "- Half Credit: the catch block returns the Error object.",
-          }),
-          row({
-            label: "`getAllRecipes()` checks `response.ok`",
-            group: "Section 3: Fetch",
-            scorePossible: 1,
-            scoreEarned: 1,
-          }),
-        ],
-      }),
-    ).toBe(
+  it("lists checklist sections as boxes under their heading, with feedback nested beneath", () => {
+    const text = composeRound({
+      summaryMarkdown: "",
+      sections: [
+        section({
+          label: "The page loads",
+          heading: "Section 1: Setup",
+          type: "coding_frontend",
+          scoreEarned: 1,
+          scorePossible: 1,
+        }),
+        section({
+          label: "fetchData returns the body",
+          heading: "Section 1: Setup",
+          type: "coding_frontend",
+          scoreEarned: 0.5,
+          scorePossible: 1,
+          feedbackMarkdown: "- Half Credit: the body is parsed\n  but never returned.",
+        }),
+      ],
+    });
+    expect(text).toBe(
       [
-        "# Frontend Coding Report: 2.5/3 = 83%",
-        "Nice work.",
-        "---",
-        "## Section 2: Class: 1/1\n\n- [x] `getAll()` returns a copy",
-        "## Section 3: Fetch: 1.5/2\n\n" +
-          "- [ ] `searchRecipes()` returns `{ data, error }`\n" +
-          "  - Half Credit: the catch block returns the Error object.\n" +
-          "- [x] `getAllRecipes()` checks `response.ok`",
-      ].join("\n\n"),
+        "# Frontend Coding Report: 1.5/2 = 75%",
+        "",
+        "## Section 1: Setup: 1.5/2",
+        "",
+        "- [x] The page loads",
+        "- [ ] fetchData returns the body",
+        "  - Half Credit: the body is parsed",
+        "    but never returned.",
+      ].join("\n"),
     );
+  });
+
+  it("treats a blank heading as none", () => {
+    const text = composeRound({ summaryMarkdown: "", sections: [section({ heading: "  " })] });
+    expect(text).toContain("## Question 1: calculate_area: 3/3");
   });
 
   it("adds half points without floating-point noise", () => {
-    const rows = [0.1, 0.2, 0.2].map((scoreEarned) => row({ scoreEarned, scorePossible: 1 }));
-    expect(rowTotals(rows)).toEqual({ earned: 0.5, possible: 3 });
+    expect(
+      rowTotals([
+        { scoreEarned: 0.1, scorePossible: 1 },
+        { scoreEarned: 0.2, scorePossible: 1 },
+      ]),
+    ).toEqual({ earned: 0.3, possible: 2 });
   });
 
   it("marks an emptied score box rather than counting it as zero", () => {
-    const rows = [row(), row({ scoreEarned: null })];
-    expect(rowTotals(rows).earned).toBeNull();
-    expect(
-      composeReport({ sectionType: "coding_algorithm", summaryMarkdown: "", rows }).split("\n")[0],
-    ).toBe("# Coding Fluency Score Report: ?/6");
+    const text = composeRound({
+      summaryMarkdown: "",
+      sections: [section({ scoreEarned: null })],
+    });
+    expect(text).toMatch(/^# Coding Fluency Score Report: \?\/3\n/);
+    expect(text).toContain("## Question 1: calculate_area: ?/3");
   });
 });
 
@@ -129,24 +156,23 @@ describe("readReportRows", () => {
   it("reads a row stored before rows carried feedback, taking its note as the reasoning", () => {
     expect(
       readReportRows([
-        {
-          label: "Q1",
-          criterion: "algorithm",
-          scoreEarned: 2,
-          scorePossible: 3,
-          note: "off by one",
-        },
+        { label: "Q1", criterion: "technical", scoreEarned: 2, scorePossible: 3, note: "short" },
       ]),
     ).toEqual([
       {
         label: "Q1",
         group: null,
-        criterion: "algorithm",
+        criterion: "technical",
         scoreEarned: 2,
         scorePossible: 3,
         feedbackMarkdown: "",
-        modelReasoning: "off by one",
+        modelReasoning: "short",
       },
     ]);
+  });
+
+  it("drops what is not a row", () => {
+    expect(readReportRows([null, 3, { criterion: "x" }])).toEqual([]);
+    expect(readReportRows("rows")).toEqual([]);
   });
 });

@@ -66,6 +66,55 @@ describe("classifySections", () => {
     });
   });
 
+  // The writing section is filled from the short response file's call, so it is present exactly
+  // when its primary is, and its primary speaks for it when neither is there.
+  describe("a declared writing section", () => {
+    const split = [
+      { type: "short_response" as const },
+      { type: "short_response_writing" as const },
+    ];
+
+    it("is present with its primary", () => {
+      expect(
+        classifySections({
+          changedPaths: ["short-response.md"],
+          declaredSections: split,
+          hasTestRunner: false,
+        }),
+      ).toEqual({
+        present: ["short_response", "short_response_writing"],
+        notSubmitted: [],
+        unexpected: [],
+        unclassified: [],
+      });
+    });
+
+    it("is neither present nor reported as not submitted without its primary", () => {
+      expect(
+        classifySections({
+          changedPaths: ["src/from-scratch.js"],
+          declaredSections: [...split, { type: "coding_algorithm" as const }],
+          hasTestRunner: true,
+        }),
+      ).toEqual({
+        present: ["coding_algorithm"],
+        notSubmitted: ["short_response"],
+        unexpected: [],
+        unclassified: [],
+      });
+    });
+
+    it("is never present when declared without its primary", () => {
+      expect(
+        classifySections({
+          changedPaths: ["short-response.md"],
+          declaredSections: [{ type: "short_response_writing" as const }],
+          hasTestRunner: false,
+        }).present,
+      ).toEqual([]);
+    });
+  });
+
   // A real assignment shipped SHORT_RESPONSE.MD and its section was silently never graded,
   // because the rule wanted a literal hyphen. Which separator an author chose has nothing to do
   // with grading, so every spelling of the same filename matches.
@@ -79,7 +128,8 @@ describe("classifySections", () => {
     "short.response.md",
   ])("recognises %s as a short response", (path) => {
     expect(
-      classifySections({ changedPaths: [path], declaredSections: declared, hasTestRunner: true }).present,
+      classifySections({ changedPaths: [path], declaredSections: declared, hasTestRunner: true })
+        .present,
     ).toEqual(["short_response"]);
   });
 
@@ -410,19 +460,27 @@ describe("resolveSectionTests", () => {
     ).toBe("results");
   });
 
-  it("calls a pattern that matches nothing a fault, not an empty suite", () => {
+  it("calls a choice of tests none of which ran a fault, not an empty suite", () => {
     expect(
       resolveSectionTests(
-        { type: "coding_algorithm", evidence: "tests", testNamePattern: "^Nothing Matches" },
+        {
+          type: "coding_algorithm",
+          evidence: "tests",
+          tests: [{ suite: null, name: "nothing matches" }],
+        },
         someTests,
       ).kind,
     ).toBe("pattern-matched-nothing");
   });
 
-  it("narrows to the tests a pattern matches", () => {
+  it("narrows to the tests the section chose", () => {
     expect(
       resolveSectionTests(
-        { type: "coding_algorithm", evidence: "tests", testNamePattern: "Debug" },
+        {
+          type: "coding_algorithm",
+          evidence: "tests",
+          tests: [{ suite: "Debug Tests", name: "brokenNested works" }],
+        },
         someTests,
       ),
     ).toEqual({

@@ -37,7 +37,9 @@ import { formatDateTime, formatPercent, scorePercent, sectionLabel, shortSha } f
 import { cn } from "@/lib/utils";
 import { useTRPCClient } from "@/trpc/client";
 import { Blueprint, DraftEditor } from "@/components/instructor/review/draft-editor";
+import { RoundNotes } from "@/components/instructor/review/section-editor";
 import {
+  DeclaredSection,
   Draft,
   DraftList,
   QueueSubmission,
@@ -45,7 +47,10 @@ import {
   StateCard,
   effectiveReport,
   effectiveScore,
+  effectiveSummary,
+  isKeyedRound,
   postedCommentUrl,
+  roundDocument,
   useGenerateReport,
 } from "@/components/instructor/review/shared";
 /** Routes to the presentation for whatever state the grading run is actually in. */
@@ -191,19 +196,9 @@ export function DraftBody({
   // holds no sections to edit, so the editor starts blank exactly as it does with no round at all.
   const editorDraft = correction || draft?.status === "FAILED" ? null : draft;
 
-  const blueprint: Blueprint[] = correction
-    ? correction.sections.map((section) => ({
-        key: section.sectionType,
-        scorePossible: section.scorePossible,
-        score: effectiveScore(section),
-        report: effectiveReport(section) ?? "",
-      }))
-    : data.handSections.map((section) => ({
-        key: section.label,
-        scorePossible: section.pointValue,
-        score: null,
-        report: "",
-      }));
+  const blueprint: Blueprint = correction
+    ? correctionBlueprint(correction, data.handSections)
+    : blankBlueprint(data.handSections);
 
   const start = correction
     ? () => client.gradingDrafts.reviseReleased.mutate({ submissionId: submission.id })
@@ -263,6 +258,7 @@ export function DraftBody({
           completionThreshold={completionThreshold}
           draft={editorDraft}
           blueprint={blueprint}
+          declared={data.handSections}
           start={start}
           autoOpen={correction !== null}
           approvalBlocked={stale}
@@ -303,6 +299,47 @@ export function DraftBody({
       )}
     </div>
   );
+}
+
+/** A blank round drawn from the assignment's declared sections, with an empty summary. */
+function blankBlueprint(declared: DeclaredSection[]): Blueprint {
+  return {
+    summary: "",
+    sections: declared.map((unit) => ({
+      key: unit.key,
+      label: unit.label,
+      heading: unit.heading,
+      type: unit.type,
+      scorePossible: unit.pointValue,
+      score: null,
+      report: "",
+      legacy: false,
+    })),
+  };
+}
+
+/**
+ * A correction's starting values: exactly what the student was sent, section by section, with
+ * the released round's summary — which is also what `reviseReleased` seeds the round with.
+ */
+function correctionBlueprint(released: Draft, declared: DeclaredSection[]): Blueprint {
+  const byKey = new Map(declared.map((unit) => [unit.key, unit]));
+  return {
+    summary: effectiveSummary(released),
+    sections: released.sections.map((section) => {
+      const unit = section.sectionKey === null ? undefined : byKey.get(section.sectionKey);
+      return {
+        key: section.sectionKey ?? section.sectionType,
+        label: section.label ?? unit?.label ?? sectionLabel(section.sectionType),
+        heading: section.heading ?? unit?.heading ?? null,
+        type: section.sectionType,
+        scorePossible: section.scorePossible,
+        score: effectiveScore(section),
+        report: effectiveReport(section) ?? "",
+        legacy: section.sectionKey === null,
+      };
+    }),
+  };
 }
 
 /*
@@ -616,9 +653,7 @@ export function ReleasedGradeCard({
       </CardHeader>
 
       <CardContent className="flex flex-col gap-4">
-        {draft.sections.map((section, index) => (
-          <ReleasedSection key={section.id} section={section} first={index === 0} />
-        ))}
+        <ReleasedRound draft={draft} declared={data.handSections} />
 
         {/*
           The way to change what went out, at the foot of the thing that went out — where an
@@ -723,12 +758,8 @@ function ReleasedBody({
                 submission={submission}
                 completionThreshold={completionThreshold}
                 draft={null}
-                blueprint={data.handSections.map((section) => ({
-                  key: section.label,
-                  scorePossible: section.pointValue,
-                  score: null,
-                  report: "",
-                }))}
+                blueprint={blankBlueprint(data.handSections)}
+                declared={data.handSections}
                 start={() =>
                   client.gradingDrafts.startManual.mutate({ submissionId: submission.id })
                 }
@@ -754,22 +785,54 @@ function ReleasedBody({
 }
 
 /**
- * One section of a round that went out, inside the card that released it.
+ * A round that went out, inside the card that released it, read-only.
  *
- * A block rather than a card of its own, because a card inside a card reads as a separate
- * finding. A rule above every section but the first is what keeps them apart instead.
+ * A keyed round is one document — the summary and every section with its score — composed the
+ * same way the comment was, so what an instructor reads here is what the student read. A round
+ * from before sections were scored units is drawn section by section, each as the block of text
+ * it was written as. A rule above every block but the first is what keeps them apart.
  *
  * Exported for the feedback history, which shows an earlier round's content when a row is
  * expanded — the same thing this draws, from an older draft.
  */
-export function ReleasedSection({ section, first }: { section: Section; first: boolean }) {
+export function ReleasedRound({
+  draft,
+  declared,
+}: {
+  draft: Draft;
+  /** The assignment's declared sections, for the headings a round does not store. */
+  declared: DeclaredSection[];
+}) {
+  if (isKeyedRound(draft)) {
+    return (
+      <div className="flex flex-col gap-3">
+        <RoundNotes notes={draft} />
+        <div className="rounded-md border border-border bg-muted/20 p-4">
+          <Markdown content={roundDocument(draft, declared)} />
+        </div>
+      </div>
+    );
+  }
+  return (
+    <>
+      {draft.sections.map((section, index) => (
+        <ReleasedSection key={section.id} section={section} first={index === 0} />
+      ))}
+    </>
+  );
+}
+
+/** One section of a round from before sections were scored units: its text, written whole. */
+function ReleasedSection({ section, first }: { section: Section; first: boolean }) {
   const report = effectiveReport(section);
 
   return (
     <div className={cn("flex flex-col gap-2", !first && "border-t border-border pt-4")}>
       <div className="flex flex-wrap items-start justify-between gap-3">
         <div className="flex flex-col gap-1.5">
-          <h3 className="text-sm font-semibold">{sectionLabel(section.sectionType)}</h3>
+          <h3 className="text-sm font-semibold">
+            {section.label ?? sectionLabel(section.sectionType)}
+          </h3>
           {section.flags.length > 0 && (
             <div className="flex flex-wrap items-center gap-1.5">
               {section.flags.map((flag) => (

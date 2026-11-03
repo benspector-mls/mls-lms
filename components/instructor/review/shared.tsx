@@ -13,7 +13,7 @@ import * as React from "react";
 import { toast } from "sonner";
 import { useServerMutation } from "@/hooks/use-server-mutation";
 import { Card, CardContent } from "@/components/ui/card";
-import { readReportRows, type ReportRow } from "@/lib/grade/report-text";
+import { composeRound, type ReportSection } from "@/lib/grade/report-text";
 import { cn } from "@/lib/utils";
 import { useTRPC } from "@/trpc/client";
 import type { RouterOutputs } from "@/trpc/types";
@@ -23,6 +23,8 @@ export type QueueSubmission =
 export type DraftList = RouterOutputs["gradingDrafts"]["listForSubmission"];
 export type Draft = DraftList["drafts"][number];
 export type Section = Draft["sections"][number];
+/** One section as the assignment declares it, which the editor draws before a round exists. */
+export type DeclaredSection = DraftList["handSections"][number];
 
 /** An instructor's edit where there is one, the model's output where there is not. */
 export function effectiveScore(section: Section): number | null {
@@ -30,6 +32,42 @@ export function effectiveScore(section: Section): number | null {
 }
 export function effectiveReport(section: Section): string | null {
   return section.editedReportMarkdown ?? section.reportMarkdown;
+}
+export function effectiveSummary(draft: Draft): string | null {
+  return draft.editedSummaryMarkdown ?? draft.summaryMarkdown;
+}
+
+/**
+ * The key a section is held under in the editor: the declared section's key, or for a section
+ * written before sections had keys the type it stored, which is the one identity it holds.
+ */
+export function sectionKeyOf(section: { sectionKey: string | null; sectionType: string }): string {
+  return section.sectionKey ?? section.sectionType;
+}
+
+/** True for a round whose sections are scored units: every section carries a declared key. */
+export function isKeyedRound(draft: { sections: { sectionKey: string | null }[] }): boolean {
+  return draft.sections.length > 0 && draft.sections.every((s) => s.sectionKey !== null);
+}
+
+/**
+ * The comment a keyed round posts, as the student will read it, from the round's effective
+ * values. A heading is the section's own, with the declaration's, by key, for a round stored
+ * before sections carried theirs.
+ */
+export function roundDocument(draft: Draft, declared: readonly DeclaredSection[]): string {
+  const headingOf = new Map(declared.map((unit) => [unit.key, unit.heading]));
+  const sections: ReportSection[] = draft.sections.map((section) => ({
+    label: section.label ?? section.sectionType,
+    heading:
+      section.heading ??
+      (section.sectionKey === null ? null : (headingOf.get(section.sectionKey) ?? null)),
+    type: section.sectionType,
+    scoreEarned: effectiveScore(section),
+    scorePossible: section.scorePossible ?? 0,
+    feedbackMarkdown: effectiveReport(section) ?? "",
+  }));
+  return composeRound({ summaryMarkdown: effectiveSummary(draft) ?? "", sections });
 }
 
 /**
@@ -65,22 +103,6 @@ export function listNames(members: { displayName: string | null; email: string |
   const names = members.map((member) => member.displayName ?? member.email ?? "Unknown");
   if (names.length <= 1) return names[0] ?? "Nobody";
   return `${names.slice(0, -1).join(", ")} and ${names[names.length - 1]}`;
-}
-
-/** The summary and rows an instructor edits on a report the application assembles from them. */
-export type ReportParts = { summaryMarkdown: string; rows: ReportRow[] };
-
-/**
- * A model-generated section's parts, the instructor's where they have edited and the model's
- * where they have not. Null for a section written as one block of text — a hand grade, a
- * correction, or a report generated before reports had rows — which is edited as text.
- */
-export function effectiveParts(section: Section): ReportParts | null {
-  if (section.summaryMarkdown === null) return null;
-  return {
-    summaryMarkdown: section.editedSummaryMarkdown ?? section.summaryMarkdown,
-    rows: readReportRows(section.editedRubricItems ?? section.rubricItems),
-  };
 }
 
 export function StateCard({

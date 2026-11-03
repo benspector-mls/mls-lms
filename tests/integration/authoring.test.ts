@@ -146,7 +146,9 @@ function referenceColumns(courseUnitId: string, title: string) {
     templateDriveUrl: null,
     studentMayMarkDone: null,
     submissionInstructions: null,
-    sections: [{ grading: "manual", label: "Overall", pointValue: 30 }] as Prisma.InputJsonValue,
+    sections: [
+      { grading: "manual", key: "overall", label: "Overall", pointValue: 30 },
+    ] as Prisma.InputJsonValue,
   };
 }
 
@@ -360,6 +362,8 @@ describe("validating a draft", () => {
         sections: [
           {
             grading: "ai",
+            key: "code",
+            label: "Coding",
             type: "coding_algorithm",
             pointValue: 30,
             rubricId: shortResponseRubric.id,

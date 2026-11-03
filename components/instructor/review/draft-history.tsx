@@ -10,8 +10,9 @@
 import { ChevronDown, ExternalLink, GitPullRequest } from "lucide-react";
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from "@/components/ui/collapsible";
 import { formatRelative, shortSha } from "@/lib/status";
-import { ReleasedSection } from "@/components/instructor/review/draft-body";
+import { ReleasedRound } from "@/components/instructor/review/draft-body";
 import {
+  DeclaredSection,
   Draft,
   QueueSubmission,
   effectiveScore,
@@ -36,11 +37,14 @@ import {
 export function DraftHistory({
   submission,
   drafts,
+  declared,
   now,
 }: {
   /** Holds the pull request's address, which each round's link to its comment is built from. */
   submission: QueueSubmission;
   drafts: Draft[];
+  /** The assignment's declared sections, for the headings a round does not store. */
+  declared: DeclaredSection[];
   now: Date;
 }) {
   return (
@@ -107,9 +111,7 @@ export function DraftHistory({
                     <ExternalLink className="size-3.5" />
                   </a>
                 )}
-                {entry.sections.map((section, index) => (
-                  <ReleasedSection key={section.id} section={section} first={index === 0} />
-                ))}
+                <ReleasedRound draft={entry} declared={declared} />
               </div>
             </CollapsibleContent>
           </Collapsible>

@@ -188,7 +188,7 @@ describe("handing in a file", () => {
           dueAt: null,
           acceptedFileTypes: ["pdf"],
           submissionInstructions: "One PDF, named after you.",
-          sections: [{ grading: "manual", label: "Resume", pointValue: 20 }],
+          sections: [{ grading: "manual", key: "s1", label: "Resume", pointValue: 20 }],
         },
       });
       assignment = created.assignment;
@@ -507,7 +507,7 @@ describe("handing in a file", () => {
           courseUnitId: world.unitId,
           dueAt: null,
           submissionInstructions: "Make it in Canva, then share the link.",
-          sections: [{ grading: "manual", label: "Total", pointValue: 15 }],
+          sections: [{ grading: "manual", key: "s1", label: "Total", pointValue: 15 }],
         },
       });
       linkAssignmentId = created.assignment.id;
@@ -598,7 +598,7 @@ describe("handing in a file", () => {
           dueAt: null,
           acceptedFileTypes: ["python"],
           submissionInstructions: "One .py file.",
-          sections: [{ grading: "manual", label: "Script", pointValue: 10 }],
+          sections: [{ grading: "manual", key: "s1", label: "Script", pointValue: 10 }],
         },
       });
       pyAssignmentId = created.assignment.id;
@@ -866,7 +866,7 @@ describe("handing in a file", () => {
           dueAt: null,
           acceptedFileTypes: ["pdf"],
           submissionInstructions: "A write-up and a photograph of the board.",
-          sections: [{ grading: "manual", label: "Total", pointValue: 10 }],
+          sections: [{ grading: "manual", key: "s1", label: "Total", pointValue: 10 }],
         },
       });
       bothAssignmentId = created.assignment.id;

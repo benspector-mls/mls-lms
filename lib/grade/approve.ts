@@ -1,6 +1,6 @@
 import "server-only";
 
-import { inDeclaredOrder } from "../assignments/spec";
+import { declaredUnits, inDeclaredOrder } from "../assignments/spec";
 import { auditEventData, type AuditActor } from "../audit/record";
 import { displayNameOf } from "../people";
 import { db, type Tx } from "../prisma";
@@ -16,11 +16,12 @@ import {
   deliveryOutcome,
   effectiveSection,
   hasSomewhereToPost,
+  sectionName,
   undeliveredApprovalWhere,
   type DeliveryOutcome,
   type EffectiveSection,
 } from "./delivery";
-import { statedScoreInText } from "./report-text";
+import { composeRound, statedScoreInText } from "./report-text";
 
 /**
  * Approving a grading draft: the moment a draft stops being a suggestion and becomes
@@ -69,6 +70,7 @@ export {
   deliveryOutcome,
   effectiveSection,
   hasSomewhereToPost,
+  sectionName,
   undeliveredApprovalWhere,
 };
 export type { DeliveryOutcome, EffectiveSection };
@@ -135,11 +137,16 @@ export async function approveDraft(params: {
       status: true,
       approvedAt: true,
       submissionId: true,
+      summaryMarkdown: true,
+      editedSummaryMarkdown: true,
       sections: {
         // Stable, so a section the assignment no longer declares — which `inDeclaredOrder`
         // sorts to the end — lands in the same place every time rather than wherever stored.
         orderBy: [{ createdAt: "asc" }, { id: "asc" }],
         select: {
+          sectionKey: true,
+          label: true,
+          heading: true,
           sectionType: true,
           reportMarkdown: true,
           scoreEarned: true,
@@ -269,15 +276,25 @@ export async function approveDraft(params: {
     unit-tested there, and the pull request question is answered by the same `hasSomewhereToPost`
     the delivery step below uses — so approval cannot allow a comment that posting then refuses.
   */
+  /*
+    The summary the student reads first: the instructor's edit where there is one, the model's
+    where there is not. Null on a round written before the summary belonged to the round, whose
+    sections then carry their own text whole.
+  */
+  const summaryMarkdown = draft.editedSummaryMarkdown ?? draft.summaryMarkdown;
+  const keyed = sections.every((section) => section.sectionKey !== null);
+
   const blank = blankSectionRefusal(sections, {
     hasPullRequest: hasSomewhereToPost(submission),
+    summaryMarkdown,
   });
   if (blank) throw new ApprovalError(blank);
 
-  // The number in the prose against the number being recorded. An instructor revising a
-  // report is expected — writing "27/30" into the text while the recorded score stays
-  // 30 is the one edit that must not go out, because the student reads the prose and
-  // every other part of the system reads the column.
+  // The number in the prose against the number being recorded. Writing "27/30" into the text
+  // while the recorded score stays 30 is the one edit that must not go out, because the student
+  // reads the prose and every other part of the system reads the column. A keyed section's
+  // heading carries its score, so its text has no need of one; an instructor who types one
+  // anyway has written a second number the student will read, and it has to agree.
   //
   // Refused rather than silently reconciled: only the instructor knows which of the two
   // they meant.
@@ -285,10 +302,14 @@ export async function approveDraft(params: {
     if (!section.reportMarkdown) continue;
     const stated = statedScoreInText(section.reportMarkdown);
     if (!stated) continue;
+    // On a keyed section only a line out of the section's own points speaks about the section.
+    // A line out of some other total is a part score the instructor wrote to structure the
+    // feedback — "Technical Score: 12/15" inside a section worth 18 — and is theirs to keep.
+    if (section.sectionKey !== null && stated.possible !== section.scorePossible) continue;
 
     if (stated.earned !== section.scoreEarned || stated.possible !== section.scorePossible) {
       throw new ApprovalError(
-        `The ${section.sectionType.replace(/_/g, " ")} report says ` +
+        `The ${sectionName(section)} report says ` +
           `${stated.earned}/${stated.possible} but the score being recorded is ` +
           `${section.scoreEarned}/${section.scorePossible}. Change whichever is wrong — ` +
           `the student reads the report and the gradebook reads the score.`,
@@ -310,7 +331,33 @@ export async function approveDraft(params: {
 
   const threshold = submission.assignment.completionThreshold;
   const isComplete = finalScore / finalScorePossible >= threshold;
-  const feedbackMarkdown = buildFeedbackMarkdown(sections);
+  /*
+    The comment, and the feedback the student's page shows. A keyed round is one document
+    composed from the summary and every section's label, heading, score and feedback, the way
+    the review screen previews it; the heading is the section's own, with the declaration's by
+    key for a round stored before sections carried theirs. A round from before keys joins its
+    sections' own text, each of which was written whole.
+  */
+  const declaredByKey = new Map(
+    declaredUnits(submission.assignment.sections).map((unit) => [unit.key, unit]),
+  );
+  const feedbackMarkdown = keyed
+    ? composeRound({
+        summaryMarkdown: summaryMarkdown ?? "",
+        sections: sections.map((section) => {
+          const declared =
+            section.sectionKey === null ? undefined : declaredByKey.get(section.sectionKey);
+          return {
+            label: section.label ?? declared?.label ?? section.sectionType,
+            heading: section.heading ?? declared?.heading ?? null,
+            type: section.sectionType,
+            scoreEarned: section.scoreEarned,
+            scorePossible: section.scorePossible ?? 0,
+            feedbackMarkdown: section.reportMarkdown ?? "",
+          };
+        }),
+      })
+    : buildFeedbackMarkdown(sections);
   const approvedAt = new Date();
 
   /*
@@ -588,7 +635,9 @@ export async function retryComment(submissionId: string): Promise<ApprovalResult
           teamSubmissionId: true,
           team: { select: { id: true, name: true } },
           mirrors: { select: { id: true } },
-          // The declared order of the sections, which the comment being reposted lists them in.
+          // The comment as the approval composed it, which is what the student's page shows.
+          feedbackMarkdown: true,
+          // The declared order of the sections, for a round approved before the text was kept.
           assignment: { select: { sections: true } },
         },
       },
@@ -632,12 +681,20 @@ export async function retryComment(submissionId: string): Promise<ApprovalResult
     );
   }
 
+  /*
+    The text the approval wrote onto the submission is the comment it meant to post, composed
+    with the title, the summary and every section's score; posting that keeps the pull request
+    and the student's page saying one thing. Only a submission approved before that text was
+    kept has none, and its comment is rebuilt from the sections as the approval then built it.
+  */
   const comment = await postOrUpdatePrComment(getConfiguredInstallationId(), {
     ...splitRepoFullName(submission.repoFullName),
     issueNumber: submission.prNumber,
-    body: buildFeedbackMarkdown(
-      inDeclaredOrder(submission.assignment.sections, draft.sections.map(effectiveSection)),
-    ),
+    body:
+      submission.feedbackMarkdown ??
+      buildFeedbackMarkdown(
+        inDeclaredOrder(submission.assignment.sections, draft.sections.map(effectiveSection)),
+      ),
   });
 
   const postedPrCommentId = BigInt(comment.id);
