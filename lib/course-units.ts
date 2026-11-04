@@ -115,6 +115,17 @@ export function partCount(category: CourseUnitCategory, count: number): string {
 }
 
 /**
+ * The `id` of a unit's section on a course page, which the page's outline links to.
+ *
+ * One function for the link and the `id` it has to match, on both the instructor's Curriculum
+ * screen and a student's course page. A difference between the two fails silently: the link
+ * scrolls nowhere.
+ */
+export function unitSectionId(unitId: string): string {
+  return `unit-${unitId}`;
+}
+
+/**
  * The parts of an assignment the ordering reads, structural so a test can build one in a line
  * and so both a tRPC payload and a Prisma row satisfy it.
  */

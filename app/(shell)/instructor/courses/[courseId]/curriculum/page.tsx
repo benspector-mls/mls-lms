@@ -31,12 +31,14 @@ async function CourseCurriculum({ params }: { params: Promise<{ courseId: string
   const { courseId } = await params;
 
   return (
-    <div className="mx-auto flex w-full max-w-4xl flex-col gap-6 p-4 md:p-6">
-      <PageHeader
-        title="Curriculum"
-        description="The course as your students meet it. Everything lives in a module, a project, or an assessment."
-      />
-      <Curriculum courseId={courseId} />
-    </div>
+    <Curriculum
+      courseId={courseId}
+      header={
+        <PageHeader
+          title="Curriculum"
+          description="The course as your students meet it. Everything lives in a module, a project, or an assessment."
+        />
+      }
+    />
   );
 }

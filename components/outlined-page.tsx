@@ -15,6 +15,8 @@ export type OutlineSection = {
   count?: number;
   /** The colour of a non-zero count. A count of nought is always muted, whatever its tone. */
   tone?: keyof typeof toneClasses;
+  /** Drawn before the label, for a list whose entries are of different kinds. */
+  icon?: React.ElementType;
 };
 
 const toneClasses = {
@@ -94,7 +96,11 @@ export function OutlinedPage({
         )}
       >
         {header}
-        <Outline sections={sections} className={layout.nav} />
+        {/*
+          Nothing rather than an empty bar when there are no sections — a course with no units yet,
+          or one whose units are still loading, would otherwise show a blank strip under its title.
+        */}
+        {sections.length > 0 && <Outline sections={sections} className={layout.nav} />}
         <div className="min-w-0">{children}</div>
       </div>
     </div>
@@ -165,9 +171,11 @@ function Outline({ sections, className }: { sections: OutlineSection[]; classNam
   }, [ids]);
 
   /*
-    In the strip, the links can be wider than the page, and the current one may be scrolled out of
-    the strip's own view. Bring it back without touching the page's scroll — `scrollIntoView` would
-    move every scrolling ancestor, so this moves only the list.
+    In the strip, the links can be wider than the page, and in the side column a long outline is
+    taller than its capped height, so either way the current one may be scrolled out of the list's
+    own view. Bring it back without touching the page's scroll — `scrollIntoView` would move every
+    scrolling ancestor, so this moves only the list. Each layout overflows on one axis only, so only
+    one of the two checks below can ever move it.
   */
   React.useEffect(() => {
     const list = listRef.current;
@@ -179,6 +187,11 @@ function Outline({ sections, className }: { sections: OutlineSection[]; classNam
     const right = left + link.offsetWidth;
     if (left < list.scrollLeft || right > list.scrollLeft + list.clientWidth) {
       list.scrollTo({ left: left - 16, behavior: "smooth" });
+    }
+    const top = link.offsetTop;
+    const bottom = top + link.offsetHeight;
+    if (top < list.scrollTop || bottom > list.scrollTop + list.clientHeight) {
+      list.scrollTo({ top: top - 16, behavior: "smooth" });
     }
   }, [active]);
 
@@ -192,7 +205,14 @@ function Outline({ sections, className }: { sections: OutlineSection[]; classNam
     >
       <ul
         ref={listRef}
-        className="relative flex w-full flex-col gap-0.5 overflow-x-auto [scrollbar-width:none] @min-[16rem]:flex-row @min-[16rem]:items-center @min-[16rem]:gap-1 [&::-webkit-scrollbar]:hidden"
+        /*
+          In the side column, capped at the height left below the stuck chrome and scrolled with a
+          visible scrollbar. A course's outline can run to eighteen entries, and the column sticks,
+          so without the cap the last entries would sit below the bottom of the screen where no
+          amount of page scrolling reaches them. The scrollbar is hidden only in the strip, where
+          sideways scrolling is shown by the entries cut off at its edge.
+        */
+        className="relative flex w-full flex-col gap-0.5 overflow-x-auto @max-[16rem]:max-h-[calc(100svh_-_6rem_-_var(--view-as-banner,0px))] @min-[16rem]:flex-row @min-[16rem]:items-center @min-[16rem]:gap-1 @min-[16rem]:[scrollbar-width:none] @min-[16rem]:[&::-webkit-scrollbar]:hidden"
       >
         <li className="px-2.5 pb-1 text-xs font-medium tracking-wide text-muted-foreground uppercase @min-[16rem]:hidden">
           On this page
@@ -200,6 +220,7 @@ function Outline({ sections, className }: { sections: OutlineSection[]; classNam
         {sections.map((section) => {
           const isActive = section.id === active;
           const empty = section.count === 0;
+          const Icon = section.icon;
 
           /*
             The label and, when there is one, the count. `whitespace-nowrap` only in the strip,
@@ -208,7 +229,14 @@ function Outline({ sections, className }: { sections: OutlineSection[]; classNam
           */
           const content = (
             <>
-              {section.label}
+              {Icon ? (
+                <span className="flex gap-1.5">
+                  <Icon aria-hidden="true" className="mt-0.5 size-4 shrink-0" />
+                  {section.label}
+                </span>
+              ) : (
+                section.label
+              )}
               {section.count != null && (
                 <span
                   className={cn(
