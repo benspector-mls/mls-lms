@@ -56,6 +56,13 @@ const toneClasses = {
  * highlights is the one whose section sits under the stuck chrome, which is also the one a jump
  * would have put there.
  *
+ * **`--outline-sticky-top` is defined in the side-column layout only**, as the bottom edge of the
+ * shell header and the View-as banner. A section heading that should stick on a wide screen and
+ * scroll normally beside the strip uses `sticky top-(--outline-sticky-top)`. Beside the strip the
+ * variable is undefined, so `top` falls back to `auto`, and a sticky element whose `top` is `auto`
+ * never sticks. The strip's breakpoint therefore lives here alone rather than being copied into
+ * every page that wants a sticky heading — a copy that drifted would stick headings behind the strip.
+ *
  * **Which section is current is worked out from scroll position, not from an IntersectionObserver.**
  * The rule is simple to state and simple to check: the current section is the last one whose top
  * edge has passed the offset, or the last section of all once the page is scrolled to its end —
@@ -110,12 +117,12 @@ export function OutlinedPage({
 const layouts = {
   "3xl": {
     frame:
-      "max-w-3xl @min-[63rem]:max-w-[60rem] @min-[63rem]:grid-cols-[minmax(0,1fr)_10rem] @min-[63rem]:gap-x-8 @min-[63rem]:[--outline-offset:calc(4.5rem_+_var(--view-as-banner,0px))]",
+      "max-w-3xl @min-[63rem]:max-w-[60rem] @min-[63rem]:grid-cols-[minmax(0,1fr)_10rem] @min-[63rem]:gap-x-8 @min-[63rem]:[--outline-offset:calc(4.5rem_+_var(--view-as-banner,0px))] @min-[63rem]:[--outline-sticky-top:calc(3.5rem_+_var(--view-as-banner,0px))]",
     nav: "@min-[63rem]:col-start-2 @min-[63rem]:row-start-1 @min-[63rem]:row-span-2 @min-[63rem]:self-start @min-[63rem]:top-[calc(4.5rem_+_var(--view-as-banner,0px))] @min-[63rem]:h-auto @min-[63rem]:border-b-0 @min-[63rem]:bg-transparent",
   },
   "4xl": {
     frame:
-      "max-w-4xl @min-[71rem]:max-w-[68rem] @min-[71rem]:grid-cols-[minmax(0,1fr)_10rem] @min-[71rem]:gap-x-8 @min-[71rem]:[--outline-offset:calc(4.5rem_+_var(--view-as-banner,0px))]",
+      "max-w-4xl @min-[71rem]:max-w-[68rem] @min-[71rem]:grid-cols-[minmax(0,1fr)_10rem] @min-[71rem]:gap-x-8 @min-[71rem]:[--outline-offset:calc(4.5rem_+_var(--view-as-banner,0px))] @min-[71rem]:[--outline-sticky-top:calc(3.5rem_+_var(--view-as-banner,0px))]",
     nav: "@min-[71rem]:col-start-2 @min-[71rem]:row-start-1 @min-[71rem]:row-span-2 @min-[71rem]:self-start @min-[71rem]:top-[calc(4.5rem_+_var(--view-as-banner,0px))] @min-[71rem]:h-auto @min-[71rem]:border-b-0 @min-[71rem]:bg-transparent",
   },
 } as const;

@@ -512,11 +512,23 @@ function UnitSection({
     <SortableRow id={unit.id} label={unit.name}>
       {(handle) => (
         <Collapsible open={open} onOpenChange={setOpen}>
+          {/*
+            `clip` rather than `hidden`, so the header below can stick. `hidden` would make this
+            section a scroll container, and the header would stick to a box that never scrolls.
+          */}
           <section
             id={unitSectionId(unit.id)}
-            className={cn(panelSurface, "scroll-mt-(--outline-offset) overflow-hidden")}
+            className={cn(panelSurface, "scroll-mt-(--outline-offset) overflow-clip")}
           >
-            <div className="flex flex-wrap items-center gap-2 bg-muted px-2 py-2">
+            {/*
+              Sticky on a wide screen, so an instructor partway down a long unit can still see
+              which unit the rows belong to; the next unit's header pushes it away. Beside the
+              outline's strip on a narrower screen it scrolls normally, because the strip already
+              takes height at the top and `--outline-sticky-top` is undefined there — see
+              `OutlinedPage`. `z-1` keeps rows that scroll under it from painting over it, and
+              stays beneath a unit being dragged.
+            */}
+            <div className="sticky top-(--outline-sticky-top) z-1 flex flex-wrap items-center gap-2 bg-muted px-2 py-2">
               {/*
             The grip sits where the up and down buttons sat, and it is the only part of this
             header that drags — the name, the rename form, and the collapse control all still do

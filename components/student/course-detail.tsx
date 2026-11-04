@@ -390,16 +390,27 @@ function UnitSection({
 
   return (
     <Collapsible open={open || holdsOpenAssignment} onOpenChange={setOpen}>
+      {/*
+        `clip` rather than `hidden`, so the heading below can stick. `hidden` would make this
+        section a scroll container, and the heading would stick to a box that never scrolls.
+      */}
       <section
         id={unitSectionId(id)}
-        className={cn(panelSurface, "scroll-mt-(--outline-offset) overflow-hidden")}
+        className={cn(panelSurface, "scroll-mt-(--outline-offset) overflow-clip")}
       >
         {/*
           The heading wraps the control rather than sitting inside it: a button may only
           contain phrasing content, so an <h2> within one is invalid markup, and this is
           the shape screen readers expect from a collapsible section anyway.
+
+          Sticky on a wide screen, so a student partway down a long unit can still see which unit
+          the rows belong to; the next unit's heading pushes it away. Beside the outline's strip on
+          a narrower screen it scrolls normally, because the strip already takes height at the top
+          and `--outline-sticky-top` is undefined there — see `OutlinedPage`. The heading carries
+          its own background because the trigger's hover fill is translucent, and without one the
+          rows scrolling underneath would show through a hovered heading.
         */}
-        <h2>
+        <h2 className="sticky top-(--outline-sticky-top) z-1 bg-card">
           <CollapsibleTrigger className="group flex w-full items-center gap-2 bg-muted px-3 py-2.5 text-left transition-colors hover:bg-muted-foreground/10">
             <ChevronRight
               aria-hidden="true"
