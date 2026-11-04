@@ -370,13 +370,23 @@ function UnitSection({
 
   return (
     <Collapsible open={open || holdsOpenAssignment} onOpenChange={setOpen}>
-      <section className={cn(panelSurface, "overflow-hidden")}>
+      {/*
+        `clip` rather than `hidden`, so the heading below can stick. `hidden` would make this
+        section a scroll container, and the heading would stick to a box that never scrolls.
+      */}
+      <section className={cn(panelSurface, "overflow-clip")}>
         {/*
           The heading wraps the control rather than sitting inside it: a button may only
           contain phrasing content, so an <h2> within one is invalid markup, and this is
           the shape screen readers expect from a collapsible section anyway.
+
+          Sticky under the app header and the View-as banner, so a student partway down a long
+          unit can still see which unit the rows belong to. It stays inside its section, so the
+          next unit's heading pushes it away. The heading carries its own background because the
+          trigger's hover fill is translucent, and without one the rows scrolling underneath
+          would show through a hovered heading.
         */}
-        <h2>
+        <h2 className="sticky top-[calc(3.5rem_+_var(--view-as-banner,0px))] z-1 bg-card">
           <CollapsibleTrigger className="group flex w-full items-center gap-2 bg-muted px-3 py-2.5 text-left transition-colors hover:bg-muted-foreground/10">
             <ChevronRight
               aria-hidden="true"

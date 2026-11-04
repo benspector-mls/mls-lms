@@ -482,8 +482,18 @@ function UnitSection({
     <SortableRow id={unit.id} label={unit.name}>
       {(handle) => (
         <Collapsible open={open} onOpenChange={setOpen}>
-          <section className={cn(panelSurface, "overflow-hidden")}>
-            <div className="flex flex-wrap items-center gap-2 bg-muted px-2 py-2">
+          {/*
+            `clip` rather than `hidden`, so the header below can stick. `hidden` would make this
+            section a scroll container, and the header would stick to a box that never scrolls.
+          */}
+          <section className={cn(panelSurface, "overflow-clip")}>
+            {/*
+              Sticky under the app header and the View-as banner, so an instructor partway down a
+              long unit can still see which unit the rows belong to. It stays inside its section,
+              so the next unit's header pushes it away. `z-1` keeps rows that scroll under it from
+              painting over it, and stays beneath a unit being dragged.
+            */}
+            <div className="sticky top-[calc(3.5rem_+_var(--view-as-banner,0px))] z-1 flex flex-wrap items-center gap-2 bg-muted px-2 py-2">
               {/*
             The grip sits where the up and down buttons sat, and it is the only part of this
             header that drags — the name, the rename form, and the collapse control all still do
