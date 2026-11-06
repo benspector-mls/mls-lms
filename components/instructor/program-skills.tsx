@@ -170,7 +170,7 @@ export function ProgramSkills({
                   aria-sort={ariaSort(sort, column.key)}
                   className={cn(
                     "h-auto py-1.5 align-middle text-xs font-normal whitespace-normal",
-                    column.kind === "group" ? "border-l border-border" : "bg-muted/30",
+                    column.kind === "group" ? "border-l-2 border-border" : "bg-muted/30",
                   )}
                 >
                   {column.kind === "group" ? (
@@ -223,7 +223,7 @@ export function ProgramSkills({
                     key={column.key}
                     className={cn(
                       "align-top",
-                      column.kind === "group" ? "border-l border-border" : "bg-muted/30",
+                      column.kind === "group" ? "border-l-2 border-border" : "bg-muted/30",
                     )}
                   >
                     <SkillFigureCell figure={column.figure(row)} detailFlags={column.detailFlags} />
