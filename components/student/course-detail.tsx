@@ -7,6 +7,7 @@ import * as React from "react";
 import { CheckCircle2, ChevronRight, CircleSlash, ListChecks, Wrench } from "lucide-react";
 
 import { EmptyState } from "@/components/list-states";
+import { OutlinedPage } from "@/components/outlined-page";
 import { CheckForUnderstanding } from "@/components/student/check-for-understanding";
 import { ResourceItem } from "@/components/resource-item";
 import { UnitList } from "@/components/unit-list";
@@ -15,6 +16,7 @@ import {
   AssignmentKindIcon,
   SubmissionStatusBadge,
   TeamWorkIcon,
+  UNIT_CATEGORY_ICON,
   UnitCategoryIcon,
 } from "@/components/status-badge";
 import { Card, CardContent, panelSurface } from "@/components/ui/card";
@@ -25,6 +27,7 @@ import {
   CATEGORY_META,
   sortByDueDate,
   UNIT_CATEGORIES,
+  unitSectionId,
   type CourseUnitCategory,
 } from "@/lib/course-units";
 import {
@@ -180,78 +183,93 @@ export function StudentCourseDetail({
   */
   const openAssignment = openId ? (assignments.find((a) => a.id === openId) ?? null) : null;
 
+  /*
+    Every unit, so a fellow can jump to the one they are working in without scrolling past every
+    unit before it. A collapsed unit stays collapsed, and the jump lands on its heading.
+  */
+  const sections = units.map(({ id, name, category }) => ({
+    id: unitSectionId(id),
+    label: name,
+    icon: UNIT_CATEGORY_ICON[category],
+  }));
+
   return (
-    <div className="mx-auto flex w-full max-w-4xl flex-col gap-6 p-4 md:p-6">
-      {/*
+    <OutlinedPage
+      width="4xl"
+      /*
         No link back. There is no screen above this one: the sidebar lists every course the fellow
         is in, on this screen as on every other, so a row of chrome pointing at a page that would
         only repeat it is a step to nowhere.
-      */}
-      <PageHeader title={course.name} description={course.program.term} />
-
-      {/*
+      */
+      header={<PageHeader title={course.name} description={course.program.term} />}
+      sections={sections}
+    >
+      <div className="flex flex-col gap-6">
+        {/*
         Where the course stands, in one line. Below the header because it is about the work
         rather than about the cohort, and above the modules because it is the summary of them.
       */}
-      {assignments.length > 0 && <CourseProgress assignments={assignments} />}
+        {assignments.length > 0 && <CourseProgress assignments={assignments} />}
 
-      {/*
+        {/*
         Accepting an assignment creates a repository named after the GitHub username, so
         without one the button below fails at the point of use. Said here rather than
         found there.
       */}
-      {!githubLinked && (
-        <Card className="ring-amber-500/50">
-          <CardContent className="py-4 text-sm">
-            <p className="font-medium">Your GitHub account is not linked</p>
-            <p className="mt-1 text-muted-foreground">
-              Accepting an assignment needs your GitHub username. Sign out, then sign in with
-              GitHub.
-            </p>
-          </CardContent>
-        </Card>
-      )}
+        {!githubLinked && (
+          <Card className="ring-amber-500/50">
+            <CardContent className="py-4 text-sm">
+              <p className="font-medium">Your GitHub account is not linked</p>
+              <p className="mt-1 text-muted-foreground">
+                Accepting an assignment needs your GitHub username. Sign out, then sign in with
+                GitHub.
+              </p>
+            </CardContent>
+          </Card>
+        )}
 
-      {units.length === 0 ? (
-        <EmptyState
-          icon={<ListChecks />}
-          title="Nothing here yet"
-          description="When your instructor adds assignments or readings to this course, they will appear here."
-        />
-      ) : (
-        <div className="flex flex-col gap-6">
-          {units.map(({ id, name, category, rows, resources: unitResources }) => (
-            <UnitSection
-              key={id}
-              name={name}
-              category={category}
-              assignments={rows}
-              resources={unitResources}
-              progressByCheck={progressByCheck}
-              now={now}
-              teaches={course.teaches}
-              readOnly={readOnly}
-              openAssignmentId={openId}
-              onOpen={show}
-            />
-          ))}
-        </div>
-      )}
+        {units.length === 0 ? (
+          <EmptyState
+            icon={<ListChecks />}
+            title="Nothing here yet"
+            description="When your instructor adds assignments or readings to this course, they will appear here."
+          />
+        ) : (
+          <div className="flex flex-col gap-6">
+            {units.map(({ id, name, category, rows, resources: unitResources }) => (
+              <UnitSection
+                key={id}
+                id={id}
+                name={name}
+                category={category}
+                assignments={rows}
+                resources={unitResources}
+                progressByCheck={progressByCheck}
+                now={now}
+                teaches={course.teaches}
+                readOnly={readOnly}
+                openAssignmentId={openId}
+                onOpen={show}
+              />
+            ))}
+          </div>
+        )}
 
-      {/*
+        {/*
         One panel for the page rather than one per row. Fifty rows would otherwise mount fifty
         dialogs and their portals, and the panel is handed the assignment it is pointed at.
       */}
-      <AssignmentPanel
-        assignment={openAssignment}
-        now={now}
-        readOnly={readOnly}
-        open={openAssignment != null}
-        onOpenChange={(next) => {
-          if (!next) show(null);
-        }}
-      />
-    </div>
+        <AssignmentPanel
+          assignment={openAssignment}
+          now={now}
+          readOnly={readOnly}
+          open={openAssignment != null}
+          onOpenChange={(next) => {
+            if (!next) show(null);
+          }}
+        />
+      </div>
+    </OutlinedPage>
   );
 }
 
@@ -316,6 +334,7 @@ function groupByCourseUnit(course: Course, assignments: Assignment[], resources:
 }
 
 function UnitSection({
+  id,
   name,
   category,
   assignments,
@@ -327,6 +346,7 @@ function UnitSection({
   openAssignmentId,
   onOpen,
 }: {
+  id: string;
   name: string;
   category: CourseUnitCategory;
   assignments: Assignment[];
@@ -370,13 +390,27 @@ function UnitSection({
 
   return (
     <Collapsible open={open || holdsOpenAssignment} onOpenChange={setOpen}>
-      <section className={cn(panelSurface, "overflow-hidden")}>
+      {/*
+        `clip` rather than `hidden`, so the heading below can stick. `hidden` would make this
+        section a scroll container, and the heading would stick to a box that never scrolls.
+      */}
+      <section
+        id={unitSectionId(id)}
+        className={cn(panelSurface, "scroll-mt-(--outline-offset) overflow-clip")}
+      >
         {/*
           The heading wraps the control rather than sitting inside it: a button may only
           contain phrasing content, so an <h2> within one is invalid markup, and this is
           the shape screen readers expect from a collapsible section anyway.
+
+          Sticky on a wide screen, so a student partway down a long unit can still see which unit
+          the rows belong to; the next unit's heading pushes it away. Beside the outline's strip on
+          a narrower screen it scrolls normally, because the strip already takes height at the top
+          and `--outline-sticky-top` is undefined there — see `OutlinedPage`. The heading carries
+          its own background because the trigger's hover fill is translucent, and without one the
+          rows scrolling underneath would show through a hovered heading.
         */}
-        <h2>
+        <h2 className="sticky top-(--outline-sticky-top) z-1 bg-card">
           <CollapsibleTrigger className="group flex w-full items-center gap-2 bg-muted px-3 py-2.5 text-left transition-colors hover:bg-muted-foreground/10">
             <ChevronRight
               aria-hidden="true"

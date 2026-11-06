@@ -2,8 +2,9 @@
  * Bootstraps an empty database. **It creates; it does not modify.**
  *
  * Creates: the four rubrics that exist in grading-toolkit/rubric.md, one course, its modules, one
- * instructor, one enrolled student, and one assignment whose `sections` mapping points at real
- * files in the answer-keys repository.
+ * instructor, one enrolled student, one assignment whose `sections` mapping points at real
+ * files in the answer-keys repository, and thirty fake fellows with six weeks of attendance and
+ * work behind them (see `seed-fake-fellows.ts`).
  *
  * ## The rule, and why it is stricter than it used to be
  *
@@ -17,8 +18,10 @@
  * - A removed student would have been **put back** into the cohort.
  * - An edited assignment would have had its title, points, and rubric **reverted**.
  *
- * So: existing rows are left alone. Roles are raised and never lowered. The one exception is
- * rubrics, which no router can author — see the comment at the top of `main`.
+ * So: existing rows are left alone. Roles are raised and never lowered. The two exceptions are
+ * rubrics, which no router can author — see the comment at the top of `main` — and the seeded
+ * program's attendance schedule, which is moved to the six weeks around the day the seed runs so
+ * the recent windows the screens read always have days in them.
  *
  * **Modules are found by name, then by ordinal.** They were found by their `position` column,
  * which broke once a project could sit in the same sequence: "the module at position 2" found a
@@ -48,6 +51,7 @@ import { AssignmentKind, parseAssignmentSpec, withDerivedFields } from "../lib/a
 import { suggestCourseSlug } from "../lib/courses/course-slug";
 import { newJoinToken } from "../lib/courses/join-token";
 import { END_OF_DAY, instantAtSchoolClock, schoolDayOf } from "../lib/school-time";
+import { seedFakeFellows } from "./seed-fake-fellows";
 import {
   PrismaClient,
   Prisma,
@@ -1186,6 +1190,9 @@ async function main() {
     `GCF: ${GCF_ATTEMPTS.length} attempts for ${STUDENT_EMAIL} ` +
       `(${GCF_ATTEMPTS.filter((a) => a.kind === "PROCTORED").length} proctored)`,
   );
+
+  // A cohort-sized roster with a term behind it. See `prisma/seed-fake-fellows.ts`.
+  await seedFakeFellows(prisma, { program, instructorId: instructor.id });
 
   console.log("\nSeed complete.");
 }

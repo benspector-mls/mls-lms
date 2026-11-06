@@ -5,6 +5,7 @@ import { useSearchParams } from "next/navigation";
 import * as React from "react";
 import { ArrowDown, ArrowUp, ChevronsUpDown, Search, X } from "lucide-react";
 
+import { ExpandableFrame } from "@/components/ui/expandable-frame";
 import { Input } from "@/components/ui/input";
 import {
   Table,
@@ -15,8 +16,6 @@ import {
   TableRow,
   stickyColumn,
   stickyColumnContent,
-  stickyHeader,
-  stickyHeaderContainer,
 } from "@/components/ui/table";
 import { TestStudentBadge } from "@/components/test-student-badge";
 import { WorkFilter } from "@/components/instructor/work-filter";
@@ -193,19 +192,21 @@ export function GradebookGrid({
         </p>
       ) : (
         <>
-          <Band
-            courseId={courseId}
-            units={visible}
-            allUnits={filled}
-            students={searchStudents(active, query)}
-            cells={cells}
-            work={work}
-            pending="waiting"
-            at={at}
-            sort={sort}
-            onSort={setSort}
-            emptySearch={active.length > 0}
-          />
+          <ExpandableFrame title={`Gradebook · ${meta.tabLabel}`}>
+            <Band
+              courseId={courseId}
+              units={visible}
+              allUnits={filled}
+              students={searchStudents(active, query)}
+              cells={cells}
+              work={work}
+              pending="waiting"
+              at={at}
+              sort={sort}
+              onSort={setSort}
+              emptySearch={active.length > 0}
+            />
+          </ExpandableFrame>
 
           {removed.length > 0 && (
             <section className="flex flex-col gap-2">
@@ -480,8 +481,8 @@ function Band({
   */
   return (
     <div className="overflow-hidden rounded-lg border border-border">
-      <Table containerClassName={stickyHeaderContainer}>
-        <TableHeader className={stickyHeader}>
+      <Table>
+        <TableHeader>
           {/*
             The bands: one heading over each group of columns beneath it.
 
@@ -499,7 +500,7 @@ function Band({
             <TableHead className={stickyColumn} />
             <TableHead
               colSpan={4}
-              className="border-l border-border text-center text-xs font-medium"
+              className="border-l-2 border-border text-center text-xs font-medium"
             >
               Summary
             </TableHead>
@@ -507,7 +508,7 @@ function Band({
               <TableHead
                 key={entry.unit.id}
                 colSpan={1 + entry.work.length}
-                className="border-l border-border text-center text-xs font-medium"
+                className="border-l-2 border-border text-center text-xs font-medium"
               >
                 {entry.unit.name}
               </TableHead>
@@ -523,7 +524,7 @@ function Band({
               onSort={onSort}
             />
             <SortableHead
-              className="border-l border-border"
+              className="border-l-2 border-border"
               label={
                 <span className="mx-auto block max-w-28 text-xs leading-tight">
                   Completed
@@ -578,7 +579,7 @@ function Band({
 
             {units.map((entry) => (
               <React.Fragment key={entry.unit.id}>
-                <TableHead className="border-l border-border py-2 text-center align-middle">
+                <TableHead className="border-l-2 border-border py-2 text-center align-middle">
                   <span className="mx-auto block max-w-28 text-xs leading-tight">Overall</span>
                 </TableHead>
                 {/*
@@ -671,7 +672,7 @@ function Band({
               or the frozen student column runs straight into the figures beside it while every
               other group on the row is fenced.
             */}
-            <TableHead className="border-l border-border" />
+            <TableHead className="border-l-2 border-border" />
             <TableHead />
             <TableHead />
             <TableHead />
@@ -684,7 +685,7 @@ function Band({
 
               return (
                 <React.Fragment key={entry.unit.id}>
-                  <TableHead className="border-l border-border text-center text-xs font-medium tabular-nums text-muted-foreground">
+                  <TableHead className="border-l-2 border-border text-center text-xs font-medium tabular-nums text-muted-foreground">
                     {completionLabel({ complete, possible: students.length }, students.length)}
                   </TableHead>
                   {entry.work.map((assignment) => (
@@ -713,7 +714,7 @@ function Band({
                 </div>
               </TableCell>
 
-              <TableCell className="border-l border-border text-center text-sm font-medium tabular-nums text-muted-foreground">
+              <TableCell className="border-l-2 border-border text-center text-sm font-medium tabular-nums text-muted-foreground">
                 {completionLabel(acrossRow.get(student.id), work.length)}
               </TableCell>
 
@@ -782,7 +783,7 @@ function Band({
                   */}
                   <TableCell
                     className={cn(
-                      "border-l border-border text-center text-sm font-medium tabular-nums",
+                      "border-l-2 border-border text-center text-sm font-medium tabular-nums",
                       isUnitComplete(entry.unit.id, student.id)
                         ? "text-emerald-600 dark:text-emerald-400"
                         : "text-muted-foreground",

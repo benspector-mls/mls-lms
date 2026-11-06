@@ -15,8 +15,6 @@ import {
   TableRow,
   stickyColumn,
   stickyColumnContent,
-  stickyHeader,
-  stickyHeaderContainer,
 } from "@/components/ui/table";
 import { arrivalSentence, type ArrivalAverages } from "@/lib/attendance/arrival";
 import {
@@ -134,8 +132,8 @@ export function AttendanceGrid({
   */
   return (
     <div className="overflow-hidden rounded-lg border border-border">
-      <Table containerClassName={stickyHeaderContainer}>
-        <TableHeader className={stickyHeader}>
+      <Table>
+        <TableHeader>
           <TableRow>
             {/*
               Only the name column is pinned. Pinning the summary columns too would leave a phone

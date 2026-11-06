@@ -2,6 +2,7 @@ import { CalendarRange } from "lucide-react";
 
 import { AttendanceGrid, LETTER_CLASS } from "@/components/instructor/attendance-grid";
 import { EmptyState } from "@/components/list-states";
+import { ExpandableFrame } from "@/components/ui/expandable-frame";
 import type { ArrivalAverages } from "@/lib/attendance/arrival";
 import type { FellowSummary, SummarySession } from "@/lib/attendance/summary";
 
@@ -63,12 +64,14 @@ export function AttendanceTerm({ programId, data }: { programId: string; data: T
             <Legend />
           </p>
         </div>
-        <AttendanceGrid
-          programId={programId}
-          sessions={data.sessions}
-          fellows={data.active}
-          arrivals={data.arrivals}
-        />
+        <ExpandableFrame title="Attendance · Every session">
+          <AttendanceGrid
+            programId={programId}
+            sessions={data.sessions}
+            fellows={data.active}
+            arrivals={data.arrivals}
+          />
+        </ExpandableFrame>
       </section>
 
       {data.removed.length > 0 && (

@@ -418,8 +418,11 @@ export function AssignmentKindIcon({
  * A student's course page shows no badge on a module at all, deliberately, so on that screen this
  * icon is the only thing naming the kind — and an icon nobody can expand is a glyph to be guessed
  * at. Hovering gives the word and the sentence saying what the category is for.
+ *
+ * Exported for the outlines on the course pages, which draw the bare icon: there it sits inside a
+ * link, and a tooltip trigger nested in a link would make one entry two things to point at.
  */
-const UNIT_CATEGORY_ICON: Record<CourseUnitCategory, React.ElementType> = {
+export const UNIT_CATEGORY_ICON: Record<CourseUnitCategory, React.ElementType> = {
   MODULE: BookOpen,
   PROJECT: Blocks,
   ASSESSMENT: ClipboardCheck,

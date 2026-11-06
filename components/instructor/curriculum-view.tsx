@@ -6,8 +6,14 @@ import * as React from "react";
 import { ChevronRight, FileText, Layers, Loader2, Pencil, Plus, Trash2 } from "lucide-react";
 import { toast } from "sonner";
 
-import { AssignmentKindIcon, TeamWorkIcon, UnitCategoryIcon } from "@/components/status-badge";
+import {
+  AssignmentKindIcon,
+  TeamWorkIcon,
+  UNIT_CATEGORY_ICON,
+  UnitCategoryIcon,
+} from "@/components/status-badge";
 import { EmptyState, ErrorState, ListSkeleton } from "@/components/list-states";
+import { OutlinedPage } from "@/components/outlined-page";
 import { ResourceItem } from "@/components/resource-item";
 import { SortableList, SortableRow } from "@/components/sortable-list";
 import { AssignmentPanel } from "@/components/student/assignment-panel";
@@ -27,7 +33,7 @@ import {
 } from "@/components/ui/select";
 import { Skeleton } from "@/components/ui/skeleton";
 import { useServerMutation } from "@/hooks/use-server-mutation";
-import { CATEGORY_META, UNIT_CATEGORIES, partCount } from "@/lib/course-units";
+import { CATEGORY_META, UNIT_CATEGORIES, partCount, unitSectionId } from "@/lib/course-units";
 import type { CourseUnitCategory } from "@/lib/generated/prisma/enums";
 import { checkAttemptsHref, gradingQueueHref, newAssignmentHref } from "@/lib/links";
 import { formatDueDateShort } from "@/lib/status";
@@ -65,7 +71,31 @@ import { ResourceActions } from "./resource-actions";
 
 type Unit = RouterOutputs["courseUnits"]["listForCourse"][number];
 
-export function Curriculum({ courseId }: { courseId: string }) {
+/**
+ * The curriculum with an outline of its units, so an instructor can jump to one without
+ * scrolling past every unit before it.
+ *
+ * A wrapper around the body rather than a change inside it, because the outline needs the page
+ * header and the unit list together, and the body returns early while the list loads or fails.
+ * Both read the same query, and React Query answers the two from one request.
+ */
+export function Curriculum({ courseId, header }: { courseId: string; header: React.ReactNode }) {
+  const trpc = useTRPC();
+  const units = useQuery(trpc.courseUnits.listForCourse.queryOptions({ courseId }));
+  const sections = (units.data ?? []).map((unit) => ({
+    id: unitSectionId(unit.id),
+    label: unit.name,
+    icon: UNIT_CATEGORY_ICON[unit.category],
+  }));
+
+  return (
+    <OutlinedPage width="4xl" header={header} sections={sections}>
+      <CurriculumBody courseId={courseId} />
+    </OutlinedPage>
+  );
+}
+
+function CurriculumBody({ courseId }: { courseId: string }) {
   const trpc = useTRPC();
   const settled = useServerMutation();
   const units = useQuery(trpc.courseUnits.listForCourse.queryOptions({ courseId }));
@@ -482,8 +512,23 @@ function UnitSection({
     <SortableRow id={unit.id} label={unit.name}>
       {(handle) => (
         <Collapsible open={open} onOpenChange={setOpen}>
-          <section className={cn(panelSurface, "overflow-hidden")}>
-            <div className="flex flex-wrap items-center gap-2 bg-muted px-2 py-2">
+          {/*
+            `clip` rather than `hidden`, so the header below can stick. `hidden` would make this
+            section a scroll container, and the header would stick to a box that never scrolls.
+          */}
+          <section
+            id={unitSectionId(unit.id)}
+            className={cn(panelSurface, "scroll-mt-(--outline-offset) overflow-clip")}
+          >
+            {/*
+              Sticky on a wide screen, so an instructor partway down a long unit can still see
+              which unit the rows belong to; the next unit's header pushes it away. Beside the
+              outline's strip on a narrower screen it scrolls normally, because the strip already
+              takes height at the top and `--outline-sticky-top` is undefined there — see
+              `OutlinedPage`. `z-1` keeps rows that scroll under it from painting over it, and
+              stays beneath a unit being dragged.
+            */}
+            <div className="sticky top-(--outline-sticky-top) z-1 flex flex-wrap items-center gap-2 bg-muted px-2 py-2">
               {/*
             The grip sits where the up and down buttons sat, and it is the only part of this
             header that drags — the name, the rename form, and the collapse control all still do

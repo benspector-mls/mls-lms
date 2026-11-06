@@ -11,30 +11,44 @@ import { cn } from "@/lib/utils";
   context here leaves the column raised above the cells passing behind it, which is its whole job,
   and below everything outside the table. The overlays a row opens — a dialog, a dropdown — are
   portalled to the body and so are not held under it.
+
+  **The header stays in view by default**, because most tables in the application list one row
+  per person and a reader scrolled down to the twentieth row still needs to know which column
+  they are in. A table shorter than the cap is unaffected. `stickyHeader={false}` turns it off for a table that should scroll as one piece
+  with the page. The setting reaches `TableHeader` through context, so a table switches both
+  halves of the arrangement — the scrolling container here and the frozen `<thead>` — with one
+  prop, and neither half can be applied without the other.
 */
+const StickyHeaderContext = React.createContext(false);
+
 function Table({
   className,
   containerClassName,
+  stickyHeader = true,
   ...props
 }: React.ComponentProps<"table"> & {
-  /**
-   * Merged into the scroll-container div rather than the `<table>`. The sticky machinery — a
-   * frozen header's `max-height` and vertical overflow — has to live on this div, because it is
-   * the nearest scrolling ancestor and sticky positioning measures against nothing else.
-   */
+  /** Merged into the scroll-container div rather than the `<table>`. */
   containerClassName?: string;
+  /** Keeps the `<thead>` in view while the rows scroll. On unless set to `false`. */
+  stickyHeader?: boolean;
 }) {
   return (
-    <div
-      data-slot="table-container"
-      className={cn("relative isolate w-full overflow-x-auto", containerClassName)}
-    >
-      <table
-        data-slot="table"
-        className={cn("w-full caption-bottom text-sm", className)}
-        {...props}
-      />
-    </div>
+    <StickyHeaderContext.Provider value={stickyHeader}>
+      <div
+        data-slot="table-container"
+        className={cn(
+          "relative isolate w-full overflow-x-auto",
+          stickyHeader && stickyHeaderContainer,
+          containerClassName,
+        )}
+      >
+        <table
+          data-slot="table"
+          className={cn("w-full caption-bottom text-sm", className)}
+          {...props}
+        />
+      </div>
+    </StickyHeaderContext.Provider>
   );
 }
 
@@ -120,14 +134,15 @@ const stickyColumnContent =
   "sm:wrap-normal";
 
 /**
- * The container of a table whose header stays put: `containerClassName` for `Table`, paired with
- * `stickyHeader` on the `<TableHeader>` inside it.
+ * The container of a table whose header stays put, applied by `Table` unless `stickyHeader` is
+ * `false`, and paired with `stickyHeader` on the `<TableHeader>` inside it.
  *
  * **The vertical scroll has to happen here, or the header never sticks.** A sticky element sticks
  * within its nearest scrolling ancestor, and this container is already that ancestor — it scrolls
- * the wide tables sideways. Today it never scrolls vertically (the page does), so a sticky header
- * inside it would have nothing to stick against and simply scroll away with the rows. Capping the
- * container's height makes it the vertical scroller too, and both axes must be the same element:
+ * the wide tables sideways. Without a height cap it never scrolls vertically (the page does), so a
+ * sticky header inside it would have nothing to stick against and simply scroll away with the
+ * rows. Capping the container's height makes it the vertical scroller too, and both axes must be
+ * the same element:
  * a `max-height` on any *outer* wrapper would leave this div the nearest scroller and the header
  * still measuring against a box that never moves.
  *
@@ -139,12 +154,16 @@ const stickyColumnContent =
  *
  * `overflow-y-auto` spelled per-axis because the container already carries `overflow-x-auto`, and
  * a table shorter than the cap is unaffected — no scrollbar, no change from today.
+ *
+ * **`--table-max-h` replaces the cap where it is set**, which `ExpandableFrame` does while a grid
+ * fills the window: the shell's header is not there to leave room for, so the grid takes the
+ * window less the frame's own bar.
  */
-const stickyHeaderContainer = "max-h-[calc(100svh-7rem)] overflow-y-auto";
+const stickyHeaderContainer = "max-h-[var(--table-max-h,calc(100svh-7rem))] overflow-y-auto";
 
 /**
- * The frozen header of a scrolling table: goes on the `<TableHeader>`, with `stickyHeaderContainer`
- * on the `Table` around it.
+ * The frozen header of a scrolling table: applied by `TableHeader` when the `Table` around it has
+ * `stickyHeader` on, which also gives that table `stickyHeaderContainer`.
  *
  * **On the `<thead>` as one unit, not on rows or cells.** The gradebook's header is two rows — the
  * unit bands and the sortable column names — and sticking each row would mean a `top` offset equal
@@ -161,10 +180,11 @@ const stickyHeaderContainer = "max-h-[calc(100svh-7rem)] overflow-y-auto";
  * container's `isolate` (see `Table` above) keeps the `z-20` from competing with anything outside
  * the table, the shell's `z-10` breadcrumb header included.
  *
- * `bg-table-head` for the same reason `stickyColumn` is opaque: rows pass behind the header, and
- * any transparency shows their text through it as a ghost. On the thead rather than per-cell so
- * the gaps between cell paddings are covered too; the corner cells keep painting `bg-table-sticky`
- * on top of it, which is the same tint.
+ * `bg-table-head`, which `TableHeader` always paints, matters here for the same reason
+ * `stickyColumn` is opaque: rows pass behind the header, and any transparency shows their text
+ * through it as a ghost. On the thead rather than per-cell so the gaps between cell paddings are
+ * covered too; the corner cells keep painting `bg-table-sticky` on top of it, which is the same
+ * tint.
  *
  * **The inset shadow is the header's bottom border, redrawn where the real one goes missing.**
  * Preflight sets `border-collapse: collapse`, and in the collapsed model row borders belong to the
@@ -182,11 +202,12 @@ const stickyHeaderContainer = "max-h-[calc(100svh-7rem)] overflow-y-auto";
  * not by the cells, whose boxes stop short of it, and not by the thead's background, which the
  * browser paints through the cells. In a two-row header that left a transparent seam between the
  * rows through which the body's text scrolled past. With the rule line drawn by each cell's shadow
- * the border was doing nothing visible, so it is removed; `[&_tr]:border-b-0` has to be written
- * this way because `TableHeader`'s own `[&_tr]:border-b` outranks any class on the row itself.
+ * the border would do nothing visible, so it is removed. `[&_tr]:border-b-0` has to be written as a
+ * descendant selector because `TableRow` puts `border-b` on every row, and a class on the row
+ * itself would tie with it rather than outrank it.
  */
 const stickyHeader =
-  "sticky top-0 z-20 bg-table-head [&_tr]:border-b-0 [&_th]:shadow-[inset_0_-1px_0_var(--color-border)]";
+  "sticky top-0 z-20 [&_tr]:border-b-0 [&_th]:shadow-[inset_0_-1px_0_var(--color-border)]";
 
 /**
  * Tinted the same faint cool gray as the frozen column, so the headings read apart from the cells.
@@ -194,10 +215,16 @@ const stickyHeader =
  * picks out, and a heading that changed color under the pointer looked like one.
  */
 function TableHeader({ className, ...props }: React.ComponentProps<"thead">) {
+  const sticky = React.useContext(StickyHeaderContext);
+
   return (
     <thead
       data-slot="table-header"
-      className={cn("bg-table-head [&_tr]:border-b [&_tr]:hover:bg-transparent", className)}
+      className={cn(
+        "bg-table-head [&_tr]:hover:bg-transparent",
+        sticky ? stickyHeader : "[&_tr]:border-b",
+        className,
+      )}
       {...props}
     />
   );
@@ -280,6 +307,4 @@ export {
   TableCaption,
   stickyColumn,
   stickyColumnContent,
-  stickyHeader,
-  stickyHeaderContainer,
 };
