@@ -5,6 +5,7 @@ import * as React from "react";
 
 import { SortableHead, VerdictMark } from "@/components/instructor/gradebook-grid";
 import { TestStudentBadge } from "@/components/test-student-badge";
+import { ExpandableFrame } from "@/components/ui/expandable-frame";
 import {
   Table,
   TableBody,
@@ -13,8 +14,6 @@ import {
   TableRow,
   stickyColumn,
   stickyColumnContent,
-  stickyHeader,
-  stickyHeaderContainer,
 } from "@/components/ui/table";
 import { CATEGORY_META, UNIT_CATEGORIES, type CourseUnitCategory } from "@/lib/course-units";
 import { GCF_TARGET, PROCTORED_SCALE, targetLabel } from "@/lib/gcf";
@@ -90,15 +89,17 @@ export function Overview({
   return (
     <div className="flex flex-col gap-6">
       {active.length > 0 && (
-        <OverviewTable
-          courseId={courseId}
-          grouped={grouped}
-          students={active}
-          cells={cells}
-          countWaiting
-          gcf={gcf}
-          now={now}
-        />
+        <ExpandableFrame title="Gradebook · Overview">
+          <OverviewTable
+            courseId={courseId}
+            grouped={grouped}
+            students={active}
+            cells={cells}
+            countWaiting
+            gcf={gcf}
+            now={now}
+          />
+        </ExpandableFrame>
       )}
 
       {removed.length > 0 && (
@@ -250,8 +251,8 @@ function OverviewTable({
   */
   return (
     <div className="overflow-hidden rounded-lg border border-border">
-      <Table containerClassName={stickyHeaderContainer}>
-        <TableHeader className={stickyHeader}>
+      <Table>
+        <TableHeader>
           <TableRow>
             <SortableHead
               label="Student"

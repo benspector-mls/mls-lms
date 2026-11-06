@@ -14,6 +14,7 @@ import {
 
 import { TestStudentBadge } from "@/components/test-student-badge";
 import { Button } from "@/components/ui/button";
+import { ExpandableFrame } from "@/components/ui/expandable-frame";
 import { Input } from "@/components/ui/input";
 import {
   Table,
@@ -24,8 +25,6 @@ import {
   TableRow,
   stickyColumn,
   stickyColumnContent,
-  stickyHeader,
-  stickyHeaderContainer,
 } from "@/components/ui/table";
 import {
   formatTakenOn,
@@ -203,14 +202,16 @@ export function GcfTab({ courseId, data }: { courseId: string; data: Gcf }) {
           No student matches that search.
         </p>
       ) : (
-        <StandingsTable
-          rows={rows}
-          byStudent={byStudent}
-          scales={scales}
-          sort={sort}
-          onSort={toggle}
-          onOpen={setOpen}
-        />
+        <ExpandableFrame title="Gradebook · GCF">
+          <StandingsTable
+            rows={rows}
+            byStudent={byStudent}
+            scales={scales}
+            sort={sort}
+            onSort={toggle}
+            onOpen={setOpen}
+          />
+        </ExpandableFrame>
       )}
 
       {data.removedStudents.length > 0 && (
@@ -290,15 +291,15 @@ function StandingsTable({
   */
   return (
     <div className="overflow-hidden rounded-lg border border-border">
-      <Table containerClassName={stickyHeaderContainer}>
-        <TableHeader className={stickyHeader}>
+      <Table>
+        <TableHeader>
           <TableRow className="hover:bg-transparent">
             <TableHead className={stickyColumn} />
             {GCF_KINDS.map((kind) => (
               <TableHead
                 key={kind}
                 colSpan={3}
-                className="border-l border-border text-center text-xs font-medium"
+                className="border-l-2 border-border text-center text-xs font-medium"
               >
                 {GCF_KIND_META[kind].label}
                 {/*
@@ -323,7 +324,7 @@ function StandingsTable({
             />
             {GCF_KINDS.map((kind) => (
               <React.Fragment key={kind}>
-                <TableHead className="border-l border-border text-center text-xs">
+                <TableHead className="border-l-2 border-border text-center text-xs">
                   Attempts
                 </TableHead>
                 <SortHead
@@ -394,7 +395,7 @@ function StandingsTable({
 
                   return (
                     <React.Fragment key={kind}>
-                      <TableCell className="border-l border-border text-center text-sm tabular-nums text-muted-foreground">
+                      <TableCell className="border-l-2 border-border text-center text-sm tabular-nums text-muted-foreground">
                         {standing.attempts === 0 ? "—" : standing.attempts}
                       </TableCell>
 

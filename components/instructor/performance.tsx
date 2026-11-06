@@ -1,13 +1,14 @@
 "use client";
 
 import Link from "next/link";
-import { useSearchParams } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import { ArrowDown, ArrowUp, ChevronsUpDown, CircleHelp, Gauge } from "lucide-react";
 import * as React from "react";
 
 import { EmptyState } from "@/components/list-states";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { Button } from "@/components/ui/button";
+import { ExpandableFrame } from "@/components/ui/expandable-frame";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import {
   stickyColumn,
@@ -18,6 +19,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import { ToggleGroup, ToggleGroupItem } from "@/components/ui/toggle-group";
 import { recentAttendedShare, recentOnTimeArrivalShare } from "@/lib/attendance/summary";
 import { CHECK_TREND_RULE } from "@/lib/checks/trends";
 import { CATEGORY_LABEL, type CheckCategory } from "@/lib/checks/levels";
@@ -96,13 +98,20 @@ type Course = Payload["courses"][number];
  * underneath count what went wrong, and a cell turns red or yellow where one trips and green
  * where none does.
  *
- * **One table per group, at the same column widths**, so each group can be read on its own and the
- * four still line up as one grid down the page.
+ * **One table, with each group's heading as a row across it**, so a single header stays in view
+ * from the first group to the last and the columns line up by construction. Each group is its own
+ * `<tbody>` with the heading as its first row, which is what lets a screen reader say which group a
+ * row is in.
  *
- * **Every column sorts, and one choice sorts all four tables**, since they are one grid: a reader
- * sorting by a course's deadlines wants that order in every group. Until a column is chosen, each
- * group is worst first, because the screen is read from the top and acted on until somebody runs
- * out of afternoon. The rule is `performanceBucket` in lib/programs/performance.ts.
+ * **Every column sorts, and the sort stays inside each group**: a reader sorting by a course's
+ * deadlines wants that order in every group, and the groups are the order the screen is acted on
+ * in. Until a column is chosen, each group is worst first, because the screen is read from the top
+ * and acted on until somebody runs out of afternoon. The rule is `performanceBucket` in
+ * lib/programs/performance.ts.
+ *
+ * **The grouping can be switched off**, which sorts the whole roster as one list — for the
+ * question the groups cannot answer, such as who across the program has the lowest attendance.
+ * The choice is in the query string as the filters are, so it survives a reload.
  */
 export function ProgramPerformance({
   programId,
@@ -132,6 +141,8 @@ export function ProgramPerformance({
   const measuresParam = searchParams.get(MEASURES_PARAM);
   const measures = React.useMemo(() => chosenMeasures(measuresParam), [measuresParam]);
 
+  const grouped = searchParams.get(GROUPS_PARAM) !== UNGROUPED;
+
   const fellows = React.useMemo(
     () =>
       data.fellows.map((fellow): Fellow => ({
@@ -149,9 +160,17 @@ export function ProgramPerformance({
       ),
     [courses],
   );
+  /*
+    A column with no figure for anybody hides, so a grid early in a course is not a run of dashes
+    under headings like Graded Projects Completed. It is judged against the whole roster rather
+    than each group, so every group's table keeps the same columns and they still line up.
+  */
   const columns = React.useMemo(
-    () => columnsFor(courses, categories, measures),
-    [courses, categories, measures],
+    () =>
+      columnsFor(courses, categories, measures).filter((column) =>
+        fellows.some((fellow) => column.render(fellow).value !== NO_FIGURE),
+      ),
+    [courses, categories, measures, fellows],
   );
   const shares = React.useMemo(
     () => meetingShares(fellows, categories, measures),
@@ -168,12 +187,14 @@ export function ProgramPerformance({
     );
   }
 
-  const byBucket = new Map<PerformanceBucket, Fellow[]>(
-    PERFORMANCE_BUCKETS.map((bucket) => [bucket, []]),
-  );
-  for (const fellow of fellows) byBucket.get(fellow.standing.bucket)!.push(fellow);
-
+  /*
+    A column hidden for having no figures can leave a sort pointing at nothing, and the rows then
+    fall back to worst first, which is also what no sort at all shows.
+  */
   const order = (rows: Fellow[]) => {
+    if (sort?.key === "name") {
+      return [...rows].sort((a, b) => compare(fellowName(a), fellowName(b), sort.direction));
+    }
     const column = sort && columns.find((candidate) => candidate.key === sort.key);
     if (!sort || !column) return [...rows].sort(worstFirst);
     return [...rows].sort((a, b) =>
@@ -181,37 +202,74 @@ export function ProgramPerformance({
     );
   };
 
+  const sections: Section[] = grouped
+    ? PERFORMANCE_BUCKETS.map((bucket) => ({
+        key: bucket,
+        bucket,
+        fellows: order(fellows.filter((fellow) => fellow.standing.bucket === bucket)),
+      })).filter((section) => section.fellows.length > 0)
+    : [{ key: "all", bucket: null, fellows: order(fellows) }];
+
   return (
     <div className="flex flex-col gap-6">
       <MeetingSummary shares={shares} />
       <BucketingHelp window={formatRecentWindow(data.window)} measures={measures} />
 
-      {PERFORMANCE_BUCKETS.map((bucket) => {
-        const rows = byBucket.get(bucket)!;
-        if (rows.length === 0) return null;
-
-        return (
-          <section key={bucket} className="flex flex-col gap-2">
-            <div className="flex flex-col gap-0.5">
-              <h2 className="text-sm font-medium">
-                {PERFORMANCE_BUCKET_LABEL[bucket]} · {rows.length}
-              </h2>
-              <p className="text-xs text-muted-foreground">{BUCKET_DESCRIPTION[bucket]}</p>
-            </div>
-            <PerformanceGrid
-              programId={programId}
-              columns={columns}
-              fellows={order(rows)}
-              cohortName={cohortName}
-              sort={sort}
-              onSort={setSort}
-            />
-          </section>
-        );
-      })}
+      <ExpandableFrame title="Performance" actions={<GroupingToggle grouped={grouped} />}>
+        <PerformanceGrid
+          programId={programId}
+          columns={columns}
+          sections={sections}
+          cohortName={cohortName}
+          sort={sort}
+          onSort={setSort}
+        />
+      </ExpandableFrame>
     </div>
   );
 }
+
+/** The query string key that switches the grouping off, and the one value it takes. */
+const GROUPS_PARAM = "groups";
+const UNGROUPED = "off";
+
+/**
+ * Whether the grid is split into groups or read as one list.
+ *
+ * Grouped is written as no parameter at all, so the plain address stays the screen as it was.
+ */
+function GroupingToggle({ grouped }: { grouped: boolean }) {
+  const router = useRouter();
+  const searchParams = useSearchParams();
+
+  function choose(next: boolean) {
+    const params = new URLSearchParams(searchParams.toString());
+    if (next) params.delete(GROUPS_PARAM);
+    else params.set(GROUPS_PARAM, UNGROUPED);
+    const query = params.toString();
+    router.replace(query ? `?${query}` : "?", { scroll: false });
+  }
+
+  return (
+    <ToggleGroup
+      variant="outline"
+      size="sm"
+      spacing={0}
+      value={[grouped ? "grouped" : "list"]}
+      onValueChange={(value) => {
+        // Pressing the option already chosen empties the group; that changes nothing here.
+        if (value.length > 0) choose(value[0] === "grouped");
+      }}
+      aria-label="Rows"
+    >
+      <ToggleGroupItem value="grouped">By group</ToggleGroupItem>
+      <ToggleGroupItem value="list">One list</ToggleGroupItem>
+    </ToggleGroup>
+  );
+}
+
+/** A run of rows under one heading, or the whole roster under none when grouping is off. */
+type Section = { key: string; bucket: PerformanceBucket | null; fellows: Fellow[] };
 
 const BUCKET_DESCRIPTION: Record<PerformanceBucket, string> = {
   "needs-support":
@@ -319,7 +377,10 @@ function BucketingHelp({ window, measures }: { window: string; measures: Readonl
           </HelpRule>
         </HelpSection>
 
-        <p className="text-muted-foreground">Press a column name to sort every group by it.</p>
+        <p className="text-muted-foreground">
+          Press a column name to sort each group by it, or choose One list to sort everybody
+          together.
+        </p>
       </PopoverContent>
     </Popover>
   );
@@ -389,7 +450,8 @@ type CellContent = {
   title?: string;
 };
 
-const EMPTY = (detail: string): CellContent => ({ value: "—", detail });
+const NO_FIGURE = "—";
+const EMPTY = (detail: string): CellContent => ({ value: NO_FIGURE, detail });
 
 /** The colour of a share, with the bar it fell under in words. Nothing for a share too small to read. */
 function byShare(
@@ -848,28 +910,25 @@ function fellowName(fellow: Fellow): string {
 // The table
 // ===========================================================================
 
-/** The width of the fellow column and of every figure column, the same in every group's table. */
-const FELLOW_REM = 13;
-const FIGURE_REM = 8.5;
-
 /**
- * One group's table.
- *
- * **Every group's table has the same columns at the same widths**, fixed rather than sized to
- * their contents, so the four tables read as one grid broken into sections: a course's band sits
- * at the same place in each, and an eye moving down the page stays in one column.
+ * The width of the fellow column and of every figure column, as variables the `<col>`s and the
+ * table's own width read.
  */
+const COLUMN_WIDTHS =
+  "[--fellow-w:7rem] [--figure-w:6.5rem] sm:[--fellow-w:13rem] sm:[--figure-w:8.5rem]";
+
+/** The grid: one table, its groups as runs of rows under a heading row each. */
 function PerformanceGrid({
   programId,
   columns,
-  fellows,
+  sections,
   cohortName,
   sort,
   onSort,
 }: {
   programId: string;
   columns: Column[];
-  fellows: Fellow[];
+  sections: Section[];
   cohortName: Map<string, string>;
   sort: Sort | null;
   onSort: (sort: Sort | null) => void;
@@ -892,27 +951,22 @@ function PerformanceGrid({
   const edgeOf = (column: Column) =>
     bandStarts.has(column.key)
       ? column.band.archived
-        ? "border-l border-dotted border-muted-foreground/60"
-        : "border-l border-border"
+        ? "border-l-2 border-dotted border-muted-foreground/60"
+        : "border-l-2 border-border"
       : null;
-
-  const nameSorted = (rows: Fellow[]) =>
-    sort?.key === "name"
-      ? [...rows].sort((a, b) => compare(fellowName(a), fellowName(b), sort.direction))
-      : rows;
 
   return (
     // As wide as the grid and no wider, so a program with one course is not a narrow table inside
     // a page-wide border; the table scrolls sideways inside it once it outgrows the page.
     <div className="w-fit max-w-full overflow-hidden rounded-lg border border-border">
       <Table
-        className="table-fixed"
-        style={{ width: `${FELLOW_REM + columns.length * FIGURE_REM}rem` }}
+        className={cn("table-fixed", COLUMN_WIDTHS)}
+        style={{ width: `calc(var(--fellow-w) + ${columns.length} * var(--figure-w))` }}
       >
         <colgroup>
-          <col style={{ width: `${FELLOW_REM}rem` }} />
+          <col style={{ width: "var(--fellow-w)" }} />
           {columns.map((column) => (
-            <col key={column.key} style={{ width: `${FIGURE_REM}rem` }} />
+            <col key={column.key} style={{ width: "var(--figure-w)" }} />
           ))}
         </colgroup>
         <TableHeader>
@@ -931,8 +985,8 @@ function PerformanceGrid({
                 className={cn(
                   "h-8 text-xs",
                   band.archived
-                    ? "border-x border-t border-dotted border-muted-foreground/60"
-                    : "border-l border-border",
+                    ? "border-x-2 border-t-2 border-dotted border-muted-foreground/60"
+                    : "border-l-2 border-border",
                 )}
               >
                 <span className="flex min-w-0 items-center gap-1.5">{band.label}</span>
@@ -954,41 +1008,72 @@ function PerformanceGrid({
             ))}
           </TableRow>
         </TableHeader>
-        <TableBody>
-          {nameSorted(fellows).map((fellow) => (
-            <TableRow key={fellow.enrollmentId}>
-              {/*
-                The fellow column stays put while the course bands scroll beneath it, because a row
-                of figures without a name beside it is a row nobody can act on.
-              */}
-              <TableCell className={stickyColumn}>
-                <div className="flex items-center gap-3">
-                  <Avatar className="size-8">
-                    <AvatarFallback className="bg-primary/10 text-xs font-medium text-primary">
-                      {initials(fellow.student.displayName)}
-                    </AvatarFallback>
-                  </Avatar>
-                  <div className="flex min-w-0 flex-col">
-                    <Link
-                      href={programStudentHref(programId, fellow.student.id)}
-                      className="truncate font-medium hover:underline"
-                    >
-                      {fellowName(fellow)}
-                    </Link>
-                    <span className="truncate text-xs text-muted-foreground">
-                      {fellow.cohortId === null
-                        ? "No cohort"
-                        : (cohortName.get(fellow.cohortId) ?? "Unknown cohort")}
+        {sections.map((section, index) => (
+          <TableBody key={section.key}>
+            {section.bucket !== null && (
+              /*
+                The group's heading, across the whole row. The text is sticky at the left edge so it
+                stays readable while the course bands scroll sideways, as the fellow column does.
+                An `h2`, as each group's heading was before the groups became one table, so a
+                screen reader's list of headings still reaches every group.
+              */
+              <TableRow className={cn("hover:bg-transparent", index > 0 && "border-t")}>
+                <TableHead
+                  scope="rowgroup"
+                  colSpan={columns.length + 1}
+                  className="h-auto bg-muted/40 py-2 font-normal whitespace-normal"
+                >
+                  <div className="sticky left-2 flex w-fit max-w-[min(42rem,80vw)] flex-col gap-0.5">
+                    <h2 className="text-sm font-medium">
+                      {PERFORMANCE_BUCKET_LABEL[section.bucket]} · {section.fellows.length}
+                    </h2>
+                    <span className="text-xs text-muted-foreground max-sm:hidden">
+                      {BUCKET_DESCRIPTION[section.bucket]}
                     </span>
                   </div>
-                </div>
-              </TableCell>
-              {columns.map((column) => (
-                <Cell key={column.key} edge={edgeOf(column)} content={column.render(fellow)} />
-              ))}
-            </TableRow>
-          ))}
-        </TableBody>
+                </TableHead>
+              </TableRow>
+            )}
+            {section.fellows.map((fellow) => (
+              <TableRow key={fellow.enrollmentId}>
+                {/*
+                  The fellow column stays put while the course bands scroll beneath it, because a
+                  row of figures without a name beside it is a row nobody can act on.
+                */}
+                {/*
+                  `wrap-anywhere` on the name, because a name with no spaces — an email address
+                  standing in for a missing display name — would otherwise push past the phone
+                  column's width; see `stickyColumnContent`.
+                */}
+                <TableCell className={stickyColumn}>
+                  <div className="flex items-center gap-3">
+                    <Avatar className="size-8 max-sm:hidden">
+                      <AvatarFallback className="bg-primary/10 text-xs font-medium text-primary">
+                        {initials(fellow.student.displayName)}
+                      </AvatarFallback>
+                    </Avatar>
+                    <div className="flex min-w-0 flex-col">
+                      <Link
+                        href={programStudentHref(programId, fellow.student.id)}
+                        className="font-medium whitespace-normal wrap-anywhere hover:underline sm:truncate sm:wrap-normal"
+                      >
+                        {fellowName(fellow)}
+                      </Link>
+                      <span className="truncate text-xs text-muted-foreground max-sm:hidden">
+                        {fellow.cohortId === null
+                          ? "No cohort"
+                          : (cohortName.get(fellow.cohortId) ?? "Unknown cohort")}
+                      </span>
+                    </div>
+                  </div>
+                </TableCell>
+                {columns.map((column) => (
+                  <Cell key={column.key} edge={edgeOf(column)} content={column.render(fellow)} />
+                ))}
+              </TableRow>
+            ))}
+          </TableBody>
+        ))}
       </Table>
     </div>
   );

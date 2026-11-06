@@ -8,6 +8,7 @@ import * as React from "react";
 import { EmptyState } from "@/components/list-states";
 import { GoalMarkerBadge } from "@/components/status-badge";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
+import { ExpandableFrame } from "@/components/ui/expandable-frame";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
 import {
   Select,
@@ -161,164 +162,166 @@ export function CoachingOverview({
         `overflow-hidden` clips the table to this rounded border. Without it, the fellow column's
         background paints square over the corners.
       */}
-      <div className="w-fit max-w-full overflow-hidden rounded-lg border border-border">
-        <Table className="table-fixed" style={{ width: `${width}rem` }}>
-          <colgroup>
-            <col style={{ width: `${FELLOW_REM}rem` }} />
-            <col style={{ width: `${FIGURE_REM}rem` }} />
-            <col style={{ width: `${FIGURE_REM}rem` }} />
-            {goalColumns.map((column) => (
-              <col key={column.key} style={{ width: `${GOAL_REM}rem` }} />
-            ))}
-            {answerColumns.map((column) => (
-              <col key={column.id} style={{ width: `${ANSWER_REM}rem` }} />
-            ))}
-          </colgroup>
-          <TableHeader>
-            <TableRow>
-              <TableHead
-                aria-sort={ariaSort(sort, NAME)}
-                className={cn(stickyColumn, "text-xs font-normal")}
-              >
-                <SortButton label="Fellow" sortKey={NAME} sort={sort} onSort={setSort} />
-              </TableHead>
-              <TableHead
-                aria-sort={ariaSort(sort, TEMPERATURE)}
-                className="border-l border-border text-xs font-normal"
-              >
-                <SortButton
-                  label="Temperature"
-                  sortKey={TEMPERATURE}
-                  sort={sort}
-                  onSort={setSort}
-                />
-              </TableHead>
-              <TableHead
-                aria-sort={ariaSort(sort, DAYS)}
-                className="text-xs font-normal whitespace-normal"
-              >
-                <SortButton
-                  label="Days since session"
-                  sortKey={DAYS}
-                  sort={sort}
-                  onSort={setSort}
-                />
-              </TableHead>
-              {goalColumns.map((column, i) => (
+      <ExpandableFrame title="Coaching">
+        <div className="w-fit max-w-full overflow-hidden rounded-lg border border-border">
+          <Table className="table-fixed" style={{ width: `${width}rem` }}>
+            <colgroup>
+              <col style={{ width: `${FELLOW_REM}rem` }} />
+              <col style={{ width: `${FIGURE_REM}rem` }} />
+              <col style={{ width: `${FIGURE_REM}rem` }} />
+              {goalColumns.map((column) => (
+                <col key={column.key} style={{ width: `${GOAL_REM}rem` }} />
+              ))}
+              {answerColumns.map((column) => (
+                <col key={column.id} style={{ width: `${ANSWER_REM}rem` }} />
+              ))}
+            </colgroup>
+            <TableHeader>
+              <TableRow>
                 <TableHead
-                  key={column.key}
-                  aria-sort={ariaSort(sort, column.key)}
-                  className={cn(
-                    "text-xs font-normal whitespace-normal",
-                    i === 0 && "border-l border-border",
-                  )}
+                  aria-sort={ariaSort(sort, NAME)}
+                  className={cn(stickyColumn, "text-xs font-normal")}
+                >
+                  <SortButton label="Fellow" sortKey={NAME} sort={sort} onSort={setSort} />
+                </TableHead>
+                <TableHead
+                  aria-sort={ariaSort(sort, TEMPERATURE)}
+                  className="border-l-2 border-border text-xs font-normal"
                 >
                   <SortButton
-                    label={column.title}
-                    sortKey={column.key}
+                    label="Temperature"
+                    sortKey={TEMPERATURE}
                     sort={sort}
                     onSort={setSort}
                   />
                 </TableHead>
-              ))}
-              {answerColumns.map((column, i) => (
                 <TableHead
-                  key={column.id}
-                  className={cn(
-                    "text-xs font-normal whitespace-normal",
-                    i === 0 && "border-l border-border",
-                  )}
+                  aria-sort={ariaSort(sort, DAYS)}
+                  className="text-xs font-normal whitespace-normal"
                 >
-                  {column.heading}
+                  <SortButton
+                    label="Days since session"
+                    sortKey={DAYS}
+                    sort={sort}
+                    onSort={setSort}
+                  />
                 </TableHead>
-              ))}
-            </TableRow>
-          </TableHeader>
-          <TableBody>
-            {rows.map((fellow) => {
-              const goalsByColumn = goalsByFellow.get(fellow.enrollmentId)!;
+                {goalColumns.map((column, i) => (
+                  <TableHead
+                    key={column.key}
+                    aria-sort={ariaSort(sort, column.key)}
+                    className={cn(
+                      "text-xs font-normal whitespace-normal",
+                      i === 0 && "border-l-2 border-border",
+                    )}
+                  >
+                    <SortButton
+                      label={column.title}
+                      sortKey={column.key}
+                      sort={sort}
+                      onSort={setSort}
+                    />
+                  </TableHead>
+                ))}
+                {answerColumns.map((column, i) => (
+                  <TableHead
+                    key={column.id}
+                    className={cn(
+                      "text-xs font-normal whitespace-normal",
+                      i === 0 && "border-l-2 border-border",
+                    )}
+                  >
+                    {column.heading}
+                  </TableHead>
+                ))}
+              </TableRow>
+            </TableHeader>
+            <TableBody>
+              {rows.map((fellow) => {
+                const goalsByColumn = goalsByFellow.get(fellow.enrollmentId)!;
 
-              return (
-                <TableRow key={fellow.enrollmentId} className="align-top">
-                  {/*
+                return (
+                  <TableRow key={fellow.enrollmentId} className="align-top">
+                    {/*
                     The fellow column stays put while the rest scrolls beneath it, because a row
                     without a name beside it is a row nobody can act on.
                   */}
-                  <TableCell className={stickyColumn}>
-                    <div className="flex items-center gap-3">
-                      <Avatar className="size-8">
-                        <AvatarFallback className="bg-primary/10 text-xs font-medium text-primary">
-                          {initials(fellow.student.displayName)}
-                        </AvatarFallback>
-                      </Avatar>
-                      <div className="flex min-w-0 flex-col">
-                        <Link
-                          href={programStudentHref(programId, fellow.student.id, "coaching")}
-                          className="truncate font-medium hover:underline"
-                        >
-                          {fellowName(fellow)}
-                        </Link>
-                        <span className="truncate text-xs text-muted-foreground">
-                          {fellow.cohortId === null
-                            ? "No cohort"
-                            : (cohortName.get(fellow.cohortId) ?? "Unknown cohort")}
-                        </span>
+                    <TableCell className={stickyColumn}>
+                      <div className="flex items-center gap-3">
+                        <Avatar className="size-8">
+                          <AvatarFallback className="bg-primary/10 text-xs font-medium text-primary">
+                            {initials(fellow.student.displayName)}
+                          </AvatarFallback>
+                        </Avatar>
+                        <div className="flex min-w-0 flex-col">
+                          <Link
+                            href={programStudentHref(programId, fellow.student.id, "coaching")}
+                            className="truncate font-medium hover:underline"
+                          >
+                            {fellowName(fellow)}
+                          </Link>
+                          <span className="truncate text-xs text-muted-foreground">
+                            {fellow.cohortId === null
+                              ? "No cohort"
+                              : (cohortName.get(fellow.cohortId) ?? "Unknown cohort")}
+                          </span>
+                        </div>
                       </div>
-                    </div>
-                  </TableCell>
+                    </TableCell>
 
-                  <TableCell className="border-l border-border text-center align-middle">
-                    {/*
+                    <TableCell className="border-l-2 border-border text-center align-middle">
+                      {/*
                       The number alone, coloured by band, and nothing when it was never asked: an
                       empty square would read as a score of nothing.
                     */}
-                    {fellow.session !== null && fellow.session.temperature !== null && (
-                      <span
-                        aria-label={`Temperature ${fellow.session.temperature} of ${TEMPERATURE_MAX}`}
-                        className={cn(
-                          "inline-flex size-6 items-center justify-center rounded-md border text-xs font-medium tabular-nums",
-                          TONE_CLASSES[temperatureTone(fellow.session.temperature)],
-                        )}
-                      >
-                        {fellow.session.temperature}
-                      </span>
-                    )}
-                  </TableCell>
-
-                  <TableCell className="align-middle text-sm tabular-nums">
-                    {fellow.session !== null && daysLabel(fellow.session.daysSince)}
-                  </TableCell>
-
-                  {goalColumns.map((column, i) => (
-                    <TableCell
-                      key={column.key}
-                      className={cn("whitespace-normal", i === 0 && "border-l border-border")}
-                    >
-                      <GoalCell column={goalsByColumn.get(column.key)} />
+                      {fellow.session !== null && fellow.session.temperature !== null && (
+                        <span
+                          aria-label={`Temperature ${fellow.session.temperature} of ${TEMPERATURE_MAX}`}
+                          className={cn(
+                            "inline-flex size-6 items-center justify-center rounded-md border text-xs font-medium tabular-nums",
+                            TONE_CLASSES[temperatureTone(fellow.session.temperature)],
+                          )}
+                        >
+                          {fellow.session.temperature}
+                        </span>
+                      )}
                     </TableCell>
-                  ))}
 
-                  {answerColumns.map((column, i) => {
-                    const answer = fellow.session?.answers.find(
-                      (candidate) => candidate.id === column.id,
-                    );
-                    return (
+                    <TableCell className="align-middle text-sm tabular-nums">
+                      {fellow.session !== null && daysLabel(fellow.session.daysSince)}
+                    </TableCell>
+
+                    {goalColumns.map((column, i) => (
                       <TableCell
-                        key={column.id}
-                        className={cn("whitespace-normal", i === 0 && "border-l border-border")}
+                        key={column.key}
+                        className={cn("whitespace-normal", i === 0 && "border-l-2 border-border")}
                       >
-                        {answer !== undefined && answer.answer.trim() !== "" && (
-                          <AnswerCell prompt={answer.prompt} answer={answer.answer} />
-                        )}
+                        <GoalCell column={goalsByColumn.get(column.key)} />
                       </TableCell>
-                    );
-                  })}
-                </TableRow>
-              );
-            })}
-          </TableBody>
-        </Table>
-      </div>
+                    ))}
+
+                    {answerColumns.map((column, i) => {
+                      const answer = fellow.session?.answers.find(
+                        (candidate) => candidate.id === column.id,
+                      );
+                      return (
+                        <TableCell
+                          key={column.id}
+                          className={cn("whitespace-normal", i === 0 && "border-l-2 border-border")}
+                        >
+                          {answer !== undefined && answer.answer.trim() !== "" && (
+                            <AnswerCell prompt={answer.prompt} answer={answer.answer} />
+                          )}
+                        </TableCell>
+                      );
+                    })}
+                  </TableRow>
+                );
+              })}
+            </TableBody>
+          </Table>
+        </div>
+      </ExpandableFrame>
     </div>
   );
 }
