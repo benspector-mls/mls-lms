@@ -151,9 +151,13 @@ export function AssignmentPicker({
             </Combobox.Empty>
             <Combobox.List className="overflow-y-auto p-1">
               {(group: { value: string; label: string; items: AssignmentChoice[] }) => (
-                <Combobox.Group key={group.value} items={group.items}>
+                <Combobox.Group
+                  key={group.value}
+                  items={group.items}
+                  className="not-first:mt-1 not-first:border-t not-first:border-border not-first:pt-1"
+                >
                   {group.label !== "" && (
-                    <Combobox.GroupLabel className="px-1.5 py-1 text-xs text-muted-foreground">
+                    <Combobox.GroupLabel className="px-1.5 py-1 text-xs font-semibold text-foreground">
                       {group.label}
                     </Combobox.GroupLabel>
                   )}
