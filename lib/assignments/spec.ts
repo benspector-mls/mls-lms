@@ -321,6 +321,24 @@ const manualSectionSchema = z
   })
   .strict();
 
+/**
+ * The one section of an assignment with no repository that the pipeline grades.
+ *
+ * **Any rubric, and no evidence.** A repository section's type says what the work is and fixes
+ * the rubric; a document's type says nothing — a resume, a reflection and a deck are all
+ * "document" — so the rubric is the whole description and is chosen rather than derived. There
+ * is no test suite, no changed-file list and no pattern to match, so none of those fields exist
+ * on it. The fellow's work is read whole, from the links and files they handed in.
+ */
+const documentSectionSchema = z
+  .object({
+    grading: z.literal("ai"),
+    type: z.literal("document"),
+    pointValue,
+    rubricId: z.string().uuid(),
+  })
+  .strict();
+
 const sectionSchema = z.discriminatedUnion("grading", [aiSectionSchema, manualSectionSchema]);
 
 /**
@@ -356,13 +374,21 @@ const sectionsSchema = z
     });
   });
 
-export type AssignmentSectionSpec = z.infer<typeof sectionSchema>;
-export type AiSectionSpec = z.infer<typeof aiSectionSchema>;
+export type AssignmentSectionSpec =
+  z.infer<typeof sectionSchema> | z.infer<typeof documentSectionSchema>;
+export type RepoAiSectionSpec = z.infer<typeof aiSectionSchema>;
+export type DocumentSectionSpec = z.infer<typeof documentSectionSchema>;
+export type AiSectionSpec = RepoAiSectionSpec | DocumentSectionSpec;
 export type ManualSectionSpec = z.infer<typeof manualSectionSchema>;
 
 /** True when the pipeline can produce a report for this section. */
 export function isAiGraded(section: AssignmentSectionSpec): section is AiSectionSpec {
   return section.grading === "ai";
+}
+
+/** True for the one AI section a non-repository assignment may carry. */
+export function isDocumentSection(section: { type?: unknown }): boolean {
+  return section.type === "document";
 }
 
 /**
@@ -653,20 +679,71 @@ const noRepository = {
   runnerPreset: z.literal("none").default("none"),
   runnerConfig: z.null().default(null),
   /**
-   * Every section of a kind with no repository is graded by hand, and the shape refuses any
-   * other. The pipeline's inputs are a pull request's changed files, the tests the template
-   * holds, and the paths `classifySections` matches — a document has none of them, so an AI
-   * section here would validate, save, sit in the queue as a report waiting to be generated,
-   * and fail on the missing pull request at the moment an instructor asked for it. Refusing it
-   * at authoring time is the difference between an assignment that cannot be built wrong and
-   * one that breaks the first time it is used.
+   * Hand-graded sections, as many as the instructor likes, or exactly one the pipeline grades.
    *
-   * Reading a document's contents and grading it is a real future feature. It needs Drive
-   * access and instructor-authored rubrics, and this line is what changes when it exists.
+   * One rather than several, because a document is read whole: there are no file paths for
+   * `classifySections` to divide the work by, so a second AI section would be a second report
+   * on the same words. The mixing rule is the one `sectionsSchema` states, for the same reason.
    */
   sections: z
-    .array(manualSectionSchema)
-    .min(1, "an assignment needs at least one gradable section"),
+    .array(z.discriminatedUnion("grading", [documentSectionSchema, manualSectionSchema]))
+    .min(1, "an assignment needs at least one gradable section")
+    .superRefine((sections, ctx) => {
+      const ai = sections.filter((section) => section.grading === "ai");
+      if (ai.length > 0 && ai.length < sections.length) {
+        ctx.addIssue({
+          code: "custom",
+          path: [],
+          message:
+            "Every section of an assignment has to be graded the same way. This one mixes " +
+            "a section the model grades with sections graded by hand — split it into two " +
+            "assignments instead.",
+        });
+      }
+      if (ai.length > 1) {
+        ctx.addIssue({
+          code: "custom",
+          path: [],
+          message:
+            "An assignment with no repository is graded as one section: the model reads what " +
+            "was handed in whole, against one rubric.",
+        });
+      }
+    }),
+};
+
+/**
+ * A Google Doc link, for the two reference documents a non-repository assignment may name.
+ *
+ * Only the host and the editor are checked here; whether the document can be read — publicly
+ * for an exemplar, as the service account for an answer key — is checked by reading it, in
+ * `validateAssignmentDraft`, because that is the question and a pattern cannot answer it.
+ */
+const googleDocUrl = z
+  .string()
+  .trim()
+  .regex(
+    /^https:\/\/docs\.google\.com\/document\/d\/[A-Za-z0-9_-]+(\/.*)?$/,
+    "must be the link of a Google Doc, e.g. https://docs.google.com/document/d/<id>/edit",
+  );
+
+/**
+ * What a non-repository assignment may hand the model as a reference, both optional.
+ *
+ * An **exemplar** is public and shows the standard expected; an **answer key** is private and
+ * read as the service account. Optional, because most non-technical work asks for the fellow's
+ * own thinking and has no one right answer — and because the prompt already grades against the
+ * rubric alone, at lower confidence, when nothing is given.
+ */
+const referenceDocs = {
+  exemplarDocUrl: googleDocUrl.nullable().default(null),
+  answerKeyDocUrl: googleDocUrl.nullable().default(null),
+};
+
+/** The same two, spelled out as null on the kinds that keep their references elsewhere. */
+const noReferenceDocs = {
+  exemplarDocUrl: z.null().default(null),
+  answerKeyDocUrl: z.null().default(null),
 };
 
 /**
@@ -746,6 +823,33 @@ export function copyUrlFromTemplate(templateDriveUrl: string): string {
   return templateDriveUrl.replace(/\/(view|edit|preview)(\?[^#]*)?(#.*)?$/, "/copy");
 }
 
+/**
+ * A reference document on an assignment graded entirely by hand is one nothing reads, and an
+ * instructor who pasted one believed otherwise. Refused on the field, so the belief is corrected
+ * where it was typed.
+ */
+function refuseReferencesNobodyReads(
+  spec: {
+    sections: { grading: "ai" | "manual" }[];
+    exemplarDocUrl: string | null;
+    answerKeyDocUrl: string | null;
+  },
+  ctx: z.RefinementCtx,
+): void {
+  if (spec.sections.some((section) => section.grading === "ai")) return;
+  for (const field of ["exemplarDocUrl", "answerKeyDocUrl"] as const) {
+    if (spec[field] !== null) {
+      ctx.addIssue({
+        code: "custom",
+        path: [field],
+        message:
+          "This assignment is graded by hand, so nothing reads this document. Add a section the " +
+          "model grades, or leave it empty.",
+      });
+    }
+  }
+}
+
 export const assignmentSpecSchema = z.discriminatedUnion("kind", [
   z
     .object({
@@ -809,6 +913,7 @@ export const assignmentSpecSchema = z.discriminatedUnion("kind", [
       runnerConfig: z.record(z.string(), z.unknown()).nullable().default(null),
       /** A repository assignment is distributed from a template, not from a document. */
       templateDriveUrl: z.null().default(null),
+      ...noReferenceDocs,
       ...noUpload,
       ...noHandInChoice,
       ...noTaskMarking,
@@ -851,11 +956,13 @@ export const assignmentSpecSchema = z.discriminatedUnion("kind", [
             "https://docs.google.com/document/d/<id>/view — that is what the copy prompt " +
             "is built from",
         ),
+      ...referenceDocs,
       ...noUpload,
       ...noHandInChoice,
       ...noTaskMarking,
     })
-    .strict(),
+    .strict()
+    .superRefine(refuseReferencesNobodyReads),
 
   /**
    * Work the student made wherever they liked, handed in as a link to it, as a file, or as
@@ -889,6 +996,7 @@ export const assignmentSpecSchema = z.discriminatedUnion("kind", [
       ...shared,
       ...noRepository,
       ...noTaskMarking,
+      ...referenceDocs,
       templateDriveUrl: z.null().default(null),
       /**
        * How the student may hand it in, and at least one is required.
@@ -924,6 +1032,7 @@ export const assignmentSpecSchema = z.discriminatedUnion("kind", [
       instructor who ticks File, chooses PDF, then unticks File would otherwise leave a set of
       types behind that nothing reads and the next reader has to wonder about.
     */
+    .superRefine(refuseReferencesNobodyReads)
     .superRefine((spec, ctx) => {
       const takesFile = spec.handInMethods.includes(HandInMethod.FILE);
 
@@ -973,6 +1082,7 @@ export const assignmentSpecSchema = z.discriminatedUnion("kind", [
       kind: z.literal(AssignmentKind.TASK),
       ...shared,
       ...noRepository,
+      ...noReferenceDocs,
       templateDriveUrl: z.null().default(null),
       ...noUpload,
       ...noHandInChoice,

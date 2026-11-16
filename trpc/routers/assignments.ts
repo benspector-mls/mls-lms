@@ -82,6 +82,9 @@ const assignmentFields = {
   handInMethods: true,
   acceptedFileTypes: true,
   submissionInstructions: true,
+  // The two reference documents a non-repository assignment may name; see the form.
+  exemplarDocUrl: true,
+  answerKeyDocUrl: true,
   /*
     Which teams hand this in, or null for work each student does alone.
 
@@ -307,6 +310,8 @@ function writableFields(
     // column that silently keeps its old value on update and its default on create, which
     // for `templateDriveUrl` would be a Google Drive assignment with nothing to distribute.
     templateDriveUrl: spec.templateDriveUrl,
+    exemplarDocUrl: spec.exemplarDocUrl,
+    answerKeyDocUrl: spec.answerKeyDocUrl,
     studentMayMarkDone: spec.studentMayMarkDone,
     handInMethods: spec.handInMethods,
     acceptedFileTypes: spec.acceptedFileTypes,
@@ -996,6 +1001,8 @@ export const assignmentsRouter = createTRPCRouter({
         runnerPreset: true,
         runnerConfig: true,
         templateDriveUrl: true,
+        exemplarDocUrl: true,
+        answerKeyDocUrl: true,
         studentMayMarkDone: true,
         handInMethods: true,
         acceptedFileTypes: true,
@@ -1516,6 +1523,8 @@ type CopyableAssignment = {
   runnerPreset: string;
   runnerConfig: unknown;
   templateDriveUrl: string | null;
+  exemplarDocUrl: string | null;
+  answerKeyDocUrl: string | null;
   studentMayMarkDone: boolean | null;
   handInMethods: HandInMethod[];
   acceptedFileTypes: string[];
@@ -1540,6 +1549,8 @@ export const copyableAssignmentSelect = {
   runnerPreset: true,
   runnerConfig: true,
   templateDriveUrl: true,
+  exemplarDocUrl: true,
+  answerKeyDocUrl: true,
   studentMayMarkDone: true,
   handInMethods: true,
   acceptedFileTypes: true,
@@ -1654,6 +1665,8 @@ export async function copyAssignmentInto(
     runnerPreset: source.runnerPreset,
     runnerConfig: source.runnerConfig,
     templateDriveUrl: source.templateDriveUrl,
+    exemplarDocUrl: source.exemplarDocUrl,
+    answerKeyDocUrl: source.answerKeyDocUrl,
     studentMayMarkDone: source.studentMayMarkDone,
     handInMethods: source.handInMethods,
     acceptedFileTypes: source.acceptedFileTypes,

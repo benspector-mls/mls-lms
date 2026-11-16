@@ -180,6 +180,25 @@ async function main() {
     };
   });
 
+  /*
+    The short response rubric and a program's rule set, which is what production grades through.
+    Any program with a rule set will do: the rule set is the program's choice of voice, and every
+    program ported so far shares the one `port:rubrics` wrote.
+  */
+  const { db } = await import("../lib/prisma");
+  const shortResponse = await db.rubric.findUniqueOrThrow({
+    where: { name: "SHORT_RESPONSE" },
+    select: { id: true },
+  });
+  const program = await db.program.findFirst({
+    where: { ruleSetId: { not: null } },
+    select: { id: true },
+  });
+  if (!program) {
+    console.error("No program has a rule set yet. Run `npm run port:rubrics` first.");
+    process.exit(1);
+  }
+
   const generator = await getReportGenerator();
   console.log(`Provider  ${generator.name}\n`);
 
@@ -243,13 +262,14 @@ async function main() {
       response prompt is noise the section cannot use and is billed for on every run.
     */
     const assets = await loadGradingAssets({
-      sectionType: "short_response",
+      rubricId: shortResponse.id,
+      programId: program.id,
       answerKeyRepo: ANSWER_KEY_REPO,
       answerKeyDir: pair.answerKeyDir,
     });
 
     const response = await generator.generate({
-      system: buildSystemPrompt({ sectionType: "short_response", assets }),
+      system: buildSystemPrompt({ assets }),
       user: buildUserPrompt({
         assets,
         context: {

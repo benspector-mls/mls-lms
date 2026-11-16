@@ -199,6 +199,33 @@ export function competenciesHref(): string {
   return "/admin/competencies";
 }
 
+/**
+ * The rubrics and rule sets, which every instructor reads and picks from when authoring.
+ *
+ * Under `/instructor` and not under a program, because a rubric is not a program's: the four
+ * ported ones grade every repository assignment in every program, and one an instructor writes
+ * for a resume is as usable next term as this one. Takes nothing, like `competenciesHref`.
+ */
+export function rubricsHref(): string {
+  return "/instructor/rubrics";
+}
+
+export function newRubricHref(): string {
+  return "/instructor/rubrics/new";
+}
+
+export function rubricHref(rubricId: string): string {
+  return `/instructor/rubrics/${rubricId}`;
+}
+
+export function newRuleSetHref(): string {
+  return "/instructor/rubrics/rules/new";
+}
+
+export function ruleSetHref(ruleSetId: string): string {
+  return `/instructor/rubrics/rules/${ruleSetId}`;
+}
+
 // ---------------------------------------------------------------------------------------------
 // The course's five views
 // ---------------------------------------------------------------------------------------------

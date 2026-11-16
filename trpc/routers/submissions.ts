@@ -16,7 +16,7 @@ import {
 } from "@/lib/courses/membership";
 import { teachableAssignment } from "@/lib/courses/scope";
 import { undeliveredApprovalWhere } from "@/lib/grade/approve";
-import { triageBucket } from "@/lib/grade/triage";
+import { draftIsStale, triageBucket } from "@/lib/grade/triage";
 import { linkHost } from "@/lib/status";
 import { awaitsReply, commentExcerpt } from "@/lib/submissions/comments";
 import { handInState, taskReset, taskVerdict } from "@/lib/submissions/hand-in";
@@ -239,7 +239,7 @@ const reviewableSubmissionSelect = {
     where: { status: { not: "SUPERSEDED" } },
     orderBy: { createdAt: "desc" },
     take: 1,
-    select: { id: true, status: true, headSha: true, approvedAt: true },
+    select: { id: true, status: true, headSha: true, createdAt: true, approvedAt: true },
   },
 } as const;
 
@@ -282,7 +282,7 @@ function decorateSubmission<T extends ReviewableSubmission>(
   // The thread, resolved to whichever row holds it.
   const thread = teamSubmission ?? { comments, commentsResolvedAt };
   const draft = gradingDrafts[0] ?? null;
-  const draftIsStale = reportIsStale(draft, rest.headSha);
+  const stale = draftIsStale(draft, rest);
 
   return {
     ...rest,
@@ -310,12 +310,12 @@ function decorateSubmission<T extends ReviewableSubmission>(
         }
       : null,
     bucket: triageBucket(rest.status, draft, {
-      draftIsStale,
+      draftIsStale: stale,
       hasUndeliveredApproval: options.undeliveredIds.has(rest.id),
       isManualOnly: options.manualOnly,
       mirrorsAnotherSubmission: rest.teamSubmissionId !== null,
     }),
-    draftIsStale,
+    draftIsStale: stale,
     activeDraft: draft,
     /*
       That a conversation exists, and whether it is waiting on somebody. The bodies are dropped
@@ -325,21 +325,6 @@ function decorateSubmission<T extends ReviewableSubmission>(
     commentCount: thread.comments.filter((comment) => comment.deletedAt === null).length,
     commentsAwaitReply: awaitsReply(thread.comments, thread.commentsResolvedAt),
   };
-}
-
-/**
- * Whether a report describes code the student has since replaced.
- *
- * Two columns compared and nothing asked of GitHub: the commit the report was written against,
- * and the commit the pull request is on now. It is true the instant a push lands.
- *
- * Its own function because two readers need the same answer and they are not near each other —
- * the row's **Report out of date** badge, and the order the queue puts the grades in. Written
- * twice, the badge and the ordering could disagree, which would be a row sorted to the top of the
- * grades with nothing on it saying why.
- */
-function reportIsStale(draft: { headSha: string | null } | null, headSha: string | null): boolean {
-  return draft !== null && headSha !== null && draft.headSha !== headSha;
 }
 
 /**
@@ -1850,6 +1835,7 @@ export const submissionsRouter = createTRPCRouter({
               id: true,
               status: true,
               headSha: true,
+              createdAt: true,
               approvedAt: true,
               sections: {
                 select: {
@@ -1884,10 +1870,9 @@ export const submissionsRouter = createTRPCRouter({
         // this row is graded, and nothing on the screen renders it.
         const { sections, ...assignmentFields } = assignment;
 
-        // The draft describes a commit the student has pushed past. Approval refuses a
+        // The draft describes work the student has since replaced. Approval refuses a
         // stale draft, so the row must not be offered as ready to approve.
-        const draftIsStale =
-          draft != null && submission.headSha != null && draft.headSha !== submission.headSha;
+        const stale = draftIsStale(draft, submission);
 
         return {
           ...submission,
@@ -1902,12 +1887,12 @@ export const submissionsRouter = createTRPCRouter({
               ? null
               : { members: [submission.student, ...mirrors.map((mirror) => mirror.student)] },
           bucket: triageBucket(submission.status, draft, {
-            draftIsStale,
+            draftIsStale: stale,
             hasUndeliveredApproval: undeliveredIds.has(submission.id),
             isManualOnly: isManualOnly(sections),
             mirrorsAnotherSubmission: submission.teamSubmissionId !== null,
           }),
-          draftIsStale,
+          draftIsStale: stale,
           // Flattened here rather than in the interface. Delivery is deliberately not on
           // this object: whether a grade reached the student is answered by the bucket,
           // and a second copy of the answer here would be one that could disagree.
@@ -2080,9 +2065,9 @@ export const submissionsRouter = createTRPCRouter({
       const gradedAndStale = (row: {
         status: SubmissionStatus;
         headSha: string | null;
-        gradingDrafts: { headSha: string | null }[];
-      }) =>
-        row.status === "GRADED" && reportIsStale(row.gradingDrafts[0] ?? null, row.headSha) ? 0 : 1;
+        lastActivityAt: Date | null;
+        gradingDrafts: { headSha: string | null; createdAt: Date }[];
+      }) => (row.status === "GRADED" && draftIsStale(row.gradingDrafts[0] ?? null, row) ? 0 : 1);
 
       const submissions = (
         await ctx.db.submission.findMany({

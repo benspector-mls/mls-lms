@@ -1,7 +1,6 @@
 import "server-only";
 
 import type { GradingAssets } from "./assets";
-import type { SectionType } from "./classify";
 import type { NormalizedResults } from "../sandbox/parsers";
 
 /**
@@ -18,8 +17,9 @@ import type { NormalizedResults } from "../sandbox/parsers";
  */
 
 /**
- * Rules the pipeline imposes on top of the ones in agent-rules.md, because they are
- * about this pipeline rather than about grading.
+ * Rules the pipeline imposes on top of the rule set's, because they are about this
+ * pipeline rather than about grading. They stay in code: the review screen reads the shape
+ * they ask for, so an edit to them is an edit to the application.
  *
  * The test-results rules are the important ones, and they are asymmetric on purpose.
  * Results are a fact the model may not contradict, and one rubric input among
@@ -176,105 +176,14 @@ documentation URLs are worse than no links at all. Omit the section entirely.
 `.trim();
 
 /**
- * Section-specific scoring arithmetic that the rubric states in prose and that is
- * easy to get subtly wrong.
+ * The stable half. Identical for every submission graded against one rubric, provided the
+ * rubric and the rule set have not changed — which is why their versions are recorded on
+ * every draft section.
+ *
+ * The guidance sits where the hardcoded per-type scoring rules used to: it is the same text,
+ * now a column of the rubric's version rather than a literal keyed by section type.
  */
-const SECTION_RULES: Record<SectionType, string> = {
-  short_response: `
-## Scoring this section
-
-The Writing Quality score is a **single score out of 3 for the whole submission**,
-not per question. The total is therefore:
-
-> (3 technical points x number of questions) + 3 writing points
-
-A four-question assignment is out of 15, and a one-question assignment is out of 6.
-Put the writing score in \`rubricItems\` as one entry with
-\`criterion: "writing_quality"\` and the label \`Writing Quality Score (Entire
-Assignment)\`, placed last. Give each question its own entry with
-\`criterion: "technical"\` and a label of the form \`Question 3: Flexbox vs. CSS Grid\`.
-Set \`group\` to null on every entry.
-
-**Every short response report has exactly one writing entry, whatever the number of
-questions.** A one-question submission has two entries: the question's technical score
-and the writing score, even though both describe the same answer. Leaving the writing
-entry out scores the section out of 3 when it is worth 6. Do not add a writing score
-to each question as well — that inflates the denominator.
-
-Markdown that does not render (a wrong code fence language, escaped characters) is a
-**writing** deduction, never a technical one. If the underlying content is correct,
-the technical score stands — deduct from writing and raise \`MARKDOWN\`.
-
-This section carries both scores, so both groups of flags are available to it. A
-submission with obvious typos is still graded; \`MECHANICAL\` is what tells an
-instructor to ask for a clean resubmission.
-`.trim(),
-
-  coding_algorithm: `
-## Scoring this section
-
-**Each question is worth 3 points, scored as a single number.** Give each question one
-entry in \`rubricItems\` with \`criterion: "algorithm"\`, \`scorePossible: 3\`, a
-label of the form \`Question 2: is_even\`, and \`group\` set to null — even where the
-README lists questions under headings such as "Modify Questions". Ten questions means a
-30-point assignment.
-
-Code style is **part of that one score**, not a separate line item. The rubric's bands
-fold it in: a 3 requires clean code as well as passing tests, and linting errors or poor
-variable names pull the question down a band even when the tests pass. Do not add a
-separate code style entry — that inflates the denominator.
-
-**Commented-out code never costs points, and the report does not mention it.** Executed
-code that nothing reads costs points only when it changes the program's behaviour or
-contradicts what the question asks for; otherwise note it in a bullet labelled
-\`Note (not scored)\` under the row of the function it sits closest to, and never in
-\`summaryMarkdown\`.
-
-A question the student did not attempt scores 0.
-`.trim(),
-
-  coding_sql: `
-## Scoring this section
-
-Each numbered query task is worth 1 point, awarded only when the query runs and
-produces the expected rows, columns, and ordering. Give each task its own entry in
-\`rubricItems\` with \`criterion: "query_task"\`, a label of the form
-\`Task 3: customers with no orders\`, and \`group\` set to null.
-`.trim(),
-
-  coding_frontend: `
-## Scoring this section
-
-This section is checklist-based. Give each checklist item its own entry in
-\`rubricItems\` with \`criterion: "checklist"\`. Its \`label\` is the item copied
-**verbatim** from the assignment README — do not paraphrase the requirement, and do not
-fold your grading note into it. Its \`group\` is the README section the item is listed
-under, written as \`Section 3: Fetch Helpers\`, identical for every item in that
-section. The application writes each item as a checkbox under its section's heading,
-ticked when the item earns full marks.
-
-Only write \`feedbackMarkdown\` where there is a deviation: a bug, missing behaviour, or
-a style issue, as bullets such as \`- Half Credit: …\` or \`- Note: …\`. A correctly
-implemented item has empty \`feedbackMarkdown\`. For an item that was clearly not
-attempted, write \`- Note: not attempted\` rather than a longer explanation.
-
-Award half credit when one checklist item bundles two distinguishable requirements and
-the student satisfied only one. Do not force a binary 0 or 1 onto an item that is
-really two requirements in one box.
-
-The score is the number of satisfied items over the total number of items.
-`.trim(),
-};
-
-/**
- * The stable half. Identical for every submission of a given section type, provided
- * the grading assets have not changed — which is why the assets' commit SHA is
- * recorded on every draft.
- */
-export function buildSystemPrompt(params: {
-  sectionType: SectionType;
-  assets: GradingAssets;
-}): string {
+export function buildSystemPrompt(params: { assets: GradingAssets }): string {
   return [
     "# Grading a student assignment",
     "",
@@ -297,7 +206,7 @@ export function buildSystemPrompt(params: {
     "",
     "---",
     "",
-    SECTION_RULES[params.sectionType],
+    params.assets.guidance,
     "",
     "---",
     "",
@@ -319,12 +228,19 @@ export function buildSystemPrompt(params: {
     "  gave the score, written for the instructor reviewing your draft — it is shown",
     "  beside the feedback and never posted.",
     "",
-    "The sample below is a finished report, showing what these parts become once",
-    "assembled. Match its tone, its ordering and its level of detail: one row per graded",
-    "item, with notes beneath the specific row they concern rather than collected at the",
-    "end. Its title, headings and scores are written by the application, not by you.",
-    "",
-    params.assets.sampleReport,
+    ...(params.assets.sampleReport
+      ? [
+          "The sample below is a finished report, showing what these parts become once",
+          "assembled. Match its tone, its ordering and its level of detail: one row per graded",
+          "item, with notes beneath the specific row they concern rather than collected at the",
+          "end. Its title, headings and scores are written by the application, not by you.",
+          "",
+          params.assets.sampleReport,
+        ]
+      : [
+          "Write one row per graded item, with notes beneath the specific row they concern",
+          "rather than collected at the end.",
+        ]),
     "",
     "---",
     "",
@@ -411,7 +327,9 @@ function truncate(content: string): string {
 }
 
 function fence(path: string, content: string): string {
-  return [`### ${path}`, "", "```", truncate(content), "```", ""].join("\n");
+  const shown = truncate(content);
+  const marker = safeFence(shown);
+  return [`### ${path}`, "", marker, shown, marker, ""].join("\n");
 }
 
 /**
@@ -524,7 +442,9 @@ function previousReviewBlock(review: PreviousReview): string[] {
  * A team of one collapses to the individual wording. A cohort with an odd headcount produces
  * one-member teams routinely, and "do not single anybody out" is nonsense addressed to one person.
  */
-export function addressBlock(context: SubmissionContext): string[] {
+export function addressBlock(
+  context: Pick<SubmissionContext, "addressees" | "teamName">,
+): string[] {
   const handles = context.addressees
     .map((addressee) => addressee.githubUsername)
     .filter((handle): handle is string => Boolean(handle));
@@ -697,8 +617,9 @@ export function buildUserPrompt(params: {
 
   if (context.testResults === null) {
     parts.push(
-      "This section has no automated tests. Grade against the rubric, the assignment " +
-        "instructions, and the reference solution. Leave `testClaims` empty.",
+      "This section has no automated tests. Grade against the rubric and the assignment " +
+        `instructions${assets.answerKeys.length > 0 ? ", and the reference solution" : ""}. ` +
+        "Leave `testClaims` empty.",
     );
   } else {
     const r = context.testResults;
@@ -752,6 +673,162 @@ export function buildUserPrompt(params: {
     );
     parts.push("");
   }
+
+  parts.push("---");
+  parts.push("");
+  parts.push("Produce the report now.");
+
+  return parts.join("\n");
+}
+
+// =============================================================================================
+// A document rather than a diff
+// =============================================================================================
+
+/**
+ * What the prompt for a submission with no repository is built from.
+ *
+ * The counterpart of `SubmissionContext` for work handed in as links and files. There is no
+ * README, no test run, no changed-file list and no branch: the instructions are the assignment's
+ * own, the work is whatever was handed in, and the references are two documents rather than a
+ * folder of solutions.
+ */
+export type DocumentContext = {
+  addressees: { githubUsername: string | null }[];
+  teamName: string | null;
+  assignmentTitle: string;
+  pointValue: number;
+  /** The assignment's own instructions to the fellow, as markdown, or null when it has none. */
+  instructions: string | null;
+  /**
+   * A public document showing the standard expected, or null. Told to the model as an example
+   * rather than as the answer, because most non-technical work asks for the fellow's own
+   * thinking and an exemplar that became the key would mark every other approach down.
+   */
+  exemplar: string | null;
+  /** The private answer key, or null. Told to the model as `buildUserPrompt` tells it. */
+  answerKey: string | null;
+  /** What the fellow handed in, in the order they attached it. */
+  parts: { label: string; kind: "text" | "pdf" | "image"; text?: string }[];
+  /** Files the model was handed but not read, each with why, so the report can say so. */
+  refused: { label: string; reason: string }[];
+  previousReview: PreviousReview | null;
+};
+
+/**
+ * The varying half of a document's prompt.
+ *
+ * Follows `buildUserPrompt` block for block where the blocks mean the same thing — the address,
+ * the point value, the reference solution's wording — so a report on a reflection reads like a
+ * report on a repository and the resubmission rules apply unchanged. Where it differs is what a
+ * document has that a diff does not: an exemplar, attachments named by label, and nothing to say
+ * about tests beyond that there are none.
+ */
+export function buildDocumentUserPrompt(params: { context: DocumentContext }): string {
+  const { context } = params;
+  const parts: string[] = [];
+
+  parts.push(`# Submission: ${context.assignmentTitle}`);
+  parts.push("");
+  parts.push(...addressBlock(context));
+  parts.push("");
+
+  parts.push(
+    `**This section is out of ${context.pointValue} points.** The \`scorePossible\` ` +
+      `values of your \`rubricItems\` must add up to exactly ${context.pointValue}. Do not ` +
+      `derive your own scale from the number of parts — use this number.`,
+  );
+  parts.push("");
+
+  if (context.instructions) {
+    parts.push("---");
+    parts.push("");
+    parts.push("## The assignment instructions");
+    parts.push("");
+    parts.push(context.instructions);
+    parts.push("");
+  }
+
+  if (context.answerKey) {
+    parts.push("---");
+    parts.push("");
+    parts.push("## Reference solution");
+    parts.push("");
+    parts.push(
+      "For your reference only. **Never quote it, describe it, or reveal its contents " +
+        "to the student** — a student's report must not hand them the answer. A correct " +
+        "answer that differs from this one is still correct.",
+    );
+    parts.push("");
+    parts.push(fence("answer-key.md", context.answerKey));
+  }
+
+  if (context.exemplar) {
+    parts.push("---");
+    parts.push("");
+    parts.push("## Exemplar");
+    parts.push("");
+    parts.push(
+      "An example of work that meets the standard, which the student may also have read. It " +
+        "shows the standard expected, **not the only acceptable answer**: a different approach " +
+        "that meets the rubric is still correct, and a submission is never marked down for " +
+        "differing from it. Do not compare the student's work to it point by point in the report.",
+    );
+    parts.push("");
+    parts.push(fence("exemplar.md", context.exemplar));
+  }
+
+  if (!context.answerKey && !context.exemplar) {
+    parts.push(
+      `Note: no reference solution or exemplar was available for this assignment. Grade ` +
+        `against the rubric and the assignment instructions, and set \`confidence\` to ` +
+        `\`"low"\` if their absence prevented you from assessing the work.`,
+    );
+    parts.push("");
+  }
+
+  parts.push("---");
+  parts.push("");
+  parts.push("## The student's submission");
+  parts.push("");
+  const attached = context.parts.filter((part) => part.kind !== "text");
+  if (attached.length > 0) {
+    parts.push(
+      `${attached.length === 1 ? "One file is" : `${attached.length} files are`} attached to ` +
+        `this message, before this text, in this order: ` +
+        `${attached.map((part) => `\`${part.label}\``).join(", ")}. Read ${attached.length === 1 ? "it" : "them"} as the student's work.`,
+    );
+    parts.push("");
+  }
+  for (const part of context.parts) {
+    if (part.kind === "text") parts.push(fence(part.label, part.text ?? ""));
+  }
+  if (context.parts.length === 0) {
+    parts.push("Nothing readable was handed in.");
+    parts.push("");
+  }
+  if (context.refused.length > 0) {
+    parts.push(
+      `Not shown to you, because the application could not read ${context.refused.length === 1 ? "it" : "them"}: ` +
+        `${context.refused.map((item) => `\`${item.label}\` (${item.reason})`).join(", ")}. ` +
+        `If the work you were shown is incomplete without ${context.refused.length === 1 ? "it" : "them"}, set \`confidence\` to \`"low"\` and say so in \`instructorNotes\`.`,
+    );
+    parts.push("");
+  }
+
+  if (context.previousReview) {
+    parts.push(...previousReviewBlock(context.previousReview));
+  }
+
+  parts.push("---");
+  parts.push("");
+  parts.push("## Verified test results");
+  parts.push("");
+  parts.push(
+    "This work has no automated tests. Grade against the rubric and the assignment " +
+      "instructions. Leave `testClaims` empty.",
+  );
+  parts.push("");
 
   parts.push("---");
   parts.push("");

@@ -1,16 +1,17 @@
 /**
  * The section types, and everything the application knows about each one.
  *
- * A gradable section has a type, and four different parts of the application had to know
- * something about that type: what to call it on screen, which `Rubric` row grades it, which
- * heading in `rubric.md` governs it, and which sample report the model's output must be shaped
- * like. **Those were four maps in four files**, plus the list of names in two more and the union
- * type written out by hand in a seventh — seven places that had to agree, related only by
+ * A gradable section has a type, and three different parts of the application have to know
+ * something about that type: what to call it on screen, which `Rubric` row grades it, and what
+ * the report's title is. **Those were maps in separate files**, plus the list of names in two
+ * more and the union type written out by hand — places that had to agree, related only by
  * convention, with nothing to say so when one of them fell behind.
  *
- * That is a bearable amount of duplication for a closed set, and the set is about to open:
- * instructor-authored rubrics make a section type something somebody adds rather than something
- * the four values in this file exhaust. Adding one should be one entry here.
+ * The rubric's text, its guidance and its sample report are not here: they are versions of the
+ * `Rubric` row, read by `loadGradingAssets` through the `rubricId` a section stores. What this
+ * file still fixes is the *pairing* — a `coding_algorithm` section is graded against the row
+ * named `CODING_ALGORITHM_FLUENCY` and no other — which is what lets the authoring procedures
+ * check the pairing an instructor submits rather than trust it.
  *
  * **Browser-safe and importing nothing**, because the interface reads it as much as grading
  * does — the section editor draws the picker from it, and `lib/status.ts` names a section from
@@ -53,17 +54,6 @@ export type SectionTypeEntry = {
    */
   rubricName: string;
   /**
-   * The `## ` heading in `rubric.md` whose text is sliced out and sent.
-   *
-   * The whole rubric is roughly 110 lines, so sending all of it would not be expensive. It is
-   * sliced anyway because the irrelevant sections are actively misleading: a short response
-   * report given the algorithm rubric has a plausible scoring scale to reach for that does not
-   * apply.
-   */
-  rubricHeading: string;
-  /** The sample report in `grading-toolkit/` that shows the model what its fields become. */
-  sampleFile: string;
-  /**
    * The first line of the report, before the score the application appends to it.
    *
    * Here rather than in the sample report, because the application writes every heading in the
@@ -82,46 +72,21 @@ export const SECTION_TYPE_REGISTRY = {
   short_response: {
     label: "Short Response",
     rubricName: "SHORT_RESPONSE",
-    rubricHeading: "SHORT RESPONSE",
-    /*
-      Pair 1 of two. The toolkit also holds sample-short-response-submission-1.md, the work this
-      report was written about.
-
-      Pair 2 is deliberately NOT used here. It is the held-out calibration case: `npm run
-      calibrate` grades submission 2 and compares the result against report 2, which only
-      measures anything as long as the model has not been shown the answer. Adding it to this
-      prompt would quietly invalidate that test.
-    */
-    sampleFile: "sample-short-response-report-1.md",
     reportTitle: "Short Response Score Report",
   },
   coding_algorithm: {
     label: "Algorithm Fluency",
     rubricName: "CODING_ALGORITHM_FLUENCY",
-    rubricHeading: "CODING — ALGORITHM FLUENCY",
-    sampleFile: "sample-coding-fluency-report.md",
     reportTitle: "Coding Fluency Score Report",
   },
   coding_sql: {
     label: "SQL Fluency",
     rubricName: "CODING_SQL_FLUENCY",
-    rubricHeading: "CODING — SQL FLUENCY",
-    /*
-      The frontend sample, and **not a copy-and-paste slip** — the toolkit holds no
-      `sample-coding-sql-report.md`, so this is the nearest report of the right shape. What the
-      sample teaches is the *form* of a report, and the rubric heading above is what supplies the
-      criteria, so borrowing one is survivable in a way borrowing a rubric would not be. Writing
-      a SQL sample is the fix; until somebody does, this is the honest stand-in rather than a
-      missing file that fails the run.
-    */
-    sampleFile: "sample-coding-frontend-report.md",
     reportTitle: "SQL Coding Report",
   },
   coding_frontend: {
     label: "Frontend",
     rubricName: "CODING_FRONTEND",
-    rubricHeading: "CODING — FRONTEND",
-    sampleFile: "sample-coding-frontend-report.md",
     reportTitle: "Frontend Coding Report",
   },
 } satisfies Record<SectionType, SectionTypeEntry>;

@@ -1,4 +1,4 @@
-import { isOutstanding, triageBucket, type TriageFacts } from "@/lib/grade/triage";
+import { draftIsStale, isOutstanding, triageBucket, type TriageFacts } from "@/lib/grade/triage";
 
 /**
  * Which pile a submission belongs in.
@@ -205,5 +205,41 @@ describe("isOutstanding", () => {
 
   it("does not count work waiting on nobody", () => {
     expect(isOutstanding(null)).toBe(false);
+  });
+});
+
+/**
+ * Whether a draft describes work the student has since replaced, for both kinds of work.
+ *
+ * Commit-less work is the case this exists for: with `headSha` null on both sides, the commit
+ * comparison alone answered "not stale" for every Google Doc and upload, so a draft survived a
+ * re-hand-in as the current report.
+ */
+describe("draftIsStale", () => {
+  const at = (iso: string) => new Date(iso);
+
+  it("is never stale with no draft", () => {
+    expect(draftIsStale(null, { headSha: "a", lastActivityAt: at("2026-10-01") })).toBe(false);
+  });
+
+  it("compares commits for repository work", () => {
+    const draft = { headSha: "a", createdAt: at("2026-10-01") };
+    expect(draftIsStale(draft, { headSha: "a", lastActivityAt: at("2026-10-05") })).toBe(false);
+    expect(draftIsStale(draft, { headSha: "b", lastActivityAt: at("2026-09-01") })).toBe(true);
+  });
+
+  it("compares the draft's time with the latest hand-in for work with no commit", () => {
+    const draft = { headSha: null, createdAt: at("2026-10-03") };
+    expect(draftIsStale(draft, { headSha: null, lastActivityAt: at("2026-10-01") })).toBe(false);
+    expect(draftIsStale(draft, { headSha: null, lastActivityAt: at("2026-10-05") })).toBe(true);
+  });
+
+  it("is not stale for work with no commit and no hand-in time", () => {
+    expect(
+      draftIsStale(
+        { headSha: null, createdAt: at("2026-10-03") },
+        { headSha: null, lastActivityAt: null },
+      ),
+    ).toBe(false);
   });
 });

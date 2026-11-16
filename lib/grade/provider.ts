@@ -22,6 +22,19 @@ export type ReportRequest = {
   system: string;
   /** The submission-specific part: the student's code, the answer keys, the results. */
   user: string;
+  /**
+   * Files the model reads beside the text: a fellow's PDF or Slides deck, a screenshot. Absent
+   * for repository work, whose every input is text. Sent before `user`, so the text that names
+   * them by label comes after the things it names.
+   */
+  attachments?: Attachment[];
+};
+
+export type Attachment = {
+  /** What the prompt calls it, so "the deck" in the text and the file are one thing. */
+  label: string;
+  mediaType: "application/pdf" | "image/png" | "image/jpeg" | "image/gif" | "image/webp";
+  data: Buffer;
 };
 
 /**

@@ -635,25 +635,79 @@ describe("the three editors one Drive kind covers", () => {
   refusing it at authoring time is the difference between an assignment that cannot be built wrong
   and one that breaks the first time it is used.
 */
-describe("kinds the pipeline cannot grade", () => {
-  it("a Google Drive assignment may not have a section the model grades", () => {
-    expect(refusedOn({ ...docSpec, sections: [codingSection] }, "sections.0.grading")).toBe(true);
+/*
+  A kind with no repository is graded by hand, or as one document section against any rubric.
+  A repository section — a type the classifier matches against changed file paths — has nothing
+  to match on a Google Doc, so it is refused on its type; a second document section is refused
+  because a document is read whole.
+*/
+describe("kinds the pipeline grades as a document", () => {
+  const documentSection = {
+    grading: "ai",
+    type: "document",
+    pointValue: 10,
+    rubricId: "e7c1a1d0-0000-4000-8000-00000000000a",
+  } as const;
+  const uploadSpec = {
+    kind: AssignmentKind.SELF_DIRECTED,
+    title: "Resume, first draft",
+    courseUnitId: "e7c1a1d0-0000-4000-8000-000000000001",
+    handInMethods: ["FILE"],
+    acceptedFileTypes: ["pdf"],
+  };
+
+  it("a Google Drive assignment may not have a repository section", () => {
+    expect(refusedOn({ ...docSpec, sections: [codingSection] }, "sections.0.type")).toBe(true);
   });
 
   it("a self-directed assignment may not either", () => {
+    expect(refusedOn({ ...uploadSpec, sections: [codingSection] }, "sections.0.type")).toBe(true);
+  });
+
+  it("both may have one document section", () => {
+    expect(rejects({ ...docSpec, sections: [documentSection] })).toBe("accepted");
+    expect(rejects({ ...uploadSpec, sections: [documentSection] })).toBe("accepted");
+  });
+
+  it("but not two, and not one beside a hand-graded section", () => {
+    expect(rejects({ ...docSpec, sections: [documentSection, documentSection] })).toEqual([
+      "sections",
+    ]);
+    expect(rejects({ ...docSpec, sections: [documentSection, manualSection] })).toEqual([
+      "sections",
+    ]);
+  });
+
+  it("a repository assignment and a task may not have a document section", () => {
+    expect(refusedOn({ ...repoSpec, sections: [documentSection] }, "sections.0.type")).toBe(true);
     expect(
       refusedOn(
         {
-          kind: AssignmentKind.SELF_DIRECTED,
-          title: "Resume, first draft",
-          courseUnitId: "e7c1a1d0-0000-4000-8000-000000000001",
-          handInMethods: ["FILE"],
-          acceptedFileTypes: ["pdf"],
-          sections: [codingSection],
+          kind: AssignmentKind.TASK,
+          title: "Join Slack",
+          courseUnitId: repoSpec.courseUnitId,
+          sections: [documentSection],
         },
-        "sections.0.grading",
+        "sections",
       ),
     ).toBe(true);
+  });
+
+  // The two documents are read only by a document section. On an assignment graded by hand they
+  // are a belief the instructor holds that nothing acts on, corrected where it was typed.
+  it("an exemplar or an answer key needs a section that reads it", () => {
+    const exemplarDocUrl = "https://docs.google.com/document/d/ex4mple/edit";
+    expect(rejects({ ...docSpec, exemplarDocUrl })).toEqual(["exemplarDocUrl"]);
+    expect(rejects({ ...docSpec, sections: [documentSection], exemplarDocUrl })).toBe("accepted");
+    expect(
+      rejects({ ...docSpec, sections: [documentSection], answerKeyDocUrl: "https://example.com" }),
+    ).toEqual(["answerKeyDocUrl"]);
+  });
+
+  it("a repository assignment keeps its references in its repository", () => {
+    expect(
+      rejects({ ...repoSpec, exemplarDocUrl: "https://docs.google.com/document/d/ex4mple/edit" }),
+    ).toEqual(["exemplarDocUrl"]);
   });
 
   it("a self-directed assignment needs no template of any kind", () => {
@@ -811,8 +865,8 @@ describe("work made somewhere else and handed in as a link", () => {
   // The pipeline's inputs are a pull request's files and a template's tests. This kind has neither,
   // so an AI section would sit in the queue as a report waiting to be generated and fail at the
   // moment an instructor asked for it.
-  it("and no section the model grades", () => {
-    expect(refusedOn({ ...linkSpec, sections: [codingSection] }, "sections.0.grading")).toBe(true);
+  it("and no repository section", () => {
+    expect(refusedOn({ ...linkSpec, sections: [codingSection] }, "sections.0.type")).toBe(true);
   });
 });
 

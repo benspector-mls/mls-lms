@@ -1,4 +1,3 @@
-import { extractRubricSection } from "@/lib/grade/assets";
 import { zodOutputFormat } from "@anthropic-ai/sdk/helpers/zod";
 
 import { gradingReportSchema, parseGradingReport, REPORT_FLAGS } from "@/lib/grade/schema";
@@ -136,34 +135,5 @@ describe("parseGradingReport", () => {
       parseGradingReport(report({ instructorNotes: ["The point value does not divide evenly."] }))
         .instructorNotes,
     ).toHaveLength(1);
-  });
-});
-
-describe("extractRubricSection", () => {
-  const rubric = [
-    "# Grading Rubric",
-    "## SHORT RESPONSE",
-    "short response body",
-    "## CODING — ALGORITHM FLUENCY",
-    "algorithm body",
-    "## CODING — SQL FLUENCY",
-    "sql body",
-  ].join("\n");
-
-  // Sliced rather than sent whole, because the irrelevant sections are actively misleading: a
-  // short response report given the algorithm rubric has a plausible scoring scale to reach for
-  // that does not apply.
-  it("slices a section at the next heading", () => {
-    expect(extractRubricSection(rubric, "CODING — ALGORITHM FLUENCY")).toBe(
-      "## CODING — ALGORITHM FLUENCY\nalgorithm body",
-    );
-  });
-
-  // Throws rather than sending an empty rubric, which would be a confident report against no
-  // criteria at all. This is what fires if a heading in the registry drifts from the toolkit.
-  it("throws when the heading is not there", () => {
-    expect(() => extractRubricSection(rubric, "NO SUCH SECTION")).toThrow(
-      expect.objectContaining({ name: "GradingAssetsError" }),
-    );
   });
 });

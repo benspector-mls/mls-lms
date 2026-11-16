@@ -42,6 +42,12 @@ export type SectionDraft =
       evidence?: "tests";
       testNamePattern?: string;
     }
+  /*
+    The one AI section an assignment with no repository carries. Its rubric is chosen rather
+    than derived, because "document" says nothing about the work — the rubric is the whole
+    description of what a resume or a reflection is scored against.
+  */
+  | { grading: "ai"; type: "document"; pointValue: number; rubricId: string }
   | { grading: "manual"; label: string; pointValue: number };
 
 export function SectionEditor({
@@ -70,7 +76,11 @@ export function SectionEditor({
       <div className="flex flex-wrap items-center justify-between gap-2">
         <div className="flex items-center gap-2">
           <Badge variant="secondary" className="font-normal">
-            {section.grading === "ai" ? sectionLabel(section.type) : "Graded by hand"}
+            {section.grading === "manual"
+              ? "Graded by hand"
+              : section.type === "document"
+                ? "Graded by the model"
+                : sectionLabel(section.type)}
           </Badge>
           <span className="text-xs text-muted-foreground">Section {index + 1}</span>
         </div>
@@ -80,7 +90,37 @@ export function SectionEditor({
         </Button>
       </div>
 
-      {section.grading === "manual" ? (
+      {section.grading === "ai" && section.type === "document" ? (
+        <div className="grid gap-4 sm:grid-cols-[1fr_8rem]">
+          <Field
+            label="Rubric"
+            findings={fieldFindings("rubricId")}
+            hint="What the model scores the whole hand-in against. Write one on the Rubrics screen."
+          >
+            <Select
+              value={section.rubricId}
+              onValueChange={(value) => value && onChange({ ...section, rubricId: value })}
+              items={Object.fromEntries(rubrics.map((rubric) => [rubric.id, rubric.name]))}
+            >
+              <SelectTrigger>
+                <SelectValue placeholder="Choose a rubric" />
+              </SelectTrigger>
+              <SelectContent>
+                {rubrics.map((rubric) => (
+                  <SelectItem key={rubric.id} value={rubric.id}>
+                    {rubric.name}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </Field>
+          <PointValueField
+            value={section.pointValue}
+            findings={fieldFindings("pointValue")}
+            onChange={(pointValue) => onChange({ ...section, pointValue })}
+          />
+        </div>
+      ) : section.grading === "manual" ? (
         <div className="grid gap-4 sm:grid-cols-[1fr_8rem]">
           {/*
             A new section arrives named "Total Score", which is right for an assignment that is

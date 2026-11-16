@@ -17,6 +17,7 @@ import {
   LayoutDashboard,
   ListChecks,
   LogOut,
+  NotebookPen,
   MessageSquarePlus,
   School,
   Settings,
@@ -92,6 +93,7 @@ import {
   fellowsHref,
   programSettingsHref,
   programsHref,
+  rubricsHref,
   sameViewInCourse,
   sameViewInProgram,
   teamsHref,
@@ -978,6 +980,21 @@ function MainNav({
             >
               <School />
               <span>All programs</span>
+            </SidebarMenuButton>
+          </SidebarMenuItem>
+          {/*
+            Beside "All programs" rather than inside a program, because a rubric belongs to no
+            program: the same four grade every repository assignment of every term, and one
+            written for a resume is picked from the same list next year.
+          */}
+          <SidebarMenuItem>
+            <SidebarMenuButton
+              isActive={pathname.startsWith(rubricsHref())}
+              tooltip="Rubrics"
+              render={<Link href={rubricsHref()} />}
+            >
+              <NotebookPen />
+              <span>Rubrics</span>
             </SidebarMenuButton>
           </SidebarMenuItem>
         </SidebarMenu>

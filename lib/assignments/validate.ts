@@ -1,6 +1,7 @@
 import "server-only";
 
 import { SECTION_TYPE_REGISTRY } from "../section-types";
+import { parseDriveDocUrl } from "../drive/embed";
 import { checkAnswerKeyDir } from "../grade/assets";
 import {
   getConfiguredInstallationId,
@@ -8,6 +9,14 @@ import {
   isGithubAppConfigured,
 } from "../github/app-client";
 import { getRepo } from "../github/repos";
+import {
+  exportPrivateDocMarkdown,
+  exportPublicDoc,
+  GoogleDocError,
+  isServiceAccountConfigured,
+  serviceAccount,
+} from "../google/docs";
+import { NO_RULE_SET_MESSAGE } from "../rubrics/versions";
 import type { db as Db } from "../prisma";
 import {
   assignmentSpecSchema,
@@ -103,7 +112,9 @@ export async function validateAssignmentDraft(
   // which the name-length check below needs.
   const course = await db.course.findUnique({
     where: { id: input.courseId },
-    select: { id: true, slug: true },
+    // The program's rule set, for the refusal below: an AI section in a program with none would
+    // save and then fail at the first Generate.
+    select: { id: true, slug: true, program: { select: { ruleSetId: true } } },
   });
 
   if (!course) {
@@ -221,25 +232,61 @@ export async function validateAssignmentDraft(
   if (aiSections.length > 0) {
     const rubrics = await db.rubric.findMany({
       where: { id: { in: aiSections.map((entry) => entry.section.rubricId) } },
-      select: { id: true, name: true },
+      select: { id: true, name: true, currentVersionId: true, ruleSetId: true },
     });
-    const rubricById = new Map(rubrics.map((rubric) => [rubric.id, rubric.name]));
+    const rubricById = new Map(rubrics.map((rubric) => [rubric.id, rubric]));
 
     for (const { section, index } of aiSections) {
-      const name = rubricById.get(section.rubricId);
-      const expected = SECTION_TYPE_REGISTRY[section.type].rubricName;
+      const rubric = rubricById.get(section.rubricId);
 
-      if (!name) {
+      if (!rubric) {
         error(`sections.${index}.rubricId`, "That rubric does not exist.");
-      } else if (name !== expected) {
-        // Checked rather than trusted: a section graded against the wrong rubric produces a
-        // confident report against criteria that do not apply to the work.
+        continue;
+      }
+      if (rubric.currentVersionId === null) {
         error(
           `sections.${index}.rubricId`,
-          `A ${section.type} section is graded against ${expected}, not ${name}.`,
+          `${rubric.name} has no text yet, so nothing can be graded against it.`,
         );
       }
+      /*
+        A repository section's rubric follows from its type, and the pairing is checked rather
+        than trusted: a section graded against the wrong rubric produces a confident report
+        against criteria that do not apply to the work. A document section names any rubric,
+        because its type says nothing about the work — that is what the rubric is for.
+      */
+      if (section.type !== "document") {
+        const expected = SECTION_TYPE_REGISTRY[section.type].rubricName;
+        if (rubric.name !== expected) {
+          error(
+            `sections.${index}.rubricId`,
+            `A ${section.type} section is graded against ${expected}, not ${rubric.name}.`,
+          );
+        }
+      }
+      /*
+        The rule set the report would follow: the rubric's own, else the program's. Refused here
+        with the same sentence the review screen uses, so an instructor meets it while authoring
+        rather than at the first Generate, and knows whose decision it is.
+      */
+      if (rubric.ruleSetId === null && course.program.ruleSetId === null) {
+        error(`sections.${index}.rubricId`, NO_RULE_SET_MESSAGE);
+      }
     }
+  }
+
+  /*
+    The two documents a non-repository assignment may name, each checked by reading it the way
+    grading will. Both are errors rather than warnings, and for different reasons: an exemplar
+    that is not public would make the model grade against nothing while the instructor believed
+    otherwise, and an answer key the service account cannot open is the sharing step every
+    instructor has to learn — the message names the address to share with.
+  */
+  if (spec.kind === "GOOGLE_DRIVE" || spec.kind === "SELF_DIRECTED") {
+    await Promise.all([
+      checkExemplarDoc(spec.exemplarDocUrl, error),
+      checkAnswerKeyDoc(spec.answerKeyDocUrl, error),
+    ]);
   }
 
   // ---- The two repositories an assignment names ----
@@ -301,6 +348,58 @@ export async function validateAssignmentDraft(
 }
 
 type Report = (path: string, message: string) => void;
+
+/** A public Google Doc has to be readable with no credential, which is what "public" means here. */
+async function checkExemplarDoc(url: string | null, error: Report): Promise<void> {
+  if (!url) return;
+  const ref = parseDriveDocUrl(url);
+  if (!ref || ref.kind !== "DOC") {
+    error("exemplarDocUrl", "Paste the link of a Google Doc.");
+    return;
+  }
+  try {
+    await exportPublicDoc(ref);
+  } catch (err) {
+    error(
+      "exemplarDocUrl",
+      err instanceof GoogleDocError
+        ? err.message
+        : `Could not read the exemplar: ${err instanceof Error ? err.message : String(err)}`,
+    );
+  }
+}
+
+/**
+ * A private Google Doc has to be shared with the service account, and this is where an
+ * instructor learns that: saving is refused until the account can open it.
+ */
+async function checkAnswerKeyDoc(url: string | null, error: Report): Promise<void> {
+  if (!url) return;
+  const ref = parseDriveDocUrl(url);
+  if (!ref || ref.kind !== "DOC") {
+    error("answerKeyDocUrl", "Paste the link of a Google Doc.");
+    return;
+  }
+  if (!isServiceAccountConfigured()) {
+    error(
+      "answerKeyDocUrl",
+      "GOOGLE_SERVICE_ACCOUNT_KEY is not set on this deployment, so a private answer key " +
+        "cannot be read. Set it, or leave this empty.",
+    );
+    return;
+  }
+  try {
+    await exportPrivateDocMarkdown(ref.fileId);
+  } catch (err) {
+    error(
+      "answerKeyDocUrl",
+      err instanceof GoogleDocError
+        ? err.message
+        : `Could not read the answer key as ${serviceAccount()?.email ?? "the service account"}: ` +
+            `${err instanceof Error ? err.message : String(err)}`,
+    );
+  }
+}
 
 /**
  * The template has to be readable by the installation that will generate from it, and it has

@@ -15,7 +15,7 @@ loadEnv({ quiet: true });
 
 async function main() {
   const { db } = await import("../lib/prisma");
-  const { generateReportForSubmission } = await import("../lib/grade/generate-report");
+  const { generateReportFor } = await import("../lib/grade/generate");
 
   const target = process.argv[2];
   const isUuid = target && /^[0-9a-f-]{36}$/i.test(target);
@@ -54,7 +54,7 @@ async function main() {
   console.log(`Provider    ${process.env.GRADING_LLM_PROVIDER ?? "claude"}\n`);
 
   const startedAt = Date.now();
-  const draft = await generateReportForSubmission(submission.id);
+  const draft = await generateReportFor(submission.id);
   const wall = ((Date.now() - startedAt) / 1000).toFixed(1);
 
   console.log(`── ${draft.status} in ${wall}s ${"─".repeat(30)}`);

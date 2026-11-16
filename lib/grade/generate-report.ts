@@ -172,6 +172,8 @@ export async function generateReportForSubmission(submissionId: string): Promise
           title: true,
           sections: true,
           kind: true,
+          // The program, for the rule set every rubric follows unless it names its own.
+          course: { select: { programId: true } },
           templateRepo: true,
           answerKeyRepo: true,
           answerKeyDir: true,
@@ -465,7 +467,6 @@ export async function generateReportForSubmission(submissionId: string): Promise
       cachedPromptTokens: 0,
       cacheWriteTokens: 0,
     };
-    let assetsCommitSha: string | null = null;
     let answerKeyCommitSha: string | null = null;
 
     for (const sectionType of classification.present) {
@@ -485,14 +486,22 @@ export async function generateReportForSubmission(submissionId: string): Promise
         );
       }
 
+      // Refused for the same reason as a missing point value: every AI section saved through
+      // the form names its rubric, so one without is a row the form never saw.
+      if (!section?.rubricId) {
+        throw new Error(
+          `The "${sectionType}" section of ${submission.assignment.title} names no rubric, ` +
+            `so there is nothing to grade it against. Open the assignment and save it again.`,
+        );
+      }
+
       const assets = await loadGradingAssets({
-        sectionType,
-        // The assignment's own repository, not one named by the environment. The rubric and
-        // the agent rules still come from the configured one — those are program-wide.
+        rubricId: section.rubricId,
+        programId: submission.assignment.course.programId,
+        // The assignment's own repository, not one named by the environment.
         answerKeyRepo: submission.assignment.answerKeyRepo,
         answerKeyDir: submission.assignment.answerKeyDir,
       });
-      assetsCommitSha = assets.commitSha;
       answerKeyCommitSha = assets.answerKeyCommitSha ?? answerKeyCommitSha;
 
       // Which tests count toward this section, or why there are none. Absent pattern
@@ -567,7 +576,7 @@ export async function generateReportForSubmission(submissionId: string): Promise
       });
 
       const response = await generator.generate({
-        system: buildSystemPrompt({ sectionType, assets }),
+        system: buildSystemPrompt({ assets }),
         user: buildUserPrompt({
           assets,
           context: {
@@ -659,6 +668,10 @@ export async function generateReportForSubmission(submissionId: string): Promise
           instructorNotes: response.output.instructorNotes,
           confidence: response.output.confidence === "low" ? "LOW" : "HIGH",
           submissionProcessNote: response.output.submissionProcessNote,
+          // The exact text this section was scored against, so the review screen can say when
+          // the rubric or the rules have moved on since.
+          rubricVersionId: assets.rubricVersionId,
+          ruleSetVersionId: assets.ruleSetVersionId,
         },
       });
 
@@ -691,11 +704,9 @@ export async function generateReportForSubmission(submissionId: string): Promise
         modelMetadata: {
           provider: generator.name,
           promptVersion: PROMPT_VERSION,
-          gradingAssetsCommitSha: assetsCommitSha,
-          // The answer keys come from the repository the assignment names, which is a
-          // different repository with its own history. Recorded separately so a report
-          // traces back to the exact reference solutions it was written against, not only
-          // to the rubric — null when the section named no keys.
+          // The rubric and the rule set are recorded on each section by version. The answer
+          // keys come from a repository with its own history, so their commit is recorded
+          // here — null when the section named no keys.
           answerKeyRepo: submission.assignment.answerKeyRepo,
           answerKeyCommitSha,
           usage: usageTotals,
@@ -743,6 +754,9 @@ export async function generateReportForSubmission(submissionId: string): Promise
   Bumped when the prompt changes in a way that changes what comes back, so a stored report can be
   traced to the wording that produced it. `2026-10-10.1` asks for a summary and one row per scored
   item, each carrying its own feedback, in place of a whole report written as one block of text.
+  `2026-10-12.1` reads the rubric, its guidance and the rule set from database rows rather than
+  from the grading-guides repository; the text is the same, and the rows' versions on each section
+  are what now trace a report to it.
   `2026-10-29.1` describes the summary as three beats ending in one focus, and stops the report
   from mentioning commented-out code.
 */
