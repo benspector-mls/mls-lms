@@ -183,8 +183,11 @@ type Authoring = {
  * Built per group rather than once for the file, because each group holds its own transaction and a
  * row written in one is invisible to the next.
  */
-async function makeAuthoring(tx: Tx, options: { published?: boolean } = {}): Promise<Authoring> {
-  const world = await makeWorld(tx, { students: 1 });
+async function makeAuthoring(
+  tx: Tx,
+  options: { published?: boolean; students?: number } = {},
+): Promise<Authoring> {
+  const world = await makeWorld(tx, { students: options.students ?? 1 });
   const title = `${MARKER} reference`;
 
   const assignment = await tx.assignment.create({
@@ -663,6 +666,153 @@ describe("editing one", () => {
     );
 
     expect(code).toBe("PRECONDITION_FAILED");
+  });
+});
+
+/*
+  Changing the completion threshold once work is graded.
+
+  Approval stores Complete or Incomplete on each submission, and everything downstream reads that
+  stored value, so a new threshold has to re-mark the graded work or the gradebook would follow the
+  old one. Three fellows out of 20 points: 14 (70%) starts Incomplete, 15 (75%) sits exactly on the
+  starting threshold and is Complete, and 16 (80%) is Complete.
+
+  The checks run in order against the same rows, so each one states the threshold it starts from.
+*/
+describe("changing the completion threshold", () => {
+  const tx = withRollback();
+
+  let fixture: Authoring;
+
+  const asInstructor = () => createCaller(tx(), fixture.world.instructorId);
+  const saveThreshold = (completionThreshold: number) =>
+    asInstructor().assignments.update({
+      assignmentId: fixture.assignmentId,
+      draft: { ...fixture.draft, completionThreshold },
+    });
+  const verdicts = async () => {
+    const rows = await tx().submission.findMany({
+      where: { assignmentId: fixture.assignmentId },
+      select: { finalScore: true, isComplete: true },
+    });
+    return Object.fromEntries(rows.map((row) => [row.finalScore, row.isComplete]));
+  };
+  /*
+    The re-mark events this group's saves wrote, narrowed to the ones a given save wrote by the
+    threshold in their detail. Not by time: every write here shares one transaction, so
+    `occurredAt` is the same on all of them.
+  */
+  const remarkEvents = async (completionThreshold?: number) => {
+    const events = await tx().auditEvent.findMany({
+      where: { action: "COMPLETION_REMARKED", courseId: fixture.world.courseId },
+      select: { actorId: true, subjectId: true, detail: true },
+    });
+    return events.filter(
+      (event) =>
+        completionThreshold === undefined ||
+        (event.detail as { completionThreshold?: number }).completionThreshold ===
+          completionThreshold,
+    );
+  };
+
+  beforeAll(async () => {
+    fixture = await makeAuthoring(tx(), { students: 3 });
+
+    const scores = [
+      { score: 14, isComplete: false },
+      { score: 15, isComplete: true },
+      { score: 16, isComplete: true },
+    ];
+    for (const [index, { score, isComplete }] of scores.entries()) {
+      await makeSubmission(tx(), {
+        assignmentId: fixture.assignmentId,
+        studentId: fixture.world.students[index].studentId,
+        graded: { score, possible: 20, isComplete },
+      });
+    }
+  });
+
+  it("lowering it from 75 to 70 percent marks 14 of 20 Complete and leaves the others", async () => {
+    const result = await saveThreshold(0.7);
+
+    expect({ remarked: result.remarked, verdicts: await verdicts() }).toEqual({
+      remarked: 1,
+      verdicts: { 14: true, 15: true, 16: true },
+    });
+  });
+
+  it("...and records one event about that fellow, naming both thresholds and who changed it", async () => {
+    expect(await remarkEvents(0.7)).toEqual([
+      {
+        actorId: fixture.world.instructorId,
+        subjectId: fixture.world.students[0].studentId,
+        detail: expect.objectContaining({
+          scoreEarned: 14,
+          scorePossible: 20,
+          isComplete: true,
+          completionThreshold: 0.7,
+          previousCompletionThreshold: 0.75,
+        }),
+      },
+    ]);
+  });
+
+  // 16 of 20 is exactly 80 percent, and the comparison approval uses counts the boundary as met.
+  it("raising it from 70 to 80 percent marks 14 and 15 Incomplete and keeps 16 Complete", async () => {
+    const result = await saveThreshold(0.8);
+
+    expect({ remarked: result.remarked, verdicts: await verdicts() }).toEqual({
+      remarked: 2,
+      verdicts: { 14: false, 15: false, 16: true },
+    });
+  });
+
+  it("...and records one event for each of those two fellows", async () => {
+    const events = await remarkEvents(0.8);
+
+    expect({
+      subjects: events.map((event) => event.subjectId).sort(),
+      verdicts: events.map((event) => (event.detail as { isComplete: boolean }).isComplete),
+    }).toEqual({
+      subjects: [fixture.world.students[0].studentId, fixture.world.students[1].studentId].sort(),
+      verdicts: [false, false],
+    });
+  });
+
+  it("saving it unchanged at 80 percent re-marks nothing and writes no submission or event", async () => {
+    const before = await tx().submission.findMany({
+      where: { assignmentId: fixture.assignmentId },
+      select: { id: true, updatedAt: true },
+      orderBy: { id: "asc" },
+    });
+
+    const result = await saveThreshold(0.8);
+
+    const after = await tx().submission.findMany({
+      where: { assignmentId: fixture.assignmentId },
+      select: { id: true, updatedAt: true },
+      orderBy: { id: "asc" },
+    });
+    expect({ remarked: result.remarked, after, events: (await remarkEvents()).length }).toEqual({
+      remarked: 0,
+      after: before,
+      events: 3,
+    });
+  });
+
+  it("a threshold below 1 or above 100 percent is refused with a finding on the field", async () => {
+    const findingsFor = async (completionThreshold: number) => {
+      const valid = await asInstructor().assignments.validateDraft({
+        courseId: fixture.world.courseId,
+        assignmentId: fixture.assignmentId,
+        draft: { ...fixture.draft, completionThreshold },
+      });
+      return valid.findings.filter(
+        (finding) => finding.path === "completionThreshold" && finding.severity === "error",
+      ).length;
+    };
+
+    expect([await findingsFor(0.005), await findingsFor(1.01)]).toEqual([1, 1]);
   });
 });
 

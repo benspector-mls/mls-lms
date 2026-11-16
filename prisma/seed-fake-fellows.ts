@@ -36,6 +36,7 @@ import {
   schoolDayOf,
   weekdayOf,
 } from "../lib/school-time";
+import { meetsCompletionThreshold } from "../lib/status";
 import { CheckLevel, Prisma, type PrismaClient } from "../lib/generated/prisma/client";
 
 /**
@@ -542,7 +543,7 @@ export async function seedFakeFellows(
         status: "GRADED",
         finalScore: score,
         finalScorePossible: possible,
-        isComplete: possible > 0 && score / possible >= assignment.completionThreshold,
+        isComplete: meetsCompletionThreshold(score, possible, assignment.completionThreshold),
         gradedById: instructorId,
         gradedAt,
       });

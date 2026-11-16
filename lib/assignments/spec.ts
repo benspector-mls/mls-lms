@@ -592,7 +592,17 @@ const shared = {
    */
   courseUnitId: z.string().uuid(),
   dueAt: z.date().nullable().default(null),
-  completionThreshold: z.number().gt(0).lte(1).default(0.75),
+  /**
+   * The share of the points that counts as complete, stored as a fraction.
+   *
+   * The messages speak in percent because the form does: an instructor types 75, never 0.75, so
+   * Zod's own "Number must be greater than 0" would describe a value they never saw.
+   */
+  completionThreshold: z
+    .number({ error: "must be between 1 and 100 percent" })
+    .gte(0.01, "must be between 1 and 100 percent")
+    .lte(1, "must be between 1 and 100 percent")
+    .default(0.75),
   sections: sectionsSchema,
   /**
    * How to turn this in, in markdown. Optional on every kind: each kind's own screen states

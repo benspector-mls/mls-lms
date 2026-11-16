@@ -288,6 +288,11 @@ function toDraft(state: FormState): unknown {
       ...shared,
       kind: "TASK",
       sections: [],
+      // A box emptied before switching to Task falls back to the schema's default, so it cannot
+      // refuse a save over a field this kind does not draw. Otherwise the stored value is kept.
+      completionThreshold: Number.isFinite(state.completionThreshold)
+        ? state.completionThreshold
+        : undefined,
       studentMayMarkDone: state.studentMayMarkDone,
     };
   }
@@ -692,7 +697,11 @@ function Editor({
   const update = useMutation(
     trpc.assignments.update.mutationOptions({
       onSuccess: (result) => {
-        toast.success(`Saved ${result.assignment.title}.`);
+        toast.success(
+          result.remarked > 0
+            ? `Saved ${result.assignment.title}. Re-marked ${result.remarked} graded ${result.remarked === 1 ? "submission" : "submissions"}.`
+            : `Saved ${result.assignment.title}.`,
+        );
         onSaved(result.assignment.id);
       },
       onError: (error) => toast.error(error.message),
@@ -1429,6 +1438,54 @@ function Editor({
                 </div>
               </CardHeader>
               <CardContent className="flex flex-col gap-4">
+                {/*
+                  Typed as a percent and stored as a fraction. The display drops float noise
+                  rather than rounding, so a stored 0.725 reads 72.5 and is not shown as a number
+                  the threshold is not. An emptied box is NaN, which validation refuses with a
+                  finding under this field rather than silently keeping the old value.
+
+                  The hint turns the percent into points, because the points are what an
+                  instructor grades in. Once anyone has submitted it also says what a change does
+                  to work already graded, since saving re-marks those submissions.
+                */}
+                <Field
+                  label="Completion threshold"
+                  findings={fieldFindings("completionThreshold")}
+                  hint={[
+                    Number.isFinite(state.completionThreshold) && pointTotal > 0
+                      ? `Fellows need at least ${Number((state.completionThreshold * pointTotal).toFixed(2))} of ${pointTotal} points to be marked Complete.`
+                      : null,
+                    existing && existing.submissionCount > 0
+                      ? "Changing it re-marks any submissions already graded."
+                      : null,
+                  ]
+                    .filter(Boolean)
+                    .join(" ")}
+                >
+                  <div className="flex items-center gap-2">
+                    <Input
+                      type="number"
+                      className="w-24"
+                      min={1}
+                      max={100}
+                      step="any"
+                      value={
+                        Number.isFinite(state.completionThreshold)
+                          ? Number((state.completionThreshold * 100).toPrecision(12))
+                          : ""
+                      }
+                      onChange={(event) =>
+                        setState({
+                          ...state,
+                          completionThreshold:
+                            event.target.value === "" ? NaN : Number(event.target.value) / 100,
+                        })
+                      }
+                    />
+                    <span className="text-sm text-muted-foreground">%</span>
+                  </div>
+                </Field>
+
                 {/*
                 Absent rather than disabled for a kind with no repository: there is no template
                 to take a suite from, so a runner is not a setting left at its default, it is a

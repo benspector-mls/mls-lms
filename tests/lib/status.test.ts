@@ -17,6 +17,7 @@ import {
   handedIn,
   handInMode,
   linkHost,
+  meetsCompletionThreshold,
   scoreLabel,
   scorePercent,
   sectionLabel,
@@ -105,6 +106,21 @@ describe("the student vocabulary is narrower on purpose", () => {
     const waiting = ["SUBMITTED", "RESUBMITTED", "GRADED"] as const;
     for (const status of waiting) expect(STUDENT_STATUS_META[status].tone).not.toBe("neutral");
     expect(new Set(waiting.map((s) => STUDENT_STATUS_META[s].tone)).size).toBe(waiting.length);
+  });
+});
+
+describe("meetsCompletionThreshold", () => {
+  it("counts a score exactly on the threshold as met", () => {
+    expect(meetsCompletionThreshold(15, 20, 0.75)).toBe(true);
+  });
+
+  it("counts a score just below the threshold as not met", () => {
+    expect(meetsCompletionThreshold(14.5, 20, 0.75)).toBe(false);
+  });
+
+  it("is false when no points are possible", () => {
+    // A share of zero points has no answer, and dividing would give NaN or Infinity.
+    expect(meetsCompletionThreshold(0, 0, 0.75)).toBe(false);
   });
 });
 

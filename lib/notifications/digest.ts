@@ -4,7 +4,7 @@ import { effectiveSection } from "@/lib/grade/delivery";
 import { displayNameOf } from "@/lib/people";
 import { db, type Tx } from "@/lib/prisma";
 import { gradingQueueHref, studentAssignmentHref } from "@/lib/links";
-import { feedbackIsUnread } from "@/lib/status";
+import { feedbackIsUnread, meetsCompletionThreshold } from "@/lib/status";
 
 import { schoolHourAndWeekday } from "./recipients";
 import { awaitsReply, commentExcerpt, isUnread } from "@/lib/submissions/comments";
@@ -116,9 +116,11 @@ export async function studentDigestLines(
           assignmentTitle: assignment.title,
           finalScore,
           finalScorePossible,
-          isComplete:
-            finalScorePossible > 0 &&
-            finalScore / finalScorePossible >= assignment.completionThreshold,
+          isComplete: meetsCompletionThreshold(
+            finalScore,
+            finalScorePossible,
+            assignment.completionThreshold,
+          ),
           href: absoluteHref(
             studentAssignmentHref(assignment.courseId, round.submission.assignmentId),
           ),

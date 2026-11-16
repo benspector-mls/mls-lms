@@ -448,6 +448,24 @@ export function draftStatusAddsSomething(status: GradingDraftStatus): boolean {
 }
 
 /**
+ * Whether a score meets an assignment's completion threshold.
+ *
+ * The one statement of the rule. Approval stores its answer on the submission, saving a new
+ * threshold re-marks graded work with it, and the grading editor and the Slack digest preview it —
+ * so if any of them compared differently, saving a threshold would re-mark rows the other way from
+ * how approval marked them. A score exactly on the threshold meets it.
+ *
+ * False when nothing is possible, because a share of zero points has no answer.
+ */
+export function meetsCompletionThreshold(
+  earned: number,
+  possible: number,
+  threshold: number,
+): boolean {
+  return possible > 0 && earned / possible >= threshold;
+}
+
+/**
  * How a released score reads: met the completion threshold, or did not.
  *
  * Separate from the tone system because it answers a different question. A tone says where

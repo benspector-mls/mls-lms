@@ -23,7 +23,7 @@ import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button } from "@/components/ui/button";
 import { panelSurface } from "@/components/ui/card";
 import { composeReport, rowTotals, statedScoreInText } from "@/lib/grade/report-text";
-import { completionMeta, sectionLabel, shortSha } from "@/lib/status";
+import { completionMeta, meetsCompletionThreshold, sectionLabel, shortSha } from "@/lib/status";
 import { cn } from "@/lib/utils";
 import { useTRPC, useTRPCClient } from "@/trpc/client";
 import {
@@ -584,7 +584,7 @@ export function DraftEditor({
 
   const totalEarned = rows.reduce((sum, row) => sum + (scores[row.key] ?? 0), 0);
   const totalPossible = rows.reduce((sum, row) => sum + (row.scorePossible ?? 0), 0);
-  const isComplete = totalPossible > 0 && totalEarned / totalPossible >= completionThreshold;
+  const isComplete = meetsCompletionThreshold(totalEarned, totalPossible, completionThreshold);
 
   const dirtyKeys = rows
     .filter(

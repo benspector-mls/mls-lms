@@ -2176,6 +2176,11 @@ enum AuditAction {
   JOIN_TOKEN_REGENERATED
   /// A grade was released to a student, which is the act Salesforce will later mirror.
   GRADE_APPROVED
+  /// A changed completion threshold flipped one fellow's stored Complete or Incomplete verdict.
+  /// One event per flipped submission, with the fellow as the subject, like GRADE_APPROVED — so
+  /// the events about one fellow's grade read in order, and the latest says what the gradebook
+  /// shows. A threshold change that flips nothing writes nothing.
+  COMPLETION_REMARKED
 
   /// The two operations that cost money — a model call and a sandbox — recorded so the ledger
   /// that answers "how many of these has this person just run" is the one already being written.

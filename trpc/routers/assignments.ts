@@ -2,7 +2,7 @@ import { TRPCError } from "@trpc/server";
 import { z } from "zod";
 
 import type { Prisma } from "@/lib/generated/prisma/client";
-import type { Db } from "@/lib/prisma";
+import { inTransaction, type Db } from "@/lib/prisma";
 
 import {
   acceptableAssignmentSelect,
@@ -14,6 +14,7 @@ import { detectRunnerPreset, NOT_A_REPOSITORY } from "@/lib/assignments/detect";
 import { normalizeRepoRef, repoNameFromRef } from "@/lib/assignments/repo-ref";
 import { distributedToStudent } from "@/lib/assignments/scope";
 import { assertKindImplemented } from "@/lib/assignments/spec";
+import { auditActor, auditEventData } from "@/lib/audit/record";
 import {
   hasErrors,
   validateAssignmentDraft,
@@ -31,6 +32,8 @@ import {
   type ThreadComment,
   unreadCount,
 } from "@/lib/submissions/comments";
+import { displayNameOf } from "@/lib/people";
+import { meetsCompletionThreshold } from "@/lib/status";
 import { effectiveDueAt } from "@/lib/submissions/hand-in";
 import { teamForStudent } from "@/lib/submissions/team";
 import {
@@ -1142,6 +1145,8 @@ export const assignmentsRouter = createTRPCRouter({
         assignmentRepoName: true,
         distributedAt: true,
         teamSetId: true,
+        completionThreshold: true,
+        course: { select: { name: true } },
         _count: { select: { submissions: true } },
       });
 
@@ -1195,13 +1200,113 @@ export const assignmentsRouter = createTRPCRouter({
         });
       }
 
-      const assignment = await ctx.db.assignment.update({
-        where: { id: input.assignmentId },
-        data: writableFields(spec, pointValue),
-        select: assignmentFields,
-      });
+      return inTransaction(ctx.db, async (tx) => {
+        const assignment = await tx.assignment.update({
+          where: { id: input.assignmentId },
+          data: writableFields(spec, pointValue),
+          select: assignmentFields,
+        });
+        const warnings = findings.filter((f) => f.severity === "warning");
 
-      return { assignment, warnings: findings.filter((f) => f.severity === "warning") };
+        if (spec.completionThreshold === existing.completionThreshold) {
+          return { assignment, warnings, remarked: 0 };
+        }
+
+        /*
+          A new threshold re-marks the work already graded against the old one.
+
+          Approval stores Complete or Incomplete on the submission once, and the gradebook,
+          Performance, the student dashboard, and the Salesforce feed all read that stored value
+          rather than the score. Left alone, two fellows with the same score would read
+          differently depending on which side of the change they were graded, and the threshold on
+          the form would not be the one the gradebook follows.
+
+          The verdict is `meetsCompletionThreshold`, the rule approval uses, applied to the score
+          each row already holds. Only rows whose verdict changes are written, so the rest keep
+          their `updatedAt` and the Salesforce feed, which pages by it, re-sends only what actually
+          changed. Each changed row goes back to `PENDING` for Salesforce, as every other write of
+          the verdict does. A team's members each hold their own copy of the score, so each row is
+          re-marked on its own and teammates still agree.
+
+          Each flip is also one COMPLETION_REMARKED event about that fellow, in this transaction,
+          so the audit log's latest word on a fellow's grade is the verdict the gradebook shows.
+        */
+        const graded = await tx.submission.findMany({
+          where: {
+            assignmentId: input.assignmentId,
+            finalScore: { not: null },
+            finalScorePossible: { gt: 0 },
+            // A row with no verdict to change is not a re-mark, and an event would claim one.
+            isComplete: { not: null },
+          },
+          select: {
+            id: true,
+            studentId: true,
+            finalScore: true,
+            finalScorePossible: true,
+            isComplete: true,
+            student: { select: { displayName: true, email: true, githubUsername: true } },
+          },
+        });
+
+        const flipped = graded
+          .map((submission) => ({
+            submission,
+            isComplete: meetsCompletionThreshold(
+              submission.finalScore!,
+              submission.finalScorePossible!,
+              spec.completionThreshold,
+            ),
+          }))
+          .filter(({ submission, isComplete }) => isComplete !== submission.isComplete);
+        const nowComplete = flipped
+          .filter(({ isComplete }) => isComplete)
+          .map(({ submission }) => submission.id);
+        const nowIncomplete = flipped
+          .filter(({ isComplete }) => !isComplete)
+          .map(({ submission }) => submission.id);
+
+        if (nowComplete.length > 0) {
+          await tx.submission.updateMany({
+            where: { id: { in: nowComplete } },
+            data: { isComplete: true, salesforceSyncStatus: "PENDING" },
+          });
+        }
+        if (nowIncomplete.length > 0) {
+          await tx.submission.updateMany({
+            where: { id: { in: nowIncomplete } },
+            data: { isComplete: false, salesforceSyncStatus: "PENDING" },
+          });
+        }
+
+        if (flipped.length > 0) {
+          const actor = auditActor(ctx);
+          await tx.auditEvent.createMany({
+            data: flipped.map(({ submission, isComplete }) =>
+              auditEventData({
+                action: "COMPLETION_REMARKED",
+                actor,
+                subject: {
+                  id: submission.studentId,
+                  label: displayNameOf(submission.student, "a student"),
+                },
+                course: { id: existing.courseId, label: existing.course.name },
+                detail: {
+                  submissionId: submission.id,
+                  assignment: assignment.title,
+                  scoreEarned: submission.finalScore,
+                  scorePossible: submission.finalScorePossible,
+                  isComplete,
+                  completionThreshold: spec.completionThreshold,
+                  previousCompletionThreshold: existing.completionThreshold,
+                },
+              }),
+            ),
+          });
+        }
+
+        return { assignment, warnings, remarked: flipped.length };
+      });
     }),
 
   /** Makes an assignment visible to students. Validated again, because publishing is the

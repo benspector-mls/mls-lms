@@ -20,6 +20,7 @@ loadEnv({ quiet: true });
 async function main() {
   const { db } = await import("../lib/prisma");
   const { approveDraft, buildFeedbackMarkdown } = await import("../lib/grade/approve");
+  const { meetsCompletionThreshold } = await import("../lib/status");
 
   const target = process.argv[2];
   const post = process.argv.includes("--post");
@@ -84,7 +85,7 @@ async function main() {
     `Score       ${earned}/${possible}` +
       (possible > 0
         ? ` = ${Math.round((earned / possible) * 100)}%  →  ` +
-          `${earned / possible >= threshold ? "complete" : "below threshold"} ` +
+          `${meetsCompletionThreshold(earned, possible, threshold) ? "complete" : "below threshold"} ` +
           `(threshold ${Math.round(threshold * 100)}%)`
         : ""),
   );

@@ -4,6 +4,7 @@ import { inDeclaredOrder } from "../assignments/spec";
 import { auditEventData, type AuditActor } from "../audit/record";
 import { displayNameOf } from "../people";
 import { db, type Tx } from "../prisma";
+import { meetsCompletionThreshold } from "../status";
 import { notifyFeedbackReleased } from "../notifications/slack";
 import { opensOwnTransaction } from "../transactions";
 import { sharedAfterGrade } from "../submissions/team";
@@ -309,7 +310,7 @@ export async function approveDraft(params: {
   }
 
   const threshold = submission.assignment.completionThreshold;
-  const isComplete = finalScore / finalScorePossible >= threshold;
+  const isComplete = meetsCompletionThreshold(finalScore, finalScorePossible, threshold);
   const feedbackMarkdown = buildFeedbackMarkdown(sections);
   const approvedAt = new Date();
 
