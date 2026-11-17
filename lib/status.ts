@@ -519,7 +519,6 @@ export function handedIn(status: SubmissionStatus | null | undefined): boolean {
  *
  * `onTime` has no entry because it has nothing to say: work that arrived when it was supposed to
  * gets no badge at all, and a reader seeing nothing is reading the common case correctly.
- * `latenessMeta` returns null for it, which is the one question a caller has to ask.
  */
 export const LATENESS_META: Record<"extended" | "late", StatusMeta> = {
   extended: {
@@ -529,17 +528,6 @@ export const LATENESS_META: Record<"extended" | "late", StatusMeta> = {
   },
   late: { label: "Late", tone: "danger", description: "Handed in after the deadline." },
 };
-
-/**
- * The badge a submission's timeliness earns, or null where it earns none.
- *
- * The one thing every screen drawing lateness should call, so that a fellow's work is not
- * "Extended" on their own page and "Late" in the gradebook. What the verdict *is* comes from
- * `lateness` in lib/submissions/hand-in.ts; this only names it.
- */
-export function latenessMeta(verdict: "onTime" | "extended" | "late"): StatusMeta | null {
-  return verdict === "onTime" ? null : LATENESS_META[verdict];
-}
 
 /**
  * Whether there is a report the student has not said they read.

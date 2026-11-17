@@ -40,7 +40,8 @@ import {
   CONFIDENCE_META,
   DRAFT_STATUS_META,
   flagMeta,
-  latenessMeta,
+  formatDueDateShort,
+  LATENESS_META,
   STUDENT_STATUS_META,
   SUBMISSION_STATUS_META,
   TONE_CLASSES,
@@ -213,10 +214,19 @@ export function SubmissionStatusBadge({
 }
 
 /**
- * Whether work arrived on time, by a deadline agreed with an instructor, or late.
+ * Whether work arrived late, and the deadline agreed with an instructor where there is one.
  *
- * **Draws nothing for work that was on time**, which is why this returns null rather than a badge
- * saying so: the common case earns no pill, and a row with nothing on it reads correctly.
+ * **Draws nothing for work that was on time with no extension**, which is why this returns null
+ * rather than a badge saying so: the common case earns no pill, and a row with nothing on it reads
+ * correctly.
+ *
+ * **The extension is drawn whenever one was agreed, not only when the work needed it.** An
+ * instructor scanning the queue for who was given more time has to find every one of them: the
+ * fellow who has not handed in yet, the one who handed in before the class deadline anyway, and
+ * the one who missed the agreed date too. Drawn only for work that arrived between the two
+ * deadlines, as the `extended` verdict is, the badge would leave all three out. The date is on it
+ * because the date is what an instructor chasing a fellow needs next. This badge is drawn only on
+ * instructor screens; a fellow's own page names the verdict through `LATENESS_META` instead.
  *
  * Takes the columns rather than a verdict, so no caller has to remember which they are or how they
  * combine. That was the failure this replaces — lateness was written out at six call sites as
@@ -237,10 +247,30 @@ export function LatenessBadge({
   submission: Omit<LatenessFacts, "dueAt"> | null | undefined;
   className?: string;
 }) {
-  const meta = submission ? latenessMeta(lateness({ ...submission, dueAt })) : null;
-  if (!meta) return null;
+  if (!submission) return null;
 
-  return <BadgeShell meta={meta} className={className} />;
+  const verdict = lateness({ ...submission, dueAt });
+  const extendedDueAt =
+    submission.extendedDueAt == null ? null : new Date(submission.extendedDueAt);
+
+  return (
+    <>
+      {verdict === "late" && <BadgeShell meta={LATENESS_META.late} className={className} />}
+      {extendedDueAt && (
+        <BadgeShell
+          meta={{
+            ...LATENESS_META.extended,
+            label: `Extended to ${formatDueDateShort(extendedDueAt)}`,
+            description:
+              verdict === "extended"
+                ? LATENESS_META.extended.description
+                : "A later deadline agreed with an instructor.",
+          }}
+          className={className}
+        />
+      )}
+    </>
+  );
 }
 
 /**

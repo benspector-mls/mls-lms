@@ -150,8 +150,9 @@ export function SubmissionRow({
         <div className="flex flex-wrap items-center gap-1.5">
           <SubmissionStatusBadge status={row.status} />
           {/*
-            Late, or handed in by a date agreed with an instructor — and nothing at all for work
-            that arrived on time, which is most rows. Beside the status here for the same reason
+            Late, and the date agreed with an instructor wherever one was, including on work not
+            yet handed in — and nothing at all for work that arrived on time with no extension,
+            which is most rows. Beside the status here for the same reason
             it sits beside the status in the grading mode bar: the two together are the state of
             the work, and a list that named one without the other would disagree with the bar
             that replaces it.
