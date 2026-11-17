@@ -39,6 +39,7 @@
  */
 import type { Prisma } from "@/lib/generated/prisma/client";
 import { db } from "@/lib/prisma";
+import { createRubric, createRuleSet } from "@/lib/rubrics/versions";
 import { createCallerFactory } from "@/trpc/init";
 import { appRouter } from "@/trpc/routers/_app";
 
@@ -240,8 +241,6 @@ describe("validating a draft", () => {
   let fixture: Authoring;
   /** A module of a second course of the same program, which no draft in this course may name. */
   let elsewhereModule: { id: string };
-  /** The rubric a short response is graded against, which a coding section may not be given. */
-  let shortResponseRubric: { id: string };
 
   const asInstructor = () => createCaller(tx(), fixture.world.instructorId);
   const validate = (draft: unknown, assignmentId?: string) =>
@@ -259,18 +258,6 @@ describe("validating a draft", () => {
       courseId: otherCourse.id,
       name: `${MARKER} elsewhere`,
     });
-
-    /*
-      Looked up before it is created, because `Rubric.name` is unique across the whole database:
-      the disposable local database holds none, and the development Supabase project holds all
-      four.
-    */
-    shortResponseRubric =
-      (await tx().rubric.findUnique({ where: { name: "SHORT_RESPONSE" }, select: { id: true } })) ??
-      (await tx().rubric.create({
-        data: { name: "SHORT_RESPONSE", scaleType: "SHORT_RESPONSE", maxScore: 4 },
-        select: { id: true },
-      }));
   });
 
   it("the reference assignment validates as a draft", async () => {
@@ -354,29 +341,52 @@ describe("validating a draft", () => {
     expect(pastedUrls.canSave).toBe(true);
   });
 
-  // The rubric pairing, which nothing else would catch: a plausible report against criteria that do
-  // not apply to the work.
-  it("a coding section graded against the short response rubric is refused", async () => {
-    const mismatched = await validate(
+  /*
+    A repository section names whichever rubric the instructor chose, whatever its type. The rubric
+    here is written for short responses and the section is an algorithm exercise, and the only
+    rubric findings are the ones every section gets: it exists, it has text, it has rules.
+  */
+  it("a coding section may be graded against any rubric", async () => {
+    const { ruleSetId } = await createRuleSet(tx(), {
+      name: `${MARKER} rules`,
+      markdown: "Be kind.",
+      createdById: null,
+    });
+    const { rubricId } = await createRubric(tx(), {
+      name: `${MARKER} short response rubric`,
+      rubricMarkdown: "Technical, 3 points.",
+      guidanceMarkdown: "Sum the rows.",
+      sampleReportMarkdown: null,
+      ruleSetId,
+      createdById: null,
+    });
+
+    const anyRubric = await validate(
       {
         ...fixture.draft,
-        sections: [
-          {
-            grading: "ai",
-            type: "coding_algorithm",
-            pointValue: 30,
-            rubricId: shortResponseRubric.id,
-          },
-        ],
+        sections: [{ grading: "ai", type: "coding_algorithm", pointValue: 30, rubricId }],
+      },
+      fixture.assignmentId,
+    );
+
+    expect(anyRubric.findings.filter((finding) => finding.path === "sections.0.rubricId")).toEqual(
+      [],
+    );
+  });
+
+  // A new section starts with no rubric, and the field says what to do rather than "Invalid UUID".
+  it("a section with no rubric chosen asks for one", async () => {
+    const noRubric = await validate(
+      {
+        ...fixture.draft,
+        sections: [{ grading: "ai", type: "coding_algorithm", pointValue: 30, rubricId: "" }],
       },
       fixture.assignmentId,
     );
 
     expect(
-      mismatched.findings.some(
-        (finding) => finding.path.endsWith("rubricId") && finding.severity === "error",
-      ),
-    ).toBe(true);
+      noRubric.findings.filter((finding) => finding.path === "sections.0.rubricId"),
+    ).toMatchObject([{ severity: "error", message: "Choose a rubric." }]);
   });
 });
 

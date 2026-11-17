@@ -1,17 +1,14 @@
 /**
  * The section types, and everything the application knows about each one.
  *
- * A gradable section has a type, and three different parts of the application have to know
- * something about that type: what to call it on screen, which `Rubric` row grades it, and what
- * the report's title is. **Those were maps in separate files**, plus the list of names in two
- * more and the union type written out by hand — places that had to agree, related only by
- * convention, with nothing to say so when one of them fell behind.
+ * A gradable section has a type, and different parts of the application have to know something
+ * about that type: what to call it on screen and what the report's title is. **Those were maps in
+ * separate files**, plus the list of names in two more and the union type written out by hand —
+ * places that had to agree, related only by convention, with nothing to say so when one of them
+ * fell behind.
  *
- * The rubric's text, its guidance and its sample report are not here: they are versions of the
- * `Rubric` row, read by `loadGradingAssets` through the `rubricId` a section stores. What this
- * file still fixes is the *pairing* — a `coding_algorithm` section is graded against the row
- * named `CODING_ALGORITHM_FLUENCY` and no other — which is what lets the authoring procedures
- * check the pairing an instructor submits rather than trust it.
+ * The rubric a section is graded against is the instructor's choice, stored on the section as
+ * `rubricId`; `loadGradingAssets` reads the rubric's current version through that id.
  *
  * **Browser-safe and importing nothing**, because the interface reads it as much as grading
  * does — the section editor draws the picker from it, and `lib/status.ts` names a section from
@@ -42,17 +39,11 @@ export const SECTION_TYPES = [
 export type SectionType = (typeof SECTION_TYPES)[number];
 
 export type SectionTypeEntry = {
-  /** What a person is shown. Sentence case, because it appears mid-sentence as often as not. */
-  label: string;
   /**
-   * The `Rubric` row this is graded against, by name.
-   *
-   * The pairing is fixed rather than chosen: a `coding_algorithm` section graded against the
-   * short response rubric would produce a confident report against criteria that do not apply to
-   * it. Stating it here is what lets the authoring procedures *check* the pairing an instructor
-   * submits rather than trust it.
+   * What a person is shown: the files the section grades, which is also the heading above the
+   * section in a fellow's feedback and on the review screen.
    */
-  rubricName: string;
+  label: string;
   /**
    * The first line of the report, before the score the application appends to it.
    *
@@ -71,23 +62,19 @@ export type SectionTypeEntry = {
 export const SECTION_TYPE_REGISTRY = {
   short_response: {
     label: "Short Response",
-    rubricName: "SHORT_RESPONSE",
     reportTitle: "Short Response Score Report",
   },
   coding_algorithm: {
-    label: "Algorithm Fluency",
-    rubricName: "CODING_ALGORITHM_FLUENCY",
-    reportTitle: "Coding Fluency Score Report",
+    label: "Coding Exercises",
+    reportTitle: "Coding Exercises Score Report",
   },
   coding_sql: {
-    label: "SQL Fluency",
-    rubricName: "CODING_SQL_FLUENCY",
-    reportTitle: "SQL Coding Report",
+    label: "SQL Queries",
+    reportTitle: "SQL Queries Score Report",
   },
   coding_frontend: {
-    label: "Frontend",
-    rubricName: "CODING_FRONTEND",
-    reportTitle: "Frontend Coding Report",
+    label: "Web Pages and App Code",
+    reportTitle: "Web Pages and App Code Score Report",
   },
 } satisfies Record<SectionType, SectionTypeEntry>;
 

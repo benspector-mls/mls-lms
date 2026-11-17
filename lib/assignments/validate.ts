@@ -1,6 +1,5 @@
 import "server-only";
 
-import { SECTION_TYPE_REGISTRY } from "../section-types";
 import { parseDriveDocUrl } from "../drive/embed";
 import { checkAnswerKeyDir } from "../grade/assets";
 import {
@@ -221,7 +220,7 @@ export async function validateAssignmentDraft(
     }
   }
 
-  // ---- Rubrics: the row has to exist, and has to be the one for that section type ----
+  // ---- Rubrics: the row has to exist, have text, and have a rule set to follow ----
   // Built with a loop rather than filter+map so `isAiGraded` narrows the type on its own,
   // without a cast asserting what the guard already proves.
   const aiSections: { section: AiSectionSpec; index: number }[] = [];
@@ -248,21 +247,6 @@ export async function validateAssignmentDraft(
           `sections.${index}.rubricId`,
           `${rubric.name} has no text yet, so nothing can be graded against it.`,
         );
-      }
-      /*
-        A repository section's rubric follows from its type, and the pairing is checked rather
-        than trusted: a section graded against the wrong rubric produces a confident report
-        against criteria that do not apply to the work. A document section names any rubric,
-        because its type says nothing about the work — that is what the rubric is for.
-      */
-      if (section.type !== "document") {
-        const expected = SECTION_TYPE_REGISTRY[section.type].rubricName;
-        if (rubric.name !== expected) {
-          error(
-            `sections.${index}.rubricId`,
-            `A ${section.type} section is graded against ${expected}, not ${rubric.name}.`,
-          );
-        }
       }
       /*
         The rule set the report would follow: the rubric's own, else the program's. Refused here

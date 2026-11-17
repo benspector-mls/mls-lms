@@ -13,7 +13,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { SECTION_TYPE_REGISTRY, SECTION_TYPES, type SectionType } from "@/lib/section-types";
+import { SECTION_TYPES, type SectionType } from "@/lib/section-types";
 import { sectionLabel } from "@/lib/status";
 
 /**
@@ -28,8 +28,8 @@ import { sectionLabel } from "@/lib/status";
  * there is nothing here to tick, and no way to author a section whose ticked list has gone
  * stale against the folder it came from.
  *
- * Nothing here is typed by hand that can be chosen instead: the section type is a select, and
- * the rubric follows from it rather than being a third thing to get right.
+ * Nothing here is typed by hand that can be chosen instead: the section type and the rubric are
+ * both selects.
  */
 
 export type SectionDraft =
@@ -43,9 +43,9 @@ export type SectionDraft =
       testNamePattern?: string;
     }
   /*
-    The one AI section an assignment with no repository carries. Its rubric is chosen rather
-    than derived, because "document" says nothing about the work — the rubric is the whole
-    description of what a resume or a reflection is scored against.
+    The one AI section an assignment with no repository carries. It has no type to choose,
+    because "document" says nothing about the work — the rubric is the whole description of what
+    a resume or a reflection is scored against.
   */
   | { grading: "ai"; type: "document"; pointValue: number; rubricId: string }
   | { grading: "manual"; label: string; pointValue: number };
@@ -90,37 +90,7 @@ export function SectionEditor({
         </Button>
       </div>
 
-      {section.grading === "ai" && section.type === "document" ? (
-        <div className="grid gap-4 sm:grid-cols-[1fr_8rem]">
-          <Field
-            label="Rubric"
-            findings={fieldFindings("rubricId")}
-            hint="What the model scores the whole hand-in against. Write one on the Rubrics screen."
-          >
-            <Select
-              value={section.rubricId}
-              onValueChange={(value) => value && onChange({ ...section, rubricId: value })}
-              items={Object.fromEntries(rubrics.map((rubric) => [rubric.id, rubric.name]))}
-            >
-              <SelectTrigger>
-                <SelectValue placeholder="Choose a rubric" />
-              </SelectTrigger>
-              <SelectContent>
-                {rubrics.map((rubric) => (
-                  <SelectItem key={rubric.id} value={rubric.id}>
-                    {rubric.name}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </Field>
-          <PointValueField
-            value={section.pointValue}
-            findings={fieldFindings("pointValue")}
-            onChange={(pointValue) => onChange({ ...section, pointValue })}
-          />
-        </div>
-      ) : section.grading === "manual" ? (
+      {section.grading === "manual" ? (
         <div className="grid gap-4 sm:grid-cols-[1fr_8rem]">
           {/*
             A new section arrives named "Total Score", which is right for an assignment that is
@@ -142,38 +112,65 @@ export function SectionEditor({
         </div>
       ) : (
         <>
+          {section.type !== "document" && (
+            <div className="grid gap-4 sm:grid-cols-[1fr_8rem]">
+              <Field label="Files graded" findings={fieldFindings("type")}>
+                <Select
+                  value={section.type}
+                  onValueChange={(value) => {
+                    const type = value as SectionType;
+                    if (type === section.type) return;
+                    // A rubric chosen for one type is rarely right for another, and the server
+                    // does not check the two against each other, so the instructor chooses again.
+                    onChange({ ...section, type, rubricId: "" });
+                  }}
+                  // Or the trigger shows `coding_algorithm` where the list said "Coding
+                  // Exercises".
+                  items={Object.fromEntries(
+                    SECTION_TYPES.map((type) => [type, sectionLabel(type)]),
+                  )}
+                >
+                  <SelectTrigger>
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {SECTION_TYPES.map((type) => (
+                      <SelectItem key={type} value={type}>
+                        {sectionLabel(type)}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </Field>
+            </div>
+          )}
+
           <div className="grid gap-4 sm:grid-cols-[1fr_8rem]">
-            <Field label="Section type" findings={fieldFindings("type")}>
+            <Field
+              label="Rubric"
+              findings={fieldFindings("rubricId")}
+              hint={
+                section.type === "document"
+                  ? "What the model scores the whole hand-in against. Write one on the Rubrics screen."
+                  : "What the model scores this section's work against. Write one on the Rubrics screen."
+              }
+            >
               <Select
-                value={section.type}
-                onValueChange={(value) => {
-                  const type = value as SectionType;
-                  // The rubric follows the type rather than being chosen separately. The
-                  // procedures refuse a mismatched pairing, so offering the choice would only
-                  // create a way to be refused.
-                  const rubric = rubrics.find(
-                    (candidate) => candidate.name === SECTION_TYPE_REGISTRY[type].rubricName,
-                  );
-                  onChange({ ...section, type, rubricId: rubric?.id ?? section.rubricId });
-                }}
-                // Or the trigger shows `coding_algorithm` where the list said "Coding —
-                // algorithm fluency".
-                items={Object.fromEntries(SECTION_TYPES.map((type) => [type, sectionLabel(type)]))}
+                value={section.rubricId}
+                onValueChange={(value) => value && onChange({ ...section, rubricId: value })}
+                items={Object.fromEntries(rubrics.map((rubric) => [rubric.id, rubric.name]))}
               >
                 <SelectTrigger>
-                  <SelectValue />
+                  <SelectValue placeholder="Choose a rubric" />
                 </SelectTrigger>
                 <SelectContent>
-                  {SECTION_TYPES.map((type) => (
-                    <SelectItem key={type} value={type}>
-                      {sectionLabel(type)}
+                  {rubrics.map((rubric) => (
+                    <SelectItem key={rubric.id} value={rubric.id}>
+                      {rubric.name}
                     </SelectItem>
                   ))}
                 </SelectContent>
               </Select>
-              <p className="text-xs text-muted-foreground">
-                Graded against {SECTION_TYPE_REGISTRY[section.type].rubricName}
-              </p>
             </Field>
             <PointValueField
               value={section.pointValue}
@@ -189,13 +186,15 @@ export function SectionEditor({
             settings a checkbox could have had were "correct" and "silently graded without the
             evidence it should have had".
           */}
-          <p className="text-xs text-muted-foreground">
-            {section.type === "short_response"
-              ? "Graded against the rubric and the reference answer."
-              : hasRunner
-                ? "The score is checked against the instructor’s test suite. A report claiming a test passed that failed is held for review."
-                : "This assignment runs no tests, so the score rests on the model reading the code against the rubric."}
-          </p>
+          {section.type !== "document" && (
+            <p className="text-xs text-muted-foreground">
+              {section.type === "short_response"
+                ? "Graded against the rubric and the reference answer."
+                : hasRunner
+                  ? "The score is checked against the instructor’s test suite. A report claiming a test passed that failed is held for review."
+                  : "This assignment runs no tests, so the score rests on the model reading the code against the rubric."}
+            </p>
+          )}
         </>
       )}
     </div>

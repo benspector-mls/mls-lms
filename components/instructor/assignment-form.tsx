@@ -24,6 +24,15 @@ import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
+import {
+  Dialog,
+  DialogClose,
+  DialogContent,
+  DialogDescription,
+  DialogFooter,
+  DialogHeader,
+  DialogTitle,
+} from "@/components/ui/dialog";
 import { Input } from "@/components/ui/input";
 import {
   Select,
@@ -56,7 +65,6 @@ import {
   type SchoolClock,
   type SchoolDay,
 } from "@/lib/school-time";
-import { SECTION_TYPE_REGISTRY } from "@/lib/section-types";
 import type { AssignmentKind, HandInMethod } from "@/lib/generated/prisma/enums";
 import { NO_RUNNER, RUNNER_PRESETS } from "@/lib/sandbox/presets";
 import {
@@ -85,8 +93,8 @@ import type { RouterOutputs } from "@/trpc/types";
  * title, point values, the due date, and whether the test suite covers each section.
  *
  * **Nothing an instructor can select is typed by hand.** The module, the section type, and the
- * runner preset are all selects, the rubric follows from the section type, and answer key paths
- * come from a directory listing. A typo in any of them is a grading failure discovered weeks
+ * runner preset and the rubric are all selects, and answer key paths come from a directory
+ * listing. A typo in any of them is a grading failure discovered weeks
  * later, and the cheapest fix is an interface where the wrong value cannot be expressed.
  *
  * Validation runs on the server as fields change — the same function the write refuses on, so
@@ -368,7 +376,8 @@ export function AssignmentForm({
   const router = useRouter();
 
   /*
-    How many assignments this form has saved since it was mounted, and part of `Editor`'s key.
+    How many times this form has been saved or discarded since it was mounted, and part of
+    `Editor`'s key.
 
     Next.js keeps the last few pages a person visited mounted inside a hidden boundary, so that
     going back to one restores it as it was left. Saving an assignment leaves for the Curriculum
@@ -377,8 +386,8 @@ export function AssignmentForm({
     second assignment would open as a copy of the first, and the unit it was opened into would be
     ignored, because an initial value is read once on mount.
 
-    Counting saves into the key remounts `Editor` after each one, so every initial value is read
-    again. The unit is in the key as well, so a form opened from a different unit's button starts
+    Counting saves and discards into the key remounts `Editor` after each one, so every initial
+    value is read again, and a discarded edit is not waiting in the form when it is next opened. The unit is in the key as well, so a form opened from a different unit's button starts
     in that unit rather than in whichever one it was last left on.
   */
   const [saved, setSaved] = React.useState(0);
@@ -421,6 +430,10 @@ export function AssignmentForm({
         router.push(curriculumHref(courseId));
         void assignmentId;
       }}
+      onDiscarded={() => {
+        setSaved((count) => count + 1);
+        router.push(curriculumHref(courseId));
+      }}
     />
   );
 }
@@ -431,12 +444,15 @@ function Editor({
   existing,
   initialCourseUnitId,
   onSaved,
+  onDiscarded,
 }: {
   courseId: string;
   context: Context;
   existing?: Draft;
   initialCourseUnitId?: string;
   onSaved: (assignmentId: string) => void;
+  /** Leaves for the Curriculum screen without saving. */
+  onDiscarded: () => void;
 }) {
   const trpc = useTRPC();
 
@@ -737,6 +753,15 @@ function Editor({
   // is not the same as being valid. Saving is refused until the settled draft has been checked.
   const checked = settled === state && validation.isSuccess;
   const canSave = state !== null && checked && errors.length === 0 && !busy;
+
+  /*
+    Discarding leaves for the Curriculum screen without saving. It asks first only when the form
+    differs from how it opened, because a form with nothing typed into it has nothing to lose.
+    Comparing `state` is enough: the kind, the unit and the due date are all written into it.
+  */
+  const [openingState] = React.useState(state);
+  const [confirmingDiscard, setConfirmingDiscard] = React.useState(false);
+  const hasChanges = JSON.stringify(state) !== JSON.stringify(openingState);
 
   const pointTotal = (state?.sections ?? []).reduce(
     (total, section) => total + (Number.isFinite(section.pointValue) ? section.pointValue : 0),
@@ -1627,7 +1652,7 @@ function Editor({
                       onClick={() =>
                         setState({
                           ...state,
-                          sections: [...state.sections, aiSection({ rubrics: context.rubrics })],
+                          sections: [...state.sections, aiSection()],
                         })
                       }
                     >
@@ -1661,9 +1686,7 @@ function Editor({
                     <Button
                       variant="outline"
                       size="sm"
-                      onClick={() =>
-                        setState({ ...state, sections: [aiSection({ rubrics: context.rubrics })] })
-                      }
+                      onClick={() => setState({ ...state, sections: [aiSection()] })}
                     >
                       <Sparkles data-icon="inline-start" />
                       Have the model grade this instead
@@ -1732,6 +1755,31 @@ function Editor({
             that is changed. Creating one decides both at once, so both are offered.
           */}
           <div className="flex flex-wrap items-center justify-end gap-2">
+            <Dialog open={confirmingDiscard} onOpenChange={setConfirmingDiscard}>
+              <Button
+                variant="ghost"
+                disabled={busy}
+                onClick={() => (hasChanges ? setConfirmingDiscard(true) : onDiscarded())}
+              >
+                Discard changes
+              </Button>
+              <DialogContent>
+                <DialogHeader>
+                  <DialogTitle>Discard your changes?</DialogTitle>
+                  <DialogDescription>
+                    {existing
+                      ? `${existing.title} keeps what it had when it was last saved. Everything changed on this page since then is lost.`
+                      : "Nothing on this page has been saved yet, so everything typed here is lost."}
+                  </DialogDescription>
+                </DialogHeader>
+                <DialogFooter>
+                  <DialogClose render={<Button variant="outline">Keep editing</Button>} />
+                  <Button variant="destructive" onClick={onDiscarded}>
+                    Discard
+                  </Button>
+                </DialogFooter>
+              </DialogContent>
+            </Dialog>
             {existing ? (
               <Button
                 disabled={!canSave}
@@ -2066,14 +2114,13 @@ function FormSkeleton() {
  */
 const DEFAULT_POINT_VALUE = 1;
 
-/** A new AI-graded section, with the rubric already matched to its type. */
-function aiSection({ rubrics }: { rubrics: { id: string; name: string }[] }): SectionDraft {
-  const type = "coding_algorithm" as const;
+/** A new AI-graded section, with no rubric chosen until the instructor picks one. */
+function aiSection(): SectionDraft {
   return {
     grading: "ai",
-    type,
+    type: "coding_algorithm",
     pointValue: DEFAULT_POINT_VALUE,
-    rubricId: rubrics.find((r) => r.name === SECTION_TYPE_REGISTRY[type].rubricName)?.id ?? "",
+    rubricId: "",
     reportTemplate: "coding-fluency",
   };
 }

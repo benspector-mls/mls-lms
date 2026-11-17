@@ -144,9 +144,7 @@ type SeedAssignment = {
    * its own report, so one number per assignment cannot serve both.
    *
    * A function of `rubricId` rather than a literal, because a section names the `Rubric` row it
-   * is graded against and those rows are created by this same script a few lines earlier. The
-   * pairing itself is not decided here — `SECTION_TYPE_REGISTRY` in `lib/section-types.ts` owns
-   * which rubric a section type takes, and the authoring form validates against it.
+   * is graded against and those rows are created by this same script a few lines earlier.
    */
   sections: (rubricId: (name: string) => string | undefined) => SeedSection[];
 };
@@ -200,7 +198,7 @@ if (!SPEC) {
       `  Known: ${Object.keys(SEED_ASSIGNMENTS).join(", ")}\n` +
       `  This script bootstraps one assignment so a fresh database is usable; it is not\n` +
       `  where the curriculum lives. Author the one you want in the application, which\n` +
-      `  validates its answer keys and rubric pairing against the real repositories —\n` +
+      `  checks its answer keys against the real repositories and asks for its rubric —\n` +
       `  seeding it from a guess here would load the wrong answer keys and apply the\n` +
       `  wrong rubric.`,
   );

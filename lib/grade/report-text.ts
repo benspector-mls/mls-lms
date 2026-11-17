@@ -118,7 +118,7 @@ function isFullMarks(row: ReportRow): boolean {
  * the same place in both:
  *
  * ```
- * # Coding Fluency Score Report: 23/39 = 59%
+ * # Coding Exercises Score Report: 23/39 = 59%
  *
  * <summary>
  *
@@ -186,12 +186,12 @@ export function composeReport(params: {
 /**
  * The score a report's own text claims, or null if it states none.
  *
- * Matches the title the report carries its score in: "Coding Fluency Score Report: 23/39 = 59%"
- * and "Frontend Coding Report: 5.5/6 = 92%", with or without the percentage. A report the
- * application assembled always agrees with its rows, so this matters for text a person wrote
- * whole — a hand grade, or a correction — where an instructor can change the prose and the
- * recorded number independently, and editing "28/30" into the text while the column still says
- * 30 would hand the student one figure and the gradebook another.
+ * Matches the title the report carries its score in: "Coding Exercises Score Report: 23/39 =
+ * 59%" and "Web Pages and App Code Score Report: 5.5/6 = 92%", with or without the percentage.
+ * A report the application assembled always agrees with its rows, so this matters for text a
+ * person wrote whole — a hand grade, or a correction — where an instructor can change the prose
+ * and the recorded number independently, and editing "28/30" into the text while the column
+ * still says 30 would hand the student one figure and the gradebook another.
  */
 export function statedScoreInText(markdown: string): { earned: number; possible: number } | null {
   const match = markdown.match(/^#{1,3}\s.*?(?:Score|Report):\s*([\d.]+)\s*\/\s*([\d.]+)/im);

@@ -381,9 +381,9 @@ describe("formatDuration", () => {
 describe("sectionLabel", () => {
   it.each([
     ["short_response", "Short Response"],
-    ["coding_algorithm", "Algorithm Fluency"],
-    ["coding_sql", "SQL Fluency"],
-    ["coding_frontend", "Frontend"],
+    ["coding_algorithm", "Coding Exercises"],
+    ["coding_sql", "SQL Queries"],
+    ["coding_frontend", "Web Pages and App Code"],
   ])("names %s", (type, expected) => {
     expect(sectionLabel(type)).toBe(expected);
   });

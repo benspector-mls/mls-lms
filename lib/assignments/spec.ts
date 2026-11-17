@@ -28,7 +28,7 @@ import { preprocessRepoRef } from "./repo-ref";
 export { AssignmentKind, HandInMethod };
 
 /**
- * The section types, and the rubric each is graded against, both from `lib/section-types.ts`.
+ * The section types, from `lib/section-types.ts`.
  *
  * Re-exported rather than moved-and-forgotten: this module is where the section *schema* lives,
  * so a reader validating a section here should not have to know that the vocabulary it draws on
@@ -285,7 +285,7 @@ const aiSectionSchema = z
     grading: z.literal("ai"),
     type: z.enum(SECTION_TYPES),
     pointValue,
-    rubricId: z.string().uuid(),
+    rubricId: z.string().uuid("Choose a rubric."),
     reportTemplate: z.string().min(1).optional(),
     /** Absent means no deterministic evidence constrains this section. */
     evidence: z.literal("tests").optional(),
@@ -324,9 +324,8 @@ const manualSectionSchema = z
 /**
  * The one section of an assignment with no repository that the pipeline grades.
  *
- * **Any rubric, and no evidence.** A repository section's type says what the work is and fixes
- * the rubric; a document's type says nothing — a resume, a reflection and a deck are all
- * "document" — so the rubric is the whole description and is chosen rather than derived. There
+ * **Any rubric, and no evidence.** A document's type says nothing about the work — a resume, a
+ * reflection and a deck are all "document" — so the rubric is the whole description. There
  * is no test suite, no changed-file list and no pattern to match, so none of those fields exist
  * on it. The fellow's work is read whole, from the links and files they handed in.
  */
@@ -335,7 +334,7 @@ const documentSectionSchema = z
     grading: z.literal("ai"),
     type: z.literal("document"),
     pointValue,
-    rubricId: z.string().uuid(),
+    rubricId: z.string().uuid("Choose a rubric."),
   })
   .strict();
 

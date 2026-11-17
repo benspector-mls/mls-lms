@@ -77,7 +77,7 @@ export function RubricForm({ rubric }: { rubric: RubricData | null }) {
       settled({
         onSuccess: (result) =>
           toast.success(
-            result.changed ? `Saved ${name} as version ${result.version}.` : "Nothing changed.",
+            result.changed ? `Saved ${name} as version ${result.version}.` : `Saved ${name}.`,
           ),
       }),
     ),
@@ -207,7 +207,7 @@ export function RubricForm({ rubric }: { rubric: RubricData | null }) {
           <div className="flex items-center gap-3">
             <Button type="submit" disabled={pending || name.trim() === ""}>
               {pending && <Loader2 data-icon="inline-start" className="animate-spin" />}
-              {rubric ? "Save as a new version" : "Create rubric"}
+              {rubric ? "Save" : "Create rubric"}
             </Button>
             <Button type="button" variant="ghost" onClick={() => router.push(rubricsHref())}>
               Cancel
@@ -271,7 +271,7 @@ export function RuleSetForm({
       settled({
         onSuccess: (result) =>
           toast.success(
-            result.changed ? `Saved ${name} as version ${result.version}.` : "Nothing changed.",
+            result.changed ? `Saved ${name} as version ${result.version}.` : `Saved ${name}.`,
           ),
       }),
     ),
@@ -357,7 +357,7 @@ export function RuleSetForm({
               disabled={pending || name.trim() === "" || markdown.trim() === ""}
             >
               {pending && <Loader2 data-icon="inline-start" className="animate-spin" />}
-              {ruleSet ? "Save as a new version" : "Create rule set"}
+              {ruleSet ? "Save" : "Create rule set"}
             </Button>
             <Button type="button" variant="ghost" onClick={() => router.push(rubricsHref())}>
               Cancel

@@ -38,7 +38,7 @@ describe("composeReport", () => {
       }),
     ).toBe(
       [
-        "# Coding Fluency Score Report: 4/6 = 67%",
+        "# Coding Exercises Score Report: 4/6 = 67%",
         "Good start on this.",
         "---",
         "## Question 1: calculate_area: 3/3",
@@ -65,8 +65,8 @@ describe("composeReport", () => {
       summaryMarkdown: "",
       rows: [{ ...rows[0], scoreEarned: 3 }, rows[1]],
     });
-    expect(before.split("\n")[0]).toBe("# Coding Fluency Score Report: 5/6 = 83%");
-    expect(after.split("\n")[0]).toBe("# Coding Fluency Score Report: 6/6 = 100%");
+    expect(before.split("\n")[0]).toBe("# Coding Exercises Score Report: 5/6 = 83%");
+    expect(after.split("\n")[0]).toBe("# Coding Exercises Score Report: 6/6 = 100%");
     expect(after).toContain("## Question 1: calculate_area: 3/3");
   });
 
@@ -99,7 +99,7 @@ describe("composeReport", () => {
       }),
     ).toBe(
       [
-        "# Frontend Coding Report: 2.5/3 = 83%",
+        "# Web Pages and App Code Score Report: 2.5/3 = 83%",
         "Nice work.",
         "---",
         "## Section 2: Class: 1/1\n\n- [x] `getAll()` returns a copy",
@@ -121,7 +121,7 @@ describe("composeReport", () => {
     expect(rowTotals(rows).earned).toBeNull();
     expect(
       composeReport({ sectionType: "coding_algorithm", summaryMarkdown: "", rows }).split("\n")[0],
-    ).toBe("# Coding Fluency Score Report: ?/6");
+    ).toBe("# Coding Exercises Score Report: ?/6");
   });
 });
 
