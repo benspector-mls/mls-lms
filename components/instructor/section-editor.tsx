@@ -1,18 +1,12 @@
 "use client";
 
-import { Trash2 } from "lucide-react";
+import { Combobox } from "@base-ui/react/combobox";
+import { Check, ChevronDown, Search, Trash2 } from "lucide-react";
 
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
-import {
-  Select,
-  SelectContent,
-  SelectItem,
-  SelectTrigger,
-  SelectValue,
-} from "@/components/ui/select";
 import { SECTION_TYPES, type SectionType } from "@/lib/section-types";
 import { sectionLabel } from "@/lib/status";
 
@@ -115,8 +109,14 @@ export function SectionEditor({
           {section.type !== "document" && (
             <div className="grid gap-4 sm:grid-cols-[1fr_8rem]">
               <Field label="Files graded" findings={fieldFindings("type")}>
-                <Select
+                <SearchableSelect
                   value={section.type}
+                  choices={SECTION_TYPES.map((type) => ({
+                    value: type,
+                    label: sectionLabel(type),
+                  }))}
+                  searchLabel="Search files graded"
+                  emptyText="Nothing matches."
                   onValueChange={(value) => {
                     const type = value as SectionType;
                     if (type === section.type) return;
@@ -124,23 +124,7 @@ export function SectionEditor({
                     // does not check the two against each other, so the instructor chooses again.
                     onChange({ ...section, type, rubricId: "" });
                   }}
-                  // Or the trigger shows `coding_algorithm` where the list said "Coding
-                  // Exercises".
-                  items={Object.fromEntries(
-                    SECTION_TYPES.map((type) => [type, sectionLabel(type)]),
-                  )}
-                >
-                  <SelectTrigger>
-                    <SelectValue />
-                  </SelectTrigger>
-                  <SelectContent>
-                    {SECTION_TYPES.map((type) => (
-                      <SelectItem key={type} value={type}>
-                        {sectionLabel(type)}
-                      </SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
+                />
               </Field>
             </div>
           )}
@@ -155,22 +139,14 @@ export function SectionEditor({
                   : "What the model scores this section's work against. Write one on the Rubrics screen."
               }
             >
-              <Select
+              <SearchableSelect
                 value={section.rubricId}
-                onValueChange={(value) => value && onChange({ ...section, rubricId: value })}
-                items={Object.fromEntries(rubrics.map((rubric) => [rubric.id, rubric.name]))}
-              >
-                <SelectTrigger>
-                  <SelectValue placeholder="Choose a rubric" />
-                </SelectTrigger>
-                <SelectContent>
-                  {rubrics.map((rubric) => (
-                    <SelectItem key={rubric.id} value={rubric.id}>
-                      {rubric.name}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
+                choices={rubrics.map((rubric) => ({ value: rubric.id, label: rubric.name }))}
+                placeholder="Choose a rubric"
+                searchLabel="Search rubrics"
+                emptyText="No rubric matches."
+                onValueChange={(value) => onChange({ ...section, rubricId: value })}
+              />
             </Field>
             <PointValueField
               value={section.pointValue}
@@ -198,6 +174,93 @@ export function SectionEditor({
         </>
       )}
     </div>
+  );
+}
+
+type Choice = { value: string; label: string };
+
+/**
+ * A dropdown whose list opens on a search field, built the way the grading queue's assignment
+ * picker is, so that every searchable list in the application behaves alike.
+ *
+ * `value` is the chosen choice's `value`, or a string matching none of them (the empty `rubricId`
+ * of a section with no rubric yet), in which case the trigger shows the placeholder.
+ */
+function SearchableSelect({
+  value,
+  choices,
+  placeholder,
+  searchLabel,
+  emptyText,
+  onValueChange,
+}: {
+  value: string;
+  choices: Choice[];
+  placeholder?: string;
+  searchLabel: string;
+  emptyText: string;
+  onValueChange: (value: string) => void;
+}) {
+  const selected = choices.find((choice) => choice.value === value) ?? null;
+
+  return (
+    <Combobox.Root
+      items={choices}
+      value={selected}
+      onValueChange={(next: Choice | null) => {
+        if (next) onValueChange(next.value);
+      }}
+      itemToStringLabel={(choice: Choice) => choice.label}
+      isItemEqualToValue={(a: Choice, b: Choice) => a.value === b.value}
+    >
+      <Combobox.Trigger className="flex h-8 w-full min-w-0 items-center justify-between gap-1.5 rounded-lg border border-input bg-transparent py-2 pr-2 pl-2.5 text-sm whitespace-nowrap transition-colors outline-none select-none focus-visible:border-ring focus-visible:ring-3 focus-visible:ring-ring/50 dark:bg-input/30 dark:hover:bg-input/50">
+        <span className="min-w-0 flex-1 truncate text-left">
+          <Combobox.Value
+            placeholder={<span className="text-muted-foreground">{placeholder}</span>}
+          />
+        </span>
+        <Combobox.Icon
+          render={
+            <ChevronDown className="pointer-events-none size-4 shrink-0 text-muted-foreground" />
+          }
+        />
+      </Combobox.Trigger>
+      <Combobox.Portal>
+        <Combobox.Positioner align="start" sideOffset={4} className="isolate z-50">
+          <Combobox.Popup className="isolate z-50 flex max-h-(--available-height) w-auto max-w-(--available-width) min-w-(--anchor-width) origin-(--transform-origin) flex-col overflow-hidden rounded-lg bg-popover text-popover-foreground shadow-md ring-1 ring-foreground/10 duration-100 data-open:animate-in data-open:fade-in-0 data-open:zoom-in-95 data-closed:animate-out data-closed:fade-out-0 data-closed:zoom-out-95">
+            <div className="flex items-center gap-2 border-b border-border px-2.5">
+              <Search className="size-4 shrink-0 text-muted-foreground" aria-hidden />
+              <Combobox.Input
+                placeholder={searchLabel}
+                aria-label={searchLabel}
+                className="h-9 w-full min-w-0 bg-transparent text-sm outline-none placeholder:text-muted-foreground"
+              />
+            </div>
+            <Combobox.Empty className="px-2.5 py-3 text-sm text-muted-foreground empty:hidden">
+              {emptyText}
+            </Combobox.Empty>
+            <Combobox.List className="overflow-y-auto p-1">
+              {(choice: Choice) => (
+                <Combobox.Item
+                  key={choice.value}
+                  value={choice}
+                  className="relative flex w-full cursor-default items-center gap-1.5 rounded-md py-1 pr-8 pl-1.5 text-sm outline-hidden select-none data-highlighted:bg-accent data-highlighted:text-accent-foreground"
+                >
+                  <span className="whitespace-nowrap">{choice.label}</span>
+                  <Combobox.ItemIndicator
+                    render={
+                      <span className="pointer-events-none absolute right-2 flex size-4 items-center justify-center" />
+                    }
+                  >
+                    <Check className="size-4" />
+                  </Combobox.ItemIndicator>
+                </Combobox.Item>
+              )}
+            </Combobox.List>
+          </Combobox.Popup>
+        </Combobox.Positioner>
+      </Combobox.Portal>
+    </Combobox.Root>
   );
 }
 
