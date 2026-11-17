@@ -122,7 +122,7 @@ export function RubricForm({ rubric }: { rubric: RubricData | null }) {
           placeholder="Resume review"
         />
         <p className="text-xs text-muted-foreground">
-          What the assignment form shows when choosing a rubric, and what the report is titled.
+          What the assignment form shows when choosing a rubric.
         </p>
       </div>
 

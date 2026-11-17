@@ -369,6 +369,23 @@ function useBreadcrumbs(
     return crumbs;
   }
 
+  // ["instructor", "rubrics", ...rest]. The list holds both rubrics and rule sets, so it is the
+  // step above each of them. A rubric's own crumb names the kind of screen, because its heading
+  // already shows the name.
+  if (segments[0] === "instructor" && segments[1] === "rubrics") {
+    const rubricsRest = segments.slice(2);
+    const crumbs: Crumb[] = [
+      { label: "Rubrics", href: rubricsRest.length > 0 ? rubricsHref() : undefined },
+    ];
+
+    if (rubricsRest[0] === "new") crumbs.push({ label: "New rubric" });
+    else if (rubricsRest[0] === "rules") {
+      crumbs.push({ label: rubricsRest[1] === "new" ? "New rule set" : "Rule set" });
+    } else if (rubricsRest[0]) crumbs.push({ label: "Rubric" });
+
+    return crumbs;
+  }
+
   // `/instructor` itself, which shows nothing and redirects into a course's triage.
   if (segments[0] === "instructor") return [{ label: "Grading triage" }];
 
