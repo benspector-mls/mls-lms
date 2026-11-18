@@ -134,9 +134,14 @@ function BatchReport({
           {state.failures.map((failure) => (
             <div key={failure.submissionId} className="flex gap-1.5 text-muted-foreground">
               <AlertTriangle className="mt-0.5 size-3 shrink-0 text-amber-600 dark:text-amber-400" />
-              <span>
+              {/*
+                `min-w-0` lets this flex item shrink below the width of its longest word, and
+                `break-words` then breaks a long URL across lines. Without both, a link the
+                student handed in runs out of the side panel.
+              */}
+              <span className="min-w-0 break-words">
                 <span className="font-medium text-foreground">{failure.label}</span> —{" "}
-                {failure.message}
+                <MessageWithLinks message={failure.message} />
               </span>
             </div>
           ))}
@@ -172,4 +177,33 @@ function BatchReport({
       )}
     </div>
   );
+}
+
+/**
+ * A failure message with every web address in it made a link, so the instructor can open what the
+ * student handed in without copying it out of the sentence.
+ *
+ * Only `http` and `https` addresses match, because these are links a student chose. A trailing
+ * period, comma, colon, semicolon or closing parenthesis ends the address, because the message
+ * puts one directly after it ("…/pull/1 (a link to…" or "for https://…: GitHub…").
+ */
+function MessageWithLinks({ message }: { message: string }) {
+  // Splitting on a capturing group keeps each address in the result, at every odd index.
+  const pieces = message.split(/(https?:\/\/[^\s)]*[^\s).,;:])/);
+  return pieces.map((piece, index) => {
+    if (index % 2 === 0) return piece;
+    return (
+      <a
+        key={index}
+        href={piece}
+        target="_blank"
+        // `noopener` keeps the page the student chose from reaching this one through
+        // `window.opener` and navigating it somewhere else.
+        rel="noreferrer noopener"
+        className="font-medium text-foreground underline underline-offset-2"
+      >
+        {piece}
+      </a>
+    );
+  });
 }

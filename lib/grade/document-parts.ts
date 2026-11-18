@@ -87,9 +87,11 @@ export function partFromUpload(upload: {
 /**
  * The repository a GitHub link names, or null for any other link.
  *
- * A link to a branch (`/tree/development`) still names the repository, and the default branch is
- * what gets read, because that is the branch fellows are told to merge their finished work into.
- * A link to one file (`/blob/main/menu.py`) is refused: it names a file, not a submission.
+ * Everything after `owner/repo` is dropped, so a link to a branch, a file, a commit or a pull
+ * request names the repository it sits in. Fellows often copy the address of whatever page they
+ * were looking at, and refusing that link would leave the instructor to find the repository by
+ * hand. The default branch is what gets read, because that is the branch fellows are told to merge
+ * their finished work into.
  */
 export function parseGithubRepoUrl(url: string): { owner: string; repo: string } | null {
   let parsed: URL;
@@ -100,9 +102,8 @@ export function parseGithubRepoUrl(url: string): { owner: string; repo: string }
   }
   if (parsed.hostname !== "github.com" && parsed.hostname !== "www.github.com") return null;
 
-  const [owner, rawRepo, ...rest] = parsed.pathname.split("/").filter(Boolean);
+  const [owner, rawRepo] = parsed.pathname.split("/").filter(Boolean);
   if (!owner || !rawRepo) return null;
-  if (rest.length > 0 && rest[0] !== "tree") return null;
 
   const repo = rawRepo.replace(/\.git$/, "");
   if (!/^[A-Za-z0-9-]+$/.test(owner) || !/^[A-Za-z0-9._-]+$/.test(repo)) return null;
@@ -112,8 +113,8 @@ export function parseGithubRepoUrl(url: string): { owner: string; repo: string }
 /**
  * Whether a link points somewhere on GitHub at all.
  *
- * Asked only of a link `parseGithubRepoUrl` refused, so that a link to a pull request or a single
- * file is refused for what it is. Without this it would fall through to the Google check and be
+ * Asked only of a link `parseGithubRepoUrl` refused, so that a link to an account's page is refused
+ * for what it is. Without this it would fall through to the Google check and be
  * refused as "not a Google Doc", which sends the fellow looking for the wrong fix.
  */
 export function isGithubUrl(url: string): boolean {

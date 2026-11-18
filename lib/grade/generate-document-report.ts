@@ -172,8 +172,7 @@ export async function generateDocumentReportForSubmission(
       if (artifact.url && isGithubUrl(artifact.url)) {
         refused.push({
           label,
-          reason:
-            "a link to a page inside a GitHub repository; the link has to be the repository itself",
+          reason: "a GitHub link that names no repository; the link has to include the repository",
         });
         continue;
       }

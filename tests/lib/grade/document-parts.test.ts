@@ -84,13 +84,15 @@ describe("parseGithubRepoUrl", () => {
     "https://www.github.com/fellow/cli-app",
     "https://github.com/fellow/cli-app/tree/development",
     "  https://github.com/fellow/cli-app  ",
+    // A page inside the repository names the repository it sits in.
+    "https://github.com/fellow/cli-app/blob/main/menu.py",
+    "https://github.com/fellow/cli-app/pull/1",
+    "https://github.com/fellow/cli-app/commit/87f6cdbcff24018d5ea0e991579203d87e047706#diff-83021b",
   ])("reads %s as the repository", (url) => {
     expect(parseGithubRepoUrl(url)).toEqual({ owner: "fellow", repo: "cli-app" });
   });
 
   it.each([
-    // A link to one file names a file, not a submission.
-    "https://github.com/fellow/cli-app/blob/main/menu.py",
     // An account's page names no repository.
     "https://github.com/fellow",
     "https://docs.google.com/document/d/abc123/edit",
@@ -178,8 +180,8 @@ describe("selectRepoFiles", () => {
 });
 
 describe("isGithubUrl", () => {
-  it("recognizes a link to a page inside a repository", () => {
-    expect(isGithubUrl("https://github.com/fellow/cli-app/pull/3")).toBe(true);
+  it("recognizes a link to an account's page", () => {
+    expect(isGithubUrl("https://github.com/fellow")).toBe(true);
   });
 
   it("does not claim other hosts", () => {
