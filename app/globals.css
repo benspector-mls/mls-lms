@@ -200,17 +200,127 @@
 
   One class for both readers rather than one each: the three rules are the whole of the
   arrangement, and two copies of them is how one copy comes to be missing the third.
+
+  `.shiki-token` is the same colouring for the two editors, which draw a token as a decoration
+  carrying the class and the two properties rather than as a span inside a `.shiki-code` element.
 */
 @layer components {
-  .shiki-code span {
+  .shiki-code span,
+  .shiki-token {
     color: var(--shiki-light);
   }
-  .dark .shiki-code span {
+  .dark .shiki-code span,
+  .dark .shiki-token {
     color: var(--shiki-dark);
   }
   @media (prefers-color-scheme: dark) {
-    :root:not(.light) .shiki-code span {
+    :root:not(.light) .shiki-code span,
+    :root:not(.light) .shiki-token {
       color: var(--shiki-dark);
+    }
+  }
+}
+
+/*
+  The text inside `RichMarkdownEditor`.
+
+  Tailwind's reset takes the bullets off lists, the size off headings and the borders off tables,
+  and the editor draws plain elements with no classes of its own, so without these an instructor
+  would see a rubric's headings as ordinary lines and its tables as unruled text. They follow
+  what `Markdown` draws for the same elements, so the editor shows what the preview would.
+*/
+@layer components {
+  .rich-markdown {
+    & > * + * {
+      @apply mt-2;
+    }
+    & h1 {
+      @apply mt-4 text-lg font-semibold tracking-tight first:mt-0;
+    }
+    & h2 {
+      @apply mt-4 text-base font-semibold tracking-tight first:mt-0;
+    }
+    & h3 {
+      @apply mt-3 text-sm font-semibold first:mt-0;
+    }
+    & strong {
+      @apply font-semibold;
+    }
+    & a {
+      @apply font-medium text-primary underline underline-offset-2;
+    }
+    & ul {
+      @apply list-disc pl-5;
+    }
+    & ol {
+      @apply list-decimal pl-5;
+    }
+    & li > p {
+      @apply my-0.5;
+    }
+    & ul[data-type="taskList"] {
+      @apply list-none pl-1;
+    }
+    & ul[data-type="taskList"] li {
+      @apply flex items-start gap-1.5;
+    }
+    & ul[data-type="taskList"] li > label {
+      @apply mt-0.5 shrink-0;
+    }
+    & ul[data-type="taskList"] li > div {
+      @apply flex-1;
+    }
+    & ul[data-type="taskList"] input {
+      @apply accent-primary;
+    }
+    & blockquote {
+      @apply border-l-2 border-border pl-3 text-muted-foreground italic;
+    }
+    & code {
+      @apply rounded bg-muted px-1 py-0.5 font-mono text-[0.85em];
+    }
+    & pre {
+      @apply overflow-x-auto rounded-md border border-border bg-muted/60 p-3 text-[0.8rem] leading-relaxed;
+    }
+    & pre code {
+      @apply bg-transparent p-0;
+    }
+    & hr {
+      @apply my-4 border-border;
+    }
+    & .tableWrapper {
+      @apply overflow-x-auto;
+    }
+    & table {
+      @apply w-full border-collapse text-xs;
+    }
+    & th,
+    & td {
+      @apply relative min-w-24 border border-border px-3 py-2 text-left align-top;
+    }
+    & th {
+      @apply bg-muted/60 font-semibold;
+    }
+    & th p,
+    & td p {
+      @apply m-0;
+    }
+    /* Cells chosen by dragging across a table, which the table buttons then act on. */
+    & .selectedCell {
+      @apply bg-primary/10;
+    }
+    & .code-block {
+      @apply overflow-hidden rounded-md border border-border bg-muted/60;
+    }
+    & .code-block pre {
+      @apply m-0 rounded-none border-0 bg-transparent;
+    }
+    /*
+      The placeholder, which the Placeholder extension puts on the empty first paragraph as
+      `data-placeholder`. Floated so it takes no line of its own and the caret sits at its start.
+    */
+    & p.is-editor-empty:first-child::before {
+      @apply pointer-events-none float-left h-0 text-muted-foreground content-[attr(data-placeholder)];
     }
   }
 }

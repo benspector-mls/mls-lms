@@ -117,13 +117,22 @@ export function visibleBody(comment: { body: string; deletedAt: Date | null }): 
  * The first line or so of a question, for the triage row.
  *
  * That row is one line of plain text inside a link, so markdown markers would arrive as literal
- * hashes and backticks. Not a parser: it strips line-leading markers, unwraps links and emphasis,
- * replaces code blocks, and cuts at a word boundary.
+ * hashes and backticks. Not a parser: it keeps the prose and nothing else — code blocks and table
+ * rows are left out, line-leading markers stripped, links and emphasis unwrapped — and cuts at a
+ * word boundary. A comment that is only a code block or a table has no prose, and gives an empty
+ * excerpt.
+ *
+ * A backslash before punctuation is dropped as well. The formatted editor writes a literal
+ * underscore or asterisk as `\_` or `\*`, so a comment edited there would otherwise show its
+ * backslashes in the row.
  */
 export function commentExcerpt(body: string, maxLength = 120): string {
   const flattened = body
-    .replace(/```[\s\S]*?```/g, " (code) ")
+    .replace(/(`{3,}|~{3,})[\s\S]*?\1/g, " ")
+    .replace(/^[ \t]*\|.*$/gm, " ")
+    .replace(/<br\s*\/?>/gi, " ")
     .replace(/`([^`]*)`/g, "$1")
+    .replace(/\\([!-/:-@[-`{-~])/g, "$1")
     .replace(/^\s{0,3}(#{1,6}|>|[-*+]|\d+\.)\s+/gm, "")
     .replace(/\[([^\]]*)\]\([^)]*\)/g, "$1")
     .replace(/[*_~]/g, "")

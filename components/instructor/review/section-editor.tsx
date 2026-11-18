@@ -13,7 +13,7 @@
 
 import * as React from "react";
 import { Check, Eraser, Pencil, SaveCheck, SavePen, Undo2 } from "lucide-react";
-import { Markdown, sourceOffsetAt } from "@/components/markdown";
+import { Markdown } from "@/components/markdown";
 import { HelpTip } from "@/components/help-tip";
 import { ConfidenceBadge, FlagBadge } from "@/components/status-badge";
 import { Button } from "@/components/ui/button";
@@ -271,7 +271,7 @@ function QuestionRow({
   const forgetCleared = React.useCallback((editing: boolean) => {
     if (!editing) setCleared(null);
   }, []);
-  const box = useEditInPlace(row.feedbackMarkdown, forgetCleared);
+  const box = useEditInPlace(forgetCleared);
   const hasFeedback = row.feedbackMarkdown.trim() !== "";
 
   return (
@@ -363,13 +363,13 @@ function QuestionRow({
           ariaLabel={`${row.label} feedback`}
           rows={6}
           autoFocus
-          initialCursor={box.editing === "double-click" ? box.cursor : undefined}
-          className="font-mono text-xs"
+          initialPoint={box.editing === "double-click" ? box.point : undefined}
+          className="text-xs"
         />
       ) : (
         hasFeedback && (
           <div onDoubleClick={box.openAtPointer} title="Double-click to edit">
-            <Markdown content={row.feedbackMarkdown} sourceOffsets />
+            <Markdown content={row.feedbackMarkdown} />
           </div>
         )
       )}
@@ -541,15 +541,18 @@ function ScoreInput({
  * back to the rendered text as soon as they click anywhere outside `container`, with no button to
  * find. One button press cannot express both, which is why the two ways in are kept apart.
  */
-function useEditInPlace(value: string, onEditingChange?: (editing: boolean) => void) {
+function useEditInPlace(onEditingChange?: (editing: boolean) => void) {
   const [editing, setEditing] = React.useState<false | "button" | "double-click">(false);
-  /** Where the caret starts when a double-click opened the box: the character under the pointer. */
-  const [cursor, setCursor] = React.useState<number | undefined>(undefined);
+  /**
+   * Where the caret starts when a double-click opened the box: the pointer's position, measured
+   * from the top left of the rendered text it landed on.
+   */
+  const [point, setPoint] = React.useState<{ x: number; y: number } | undefined>(undefined);
   /** The label, buttons and box together. A click inside any of them is not a click outside. */
   const container = React.useRef<HTMLDivElement>(null);
 
-  function open(how: "button" | "double-click", at?: number) {
-    setCursor(at);
+  function open(how: "button" | "double-click", at?: { x: number; y: number }) {
+    setPoint(at);
     setEditing(how);
     onEditingChange?.(true);
   }
@@ -576,14 +579,16 @@ function useEditInPlace(value: string, onEditingChange?: (editing: boolean) => v
   }, [editing, onEditingChange]);
 
   /*
-    The caret goes to the character that was double-clicked, or to the end of the text when the
-    press was beside it rather than on it, which is where an addition would usually go.
+    The caret goes to the place in the formatted editor nearest the point that was double-clicked.
+    The point is measured from the rendered text's corner, because the editor opens in the same
+    place but with its toolbar above the text.
   */
   function openAtPointer(event: React.MouseEvent) {
-    open("double-click", sourceOffsetAt(event.clientX, event.clientY) ?? value.length);
+    const corner = event.currentTarget.getBoundingClientRect();
+    open("double-click", { x: event.clientX - corner.left, y: event.clientY - corner.top });
   }
 
-  return { editing, cursor, container, open, close, openAtPointer };
+  return { editing, point, container, open, close, openAtPointer };
 }
 
 /** Markdown read as it will render, under a heading, and edited in place — see `useEditInPlace`. */
@@ -608,10 +613,7 @@ function EditableMarkdown({
   actions?: React.ReactNode;
   onEditingChange?: (editing: boolean) => void;
 }) {
-  const { editing, cursor, container, open, close, openAtPointer } = useEditInPlace(
-    value,
-    onEditingChange,
-  );
+  const { editing, point, container, open, close, openAtPointer } = useEditInPlace(onEditingChange);
 
   return (
     <div ref={container} className="flex flex-col gap-2">
@@ -636,8 +638,8 @@ function EditableMarkdown({
           rows={rows}
           // Focused on opening, which is what a box asked for by a click wants.
           autoFocus
-          initialCursor={editing === "double-click" ? cursor : undefined}
-          className="font-mono text-xs"
+          initialPoint={editing === "double-click" ? point : undefined}
+          className="text-xs"
         />
       ) : value.trim() ? (
         <div
@@ -645,7 +647,7 @@ function EditableMarkdown({
           title="Double-click to edit"
           className="rounded-md border border-border bg-muted/20 p-4"
         >
-          <Markdown content={value} sourceOffsets />
+          <Markdown content={value} />
         </div>
       ) : (
         <p

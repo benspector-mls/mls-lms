@@ -76,8 +76,12 @@ export function TaskReview({
       below renders the comment thread's `sr-only` live region, whose absolute box is clipped only
       by a positioned ancestor. Without one here, a long enough thread stretches the window by the
       height of the paragraph's phantom flow position instead of scrolling with the pane.
+
+      `*:shrink-0` because a card clips its overflow, and a flex item that clips is shrunk to fit
+      its column instead of overflowing it. Without it the conversation card is squeezed into the
+      pane, and a comment growing in its box is cut off with nothing for the pane to scroll.
     */
-    <div className="relative flex h-full flex-col gap-4 overflow-y-auto p-4">
+    <div className="relative flex h-full flex-col gap-4 overflow-y-auto p-4 *:shrink-0">
       {/*
         The card does not name the fellow, because every screen that opens this pane already has:
         the queue's list highlights their row, the fellow record names them at the top of the page,

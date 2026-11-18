@@ -59,6 +59,16 @@ describe("commentDmText", () => {
     expect(text).toContain("Maya commented on *Loops*");
     expect(text).toContain("What does reduce return here?");
   });
+
+  it("quotes nothing for a comment with no prose", () => {
+    const text = commentDmText({
+      authorName: "Maya",
+      assignmentTitle: "Loops",
+      excerpt: "",
+      href: null,
+    });
+    expect(text).toBe("Maya commented on *Loops*. Open the comments.");
+  });
 });
 
 describe("digest lines and the digest itself", () => {
@@ -116,6 +126,9 @@ describe("digest lines and the digest itself", () => {
     expect(
       commentsDigestLine({ count: 1, assignmentTitle: "T", newestExcerpt: "x", href: null }),
     ).toContain("1 new comment on");
+    expect(
+      commentsDigestLine({ count: 1, assignmentTitle: "T", newestExcerpt: "", href: null }),
+    ).not.toContain("“");
   });
 
   it("a course heading is bold", () => {

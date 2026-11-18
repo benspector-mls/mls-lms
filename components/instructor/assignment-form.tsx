@@ -17,7 +17,6 @@ import { toast } from "sonner";
 
 import { Field, SectionEditor, type SectionDraft } from "@/components/instructor/section-editor";
 import { studentRepoName } from "@/lib/courses/course-slug";
-import { Markdown } from "@/components/markdown";
 import { MarkdownEditor } from "@/components/markdown-editor";
 import { PageHeader } from "@/components/page-header";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
@@ -555,10 +554,6 @@ function Editor({
   // Held outside `state` because a kind can be chosen before the rest of the form is filled
   // in, and switching it rebuilds the draft into that kind's shape.
   const [kind, setKind] = React.useState<Kind>((existing?.kind as Kind) ?? "REPO");
-
-  // Whether the assignment instructions are being read rather than written. Not part of `state`
-  // because it is nothing the assignment is saved with.
-  const [previewingInstructions, setPreviewingInstructions] = React.useState(false);
 
   // What the server has been asked about. Trails the form by DEBOUNCE_MS so that typing a
   // point value does not make a GitHub request per keystroke.
@@ -1406,46 +1401,14 @@ function Editor({
               <Field
                 label="Assignment instructions"
                 findings={fieldFindings("submissionInstructions")}
-                /*
-                  The field is markdown and the student reads it rendered, so the button shows it
-                  the way they will see it. Nothing to preview means nothing to press, which is
-                  why an empty field disables it rather than offering an empty panel.
-                */
-                action={
-                  <Button
-                    type="button"
-                    size="sm"
-                    variant="ghost"
-                    disabled={state.submissionInstructions.trim() === ""}
-                    onClick={() => setPreviewingInstructions(!previewingInstructions)}
-                  >
-                    {previewingInstructions ? (
-                      <PencilLine data-icon="inline-start" />
-                    ) : (
-                      <Eye data-icon="inline-start" />
-                    )}
-                    {previewingInstructions ? "Edit" : "Preview"}
-                  </Button>
-                }
                 hint="Optional. Instructions for how to set up and hand in this assignment."
               >
-                {/*
-                  A trimmed-empty field falls back to the textarea, so switching kind — which
-                  drops an untouched repository default — cannot leave an empty panel on screen
-                  with the disabled toggle as the only way back.
-                */}
-                {previewingInstructions && state.submissionInstructions.trim() !== "" ? (
-                  <div className="rounded-md border border-input bg-muted/20 px-3 py-2">
-                    <Markdown content={state.submissionInstructions} />
-                  </div>
-                ) : (
-                  <MarkdownEditor
-                    rows={10}
-                    value={state.submissionInstructions}
-                    onChange={(next) => setState({ ...state, submissionInstructions: next })}
-                    ariaLabel="Assignment instructions"
-                  />
-                )}
+                <MarkdownEditor
+                  rows={10}
+                  value={state.submissionInstructions}
+                  onChange={(next) => setState({ ...state, submissionInstructions: next })}
+                  ariaLabel="Assignment instructions"
+                />
               </Field>
             </CardContent>
           </Card>

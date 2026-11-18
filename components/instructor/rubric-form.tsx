@@ -1,13 +1,12 @@
 "use client";
 
 import { useMutation, useQuery } from "@tanstack/react-query";
-import { Eye, Loader2, Pencil } from "lucide-react";
+import { Loader2 } from "lucide-react";
 import { useRouter } from "next/navigation";
 import * as React from "react";
 import { toast } from "sonner";
 
 import { useServerMutation } from "@/hooks/use-server-mutation";
-import { Markdown } from "@/components/markdown";
 import { MarkdownEditor } from "@/components/markdown-editor";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -26,11 +25,10 @@ import type { RouterOutputs } from "@/trpc/types";
 /**
  * Writing a rubric, or a rule set, as markdown.
  *
- * **Markdown, in a box, with a preview.** The model reads markdown — headings and band tables are
+ * **Markdown, edited as formatted text.** The model reads markdown — headings and band tables are
  * what a rubric is made of — and a Google Doc exported to markdown loses its tables often enough
- * that typing it here is the honest input. Preview is one switch per field rather than a pane
- * beside the box, as the resource dialog does it: the form is not wide enough to read prose in
- * half of it.
+ * that writing it here is the honest input. Each field is a `MarkdownEditor`: formatted text, with
+ * tables built from buttons, and a switch to the markdown itself.
  *
  * **Save writes a version, never an edit in place.** The rubric's id stays what every assignment
  * points at; what changes is which version is current. Drafts already graded keep the version
@@ -58,7 +56,6 @@ export function RubricForm({ rubric }: { rubric: RubricData | null }) {
     rubric?.sampleReportMarkdown ?? "",
   );
   const [ruleSetId, setRuleSetId] = React.useState<string | null>(rubric?.ruleSetId ?? null);
-  const [previewing, setPreviewing] = React.useState<string | null>(null);
 
   const ruleSets = useQuery(trpc.rubrics.listRuleSets.queryOptions());
 
@@ -131,8 +128,6 @@ export function RubricForm({ rubric }: { rubric: RubricData | null }) {
         label="Rubric"
         value={rubricMarkdown}
         onChange={setRubricMarkdown}
-        previewing={previewing}
-        onPreviewChange={setPreviewing}
         rows={16}
         disabled={readOnly}
         hint="The criteria and the score bands, as the model reads them. A table of bands with a description of each works best."
@@ -143,8 +138,6 @@ export function RubricForm({ rubric }: { rubric: RubricData | null }) {
         label="Guidance"
         value={guidanceMarkdown}
         onChange={setGuidanceMarkdown}
-        previewing={previewing}
-        onPreviewChange={setPreviewing}
         rows={10}
         disabled={readOnly}
         hint="How the points add up and what each row of the report is: one row per question, one for the whole piece, what never costs points."
@@ -155,8 +148,6 @@ export function RubricForm({ rubric }: { rubric: RubricData | null }) {
         label="Sample report"
         value={sampleReportMarkdown}
         onChange={setSampleReportMarkdown}
-        previewing={previewing}
-        onPreviewChange={setPreviewing}
         rows={12}
         disabled={readOnly}
         hint="Optional. A finished report of the shape you want, which the model matches for tone and layout. Without one, the model is told the shape of a report in words only."
@@ -241,7 +232,6 @@ export function RuleSetForm({
   const [name, setName] = React.useState(ruleSet?.name ?? "");
   const [markdown, setMarkdown] = React.useState(ruleSet?.markdown ?? "");
   const [startFromId, setStartFromId] = React.useState<string | null>(null);
-  const [previewing, setPreviewing] = React.useState<string | null>(null);
 
   /*
     The text of the rule set to start from, shown in the box so the instructor edits what they
@@ -342,8 +332,6 @@ export function RuleSetForm({
         label="Rules"
         value={markdown}
         onChange={setMarkdown}
-        previewing={previewing}
-        onPreviewChange={setPreviewing}
         rows={24}
         disabled={readOnly || source.isFetching}
         hint="The voice of every report that follows these rules: how to open, what to praise, how to name a deduction, which labels the bullets carry."
@@ -375,14 +363,12 @@ export function RuleSetForm({
   );
 }
 
-/** A markdown box with an Edit/Preview switch; one field previews at a time. */
+/** A labelled `MarkdownEditor`, with a line beneath it saying what the field is for. */
 function MarkdownField({
   id,
   label,
   value,
   onChange,
-  previewing,
-  onPreviewChange,
   rows,
   disabled,
   hint,
@@ -391,50 +377,26 @@ function MarkdownField({
   label: string;
   value: string;
   onChange: (value: string) => void;
-  previewing: string | null;
-  onPreviewChange: (id: string | null) => void;
   rows: number;
   disabled: boolean;
   hint: string;
 }) {
-  const showing = previewing === id;
   const inputId = `rubric-${id}`;
 
   return (
     <div className="flex flex-col gap-2">
-      <div className="flex items-center justify-between">
-        <Label htmlFor={showing ? undefined : inputId}>{label}</Label>
-        <Button
-          type="button"
-          size="sm"
-          variant="ghost"
-          disabled={value.trim() === ""}
-          onClick={() => onPreviewChange(showing ? null : id)}
-        >
-          {showing ? <Pencil data-icon="inline-start" /> : <Eye data-icon="inline-start" />}
-          {showing ? "Edit" : "Preview"}
-        </Button>
-      </div>
-
-      {showing ? (
-        <div className="max-h-[60vh] min-h-24 overflow-y-auto rounded-md border border-border bg-muted/20 p-4">
-          <Markdown content={value} />
-        </div>
-      ) : (
-        <MarkdownEditor
-          id={inputId}
-          ariaLabel={label}
-          value={value}
-          onChange={onChange}
-          rows={rows}
-          maxLength={MARKDOWN_MAX}
-          disabled={disabled}
-          className="max-h-[60vh] font-mono text-sm"
-        />
-      )}
-      <p className="text-xs text-muted-foreground">
-        {showing ? "How this will look when rendered." : hint}
-      </p>
+      <Label htmlFor={inputId}>{label}</Label>
+      <MarkdownEditor
+        id={inputId}
+        ariaLabel={label}
+        value={value}
+        onChange={onChange}
+        rows={rows}
+        maxLength={MARKDOWN_MAX}
+        disabled={disabled}
+        className="max-h-[60vh] text-sm"
+      />
+      <p className="text-xs text-muted-foreground">{hint}</p>
     </div>
   );
 }

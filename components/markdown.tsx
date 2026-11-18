@@ -17,18 +17,11 @@ import { cn } from "@/lib/utils";
 export function Markdown({
   content,
   className,
-  sourceOffsets = false,
   reading = false,
   changes,
 }: {
   content: string;
   className?: string;
-  /**
-   * Marks each run of text with where it begins in `content`, so that `sourceOffsetAt` can say
-   * which character of the markdown a reader pointed at. Off unless asked for, because it puts a
-   * `span` around every run of text, and only a preview that opens into an editor needs it.
-   */
-  sourceOffsets?: boolean;
   /**
    * Draws a fellow's own writing to be read rather than glanced at: prose at full contrast and a
    * size up. Feedback stays muted and small so that it sits quietly beside the rest of the review
@@ -49,7 +42,6 @@ export function Markdown({
     : { h1: "text-base", h2: "text-sm", h3: "text-sm" };
 
   const rehypePlugins: NonNullable<Options["rehypePlugins"]> = [];
-  if (sourceOffsets) rehypePlugins.push([rehypeSourceOffsets, content]);
   if (changes) {
     rehypePlugins.push([rehypeMarkEdits, content, changes.editedLines]);
     rehypePlugins.push([
@@ -166,7 +158,9 @@ export function Markdown({
             </th>
           ),
           td: ({ children }) => (
-            <td className={cn("border-b border-border px-3 py-2 last:border-0", prose)}>
+            <td
+              className={cn("border-b border-border px-3 py-2 [tr:last-child_&]:border-b-0", prose)}
+            >
               {children}
             </td>
           ),
@@ -193,7 +187,6 @@ type CodeNode = {
   type: string;
   value?: string;
   tagName?: string;
-  properties?: Record<string, unknown>;
   children?: CodeNode[];
 };
 
@@ -201,20 +194,6 @@ type CodeNode = {
 function textOf(node: CodeNode): string {
   if (node.type === "text") return node.value ?? "";
   return (node.children ?? []).map(textOf).join("");
-}
-
-/**
- * The source range `rehypeSourceOffsets` recorded for the block's text, when it ran.
- *
- * With source offsets on, the block's one text node arrives wrapped in a `span` carrying the
- * range. Colouring replaces that text with many token spans, so the range is read here and put
- * back on one span around all of them, where `sourceOffsetAt` finds it.
- */
-function sourceRangeOf(node: CodeNode): { start: number; end: number } | null {
-  const [only] = node.children ?? [];
-  const start = only?.properties?.dataSourceStart;
-  const end = only?.properties?.dataSourceEnd;
-  return typeof start === "number" && typeof end === "number" ? { start, end } : null;
 }
 
 /**
@@ -228,10 +207,6 @@ function sourceRangeOf(node: CodeNode): { start: number; end: number } | null {
  * **The tokens are elements with text children and never markup**, for the reason `UploadedCode`
  * gives: a fellow or an instructor wrote every character of this, and a string of HTML built
  * around it would be a way to put script in a page.
- *
- * The lines are joined by newline characters rather than drawn as one element each, so that the
- * text under the source-range span is exactly the code, which is what lets `sourceOffsetAt` count
- * its way to the character that was clicked.
  */
 function HighlightedCode({
   node,
@@ -266,114 +241,5 @@ function HighlightedCode({
     </React.Fragment>
   ));
 
-  const range = sourceRangeOf(node);
-
-  return (
-    <code className={cn("shiki-code font-mono text-[0.85em]", className)}>
-      {range ? (
-        <span data-source-start={range.start} data-source-end={range.end}>
-          {coloured}
-        </span>
-      ) : (
-        coloured
-      )}
-    </code>
-  );
-}
-
-/** The parts of a rendered markdown node that `rehypeSourceOffsets` reads and writes. */
-type RenderedNode = {
-  type: string;
-  value?: string;
-  children?: RenderedNode[];
-  position?: { start: { offset?: number }; end: { offset?: number } };
-  tagName?: string;
-  properties?: Record<string, number>;
-};
-
-/**
- * Wraps each run of text in a `span` carrying `data-source-start`, the offset in the markdown of
- * the run's first character, and `data-source-end`, the offset just past the run.
- *
- * **Why a span around the text rather than an attribute on the element that holds it.** The
- * components above rebuild each element from its `children` alone, so an attribute set on a `p` or
- * an `li` here would never reach the page. A span is one of those children, so it arrives intact.
- *
- * **Why the start is searched for.** The parser gives an inline code span's text the position of
- * the whole span, backticks included, and gives a fenced block's text no position at all, so that
- * text takes the range of the nearest element around it, which is the whole fence. Finding the
- * text inside that range moves the start past the markers. Text that does not appear
- * verbatim, such as a run containing an escaped `\*`, keeps the start the parser gave it, which is
- * at most a few characters out.
- *
- * Runs of only whitespace are left bare. They are never what a reader points at, and inside a
- * table a span where the browser expects only rows and cells would be invalid markup.
- */
-function rehypeSourceOffsets(source: string) {
-  function wrap(node: RenderedNode, around?: [number, number]) {
-    if (!node.children) return;
-    node.children = node.children.map((child) => {
-      const start = child.position?.start.offset ?? around?.[0];
-      const end = child.position?.end.offset ?? around?.[1];
-      const range: [number, number] | undefined =
-        start === undefined || end === undefined ? undefined : [start, end];
-      if (child.type !== "text" || !range) {
-        wrap(child, range);
-        return child;
-      }
-      if (!child.value?.trim()) return child;
-      const found = source.slice(...range).indexOf(child.value);
-      return {
-        type: "element",
-        tagName: "span",
-        properties: {
-          dataSourceStart: found === -1 ? range[0] : range[0] + found,
-          dataSourceEnd: range[1],
-        },
-        children: [child],
-      };
-    });
-  }
-  return (tree: RenderedNode) => wrap(tree);
-}
-
-/**
- * The offset in the markdown of the character under a point on the screen, for a `Markdown` drawn
- * with `sourceOffsets`. Null when the point is not over text, such as the space between two
- * paragraphs or a checkbox.
- *
- * The browser says which text node is under the point and how far into it; the nearest span above
- * that node with a recorded start says where its text begins in the markdown. The characters
- * between the start of that span and the point, added to the recorded start, give the answer. For
- * ordinary text the node is the span's only child, so that count is the browser's own offset; in a
- * coloured code block it also counts the token spans and newlines before the node. The answer is
- * exact for text written plainly. In a block quote or a list item running over several lines, the
- * markers that begin each later line are absent from the rendered text, so a point on one of those
- * lines lands a few characters early. The answer never passes the end of the run, so it never lands
- * in a different block.
- */
-export function sourceOffsetAt(x: number, y: number): number | null {
-  let node: Node | null = null;
-  let offset = 0;
-  // `caretPositionFromPoint` is the standard; Safari before version 26 has only the older name.
-  if ("caretPositionFromPoint" in document) {
-    const position = document.caretPositionFromPoint(x, y);
-    node = position?.offsetNode ?? null;
-    offset = position?.offset ?? 0;
-  } else {
-    const range = (document as Document).caretRangeFromPoint(x, y);
-    node = range?.startContainer ?? null;
-    offset = range?.startOffset ?? 0;
-  }
-  if (node?.nodeType !== Node.TEXT_NODE) return null;
-
-  const span = node.parentElement?.closest<HTMLElement>("[data-source-start]");
-  const start = Number(span?.dataset.sourceStart);
-  const end = Number(span?.dataset.sourceEnd);
-  if (!span || Number.isNaN(start) || Number.isNaN(end)) return null;
-
-  const before = document.createRange();
-  before.setStart(span, 0);
-  before.setEnd(node, offset);
-  return Math.min(start + before.toString().length, end);
+  return <code className={cn("shiki-code font-mono text-[0.85em]", className)}>{coloured}</code>;
 }

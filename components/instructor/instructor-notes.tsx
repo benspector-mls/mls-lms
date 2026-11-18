@@ -1,7 +1,7 @@
 "use client";
 
 import { useMutation } from "@tanstack/react-query";
-import { Eye, Pencil, Plus } from "lucide-react";
+import { Plus } from "lucide-react";
 import * as React from "react";
 import { toast } from "sonner";
 
@@ -33,8 +33,8 @@ type Note = RouterOutputs["coaching"]["forStudent"]["notes"][number];
  * their record, so the caption states the fact rather than promising secrecy.
  *
  * One dialog for adding and editing, keyed on which note it was opened with — the resource-dialog
- * shape, `MarkdownEditor` and Eye/Pencil preview toggle included. Deleting lives inside the
- * edit dialog rather than on the row: reaching it means having deliberately opened the note.
+ * shape, `MarkdownEditor` included. Deleting lives inside the edit dialog rather than on the row:
+ * reaching it means having deliberately opened the note.
  */
 export function InstructorNotes({
   programId,
@@ -51,12 +51,10 @@ export function InstructorNotes({
   const [open, setOpen] = React.useState(false);
   const [editing, setEditing] = React.useState<Note | null>(null);
   const [body, setBody] = React.useState("");
-  const [previewing, setPreviewing] = React.useState(false);
 
   const openFor = (note: Note | null) => {
     setEditing(note);
     setBody(note?.body ?? "");
-    setPreviewing(false);
     setOpen(true);
   };
 
@@ -139,42 +137,21 @@ export function InstructorNotes({
             <DialogHeader>
               <DialogTitle>{editing ? "Edit note" : "Add a note"}</DialogTitle>
               <DialogDescription>
-                Never shown to fellows, but a fellow may ask to read their record, so write it as you
-                would say it to them.
+                Never shown to fellows, but a fellow may ask to read their record, so write it as
+                you would say it to them.
               </DialogDescription>
             </DialogHeader>
 
             <div className="flex flex-col gap-2 py-4">
-              <div className="flex items-center justify-between">
-                <span className="text-sm font-medium">The note</span>
-                <Button
-                  type="button"
-                  variant="ghost"
-                  size="xs"
-                  disabled={body.trim() === ""}
-                  onClick={() => setPreviewing((current) => !current)}
-                  data-icon="inline-start"
-                >
-                  {previewing ? <Pencil aria-hidden /> : <Eye aria-hidden />}
-                  {previewing ? "Edit" : "Preview"}
-                </Button>
-              </div>
-
-              {previewing ? (
-                <div className="max-h-[35vh] min-h-52 overflow-y-auto rounded-md border border-border bg-muted/20 p-4">
-                  <Markdown content={body} />
-                </div>
-              ) : (
-                <MarkdownEditor
-                  value={body}
-                  onChange={setBody}
-                  ariaLabel="Note"
-                  rows={10}
-                  maxLength={50_000}
-                  className="max-h-[35vh] font-mono text-sm"
-                  placeholder="Markdown, rendered the way feedback is."
-                />
-              )}
+              <span className="text-sm font-medium">The note</span>
+              <MarkdownEditor
+                value={body}
+                onChange={setBody}
+                ariaLabel="Note"
+                rows={10}
+                maxLength={50_000}
+                className="max-h-[35vh] text-sm"
+              />
             </div>
 
             <DialogFooter className="gap-2">

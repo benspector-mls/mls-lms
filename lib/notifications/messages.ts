@@ -56,15 +56,20 @@ export function feedbackDmText(args: {
   );
 }
 
+/**
+ * A comment that is only a code block or a table has no prose to quote — `commentExcerpt` leaves
+ * both out — so the message then says it commented and quotes nothing, rather than empty quotes.
+ */
 export function commentDmText(args: {
   authorName: string;
   assignmentTitle: string;
   excerpt: string;
   href: string | null;
 }): string {
+  const quoted = args.excerpt ? `: “${escapeMrkdwn(args.excerpt)}”` : ".";
   return (
-    `${escapeMrkdwn(args.authorName)} commented on *${escapeMrkdwn(args.assignmentTitle)}*: ` +
-    `“${escapeMrkdwn(args.excerpt)}” ${linked("Open the comments", args.href)}.`
+    `${escapeMrkdwn(args.authorName)} commented on *${escapeMrkdwn(args.assignmentTitle)}*` +
+    `${quoted} ${linked("Open the comments", args.href)}.`
   );
 }
 
@@ -98,10 +103,9 @@ export function commentsDigestLine(args: {
 }): string {
   const what = args.count === 1 ? "1 new comment" : `${args.count} new comments`;
   const whose = args.fellowName ? ` from ${escapeMrkdwn(args.fellowName)}` : "";
-  return (
-    `• ${what}${whose} on ${linked(args.assignmentTitle, args.href)}: ` +
-    `“${escapeMrkdwn(args.newestExcerpt)}”`
-  );
+  // Empty for a newest comment that is only code or a table; see `commentDmText`.
+  const quoted = args.newestExcerpt ? `: “${escapeMrkdwn(args.newestExcerpt)}”` : "";
+  return `• ${what}${whose} on ${linked(args.assignmentTitle, args.href)}${quoted}`;
 }
 
 /** One course's worth of a digest: the course it is about, and the lines under it. */

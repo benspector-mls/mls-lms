@@ -257,9 +257,23 @@ describe("commentExcerpt", () => {
     );
   });
 
-  it("replaces a fenced code block rather than quoting it", () => {
-    expect(commentExcerpt("this fails:\n```js\nconst x = 1;\n```\nwhy?")).toBe(
-      "this fails: (code) why?",
+  it("leaves out a fenced code block", () => {
+    expect(commentExcerpt("this fails:\n```js\nconst x = 1;\n```\nwhy?")).toBe("this fails: why?");
+  });
+
+  it("leaves out a table, keeping the prose around it", () => {
+    expect(commentExcerpt("hello\n\n| a | b |\n| --- | --- |\n| one<br>two | x |\n\nthanks")).toBe(
+      "hello thanks",
+    );
+  });
+
+  it("is empty for a comment that is only code", () => {
+    expect(commentExcerpt("```python\nprint('hi')\n```")).toBe("");
+  });
+
+  it("drops the backslashes the formatted editor writes before punctuation", () => {
+    expect(commentExcerpt("why does snake\\_case fail \\*here\\*?")).toBe(
+      "why does snakecase fail here?",
     );
   });
 

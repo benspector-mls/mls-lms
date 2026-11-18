@@ -119,9 +119,33 @@ const FENCE_LANGUAGES: Record<string, DiffLanguage> = {
   bash: "shellscript",
   zsh: "shellscript",
   shell: "shellscript",
+  markdown: "markdown",
+  md: "markdown",
 };
 
 /** The grammar for the language name on an opening fence, such as `python`, or null for none. */
 export function languageForFence(name: string): DiffLanguage | null {
   return FENCE_LANGUAGES[name.toLowerCase()] ?? null;
 }
+
+/**
+ * The languages a code block in the formatted editor offers, with the fence name each writes.
+ *
+ * Every fence name here is one `languageForFence` colours, so a language chosen in the editor is
+ * coloured there and in the rendered text alike. Plain text is the empty fence name, which writes
+ * a fence with no language.
+ */
+export const CODE_BLOCK_LANGUAGES: readonly { fence: string; label: string }[] = [
+  { fence: "", label: "Plain text" },
+  { fence: "bash", label: "Bash" },
+  { fence: "css", label: "CSS" },
+  { fence: "html", label: "HTML" },
+  { fence: "javascript", label: "JavaScript" },
+  { fence: "jsx", label: "JSX" },
+  { fence: "json", label: "JSON" },
+  { fence: "markdown", label: "Markdown" },
+  { fence: "python", label: "Python" },
+  { fence: "sql", label: "SQL" },
+  { fence: "tsx", label: "TSX" },
+  { fence: "typescript", label: "TypeScript" },
+];

@@ -486,7 +486,8 @@ function CommentsRow({ row, now }: { row: DashboardAssignment; now: Date }) {
         href={`/courses/${row.course.id}?assignment=${row.id}`}
         className="flex min-w-0 flex-1 items-center gap-x-3 px-3 py-2.5"
       >
-        <RowTitle row={row} subtitle={unread.excerpt} />
+        {/* A comment that is only code or a table has no excerpt, and the row shows its course. */}
+        <RowTitle row={row} subtitle={unread.excerpt || undefined} />
 
         <span className="shrink-0 text-xs whitespace-nowrap text-muted-foreground">
           {formatRelative(unread.lastCommentAt, now)}

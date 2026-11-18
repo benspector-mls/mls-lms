@@ -1,10 +1,9 @@
 "use client";
 
 import { useMutation, useQueryClient } from "@tanstack/react-query";
-import { Loader2, Pencil, Send, X } from "lucide-react";
+import { Loader2, Send, X } from "lucide-react";
 import * as React from "react";
 
-import { Markdown } from "@/components/markdown";
 import { Button } from "@/components/ui/button";
 import { MarkdownEditor } from "@/components/markdown-editor";
 import { shownInPlace } from "@/hooks/use-server-mutation";
@@ -15,8 +14,7 @@ import { useTRPC } from "@/trpc/client";
 export type ComposerAnchor = { id: string; number: number };
 
 /**
- * Writing one message, in a `MarkdownEditor` with an Edit and Preview toggle — the pattern
- * `section-editor.tsx` established for the other place markdown is written here.
+ * Writing one message, in a `MarkdownEditor`.
  *
  * **The draft is held by the caller**: the fellow's Comments tab is unmounted while another tab
  * shows, so a half-typed question kept in here would be lost by clicking Feedback and back. There
@@ -38,6 +36,7 @@ export function CommentComposer({
   placeholder = "Ask your instructor anything about this assignment…",
   submitLabel = "Post",
   autoFocus = false,
+  disabled = false,
 }: {
   assignmentId: string;
   /** Whose work. Omitted for the caller's own, which is what a fellow sends. */
@@ -51,10 +50,15 @@ export function CommentComposer({
   placeholder?: string;
   submitLabel?: string;
   autoFocus?: boolean;
+  /**
+   * For a reader who may not write here, such as staff viewing as a fellow. Passed to the editor
+   * rather than left to a surrounding `<fieldset disabled>`, which disables form elements only and
+   * leaves the editor's editable text open.
+   */
+  disabled?: boolean;
 }) {
   const trpc = useTRPC();
   const queryClient = useQueryClient();
-  const [editing, setEditing] = React.useState(true);
   const fieldRef = React.useRef<{ focus: () => void } | null>(null);
   const fieldId = React.useId();
 
@@ -65,7 +69,6 @@ export function CommentComposer({
       onSuccess: () => {
         onValueChange("");
         onClearAnchor?.();
-        setEditing(true);
         onPosted?.();
         // Only this thread: `useServerMutation` would re-render the course page behind the sheet.
         void queryClient.invalidateQueries({
@@ -87,21 +90,9 @@ export function CommentComposer({
 
   return (
     <form onSubmit={submit} className="flex flex-col gap-2">
-      <div className="flex items-center justify-between gap-2">
-        <label htmlFor={fieldId} className="text-sm font-medium">
-          {label}
-        </label>
-        <Button
-          type="button"
-          size="sm"
-          variant="ghost"
-          onClick={() => setEditing(!editing)}
-          disabled={body === ""}
-        >
-          <Pencil data-icon="inline-start" />
-          {editing ? "Preview" : "Edit"}
-        </Button>
-      </div>
+      <label htmlFor={fieldId} className="text-sm font-medium">
+        {label}
+      </label>
 
       {anchor && (
         <div className="flex items-center gap-1.5 self-start rounded-full border border-border bg-muted/40 py-1 pr-1 pl-2.5 text-xs">
@@ -121,34 +112,29 @@ export function CommentComposer({
         </div>
       )}
 
-      {editing ? (
-        <MarkdownEditor
-          id={fieldId}
-          ariaLabel={label}
-          ref={fieldRef}
-          rows={4}
-          autoFocus={autoFocus}
-          value={value}
-          maxLength={MAX_COMMENT_LENGTH}
-          placeholder={placeholder}
-          className="font-mono text-xs"
-          onChange={onValueChange}
-          /*
-            Cmd or Ctrl and Enter, never Enter alone: the body is markdown. `requestSubmit` uses the
-            same handler as the button, so this cannot drift into a second submit path.
-          */
-          onKeyDown={(event) => {
-            if ((event.metaKey || event.ctrlKey) && event.key === "Enter") {
-              event.preventDefault();
-              event.currentTarget.closest("form")?.requestSubmit();
-            }
-          }}
-        />
-      ) : (
-        <div className="rounded-md border border-border bg-muted/20 p-4">
-          <Markdown content={value} />
-        </div>
-      )}
+      <MarkdownEditor
+        id={fieldId}
+        ariaLabel={label}
+        ref={fieldRef}
+        rows={4}
+        autoFocus={autoFocus}
+        value={value}
+        maxLength={MAX_COMMENT_LENGTH}
+        placeholder={placeholder}
+        disabled={disabled}
+        className="text-xs"
+        onChange={onValueChange}
+        /*
+          Cmd or Ctrl and Enter, never Enter alone: the body is markdown. `requestSubmit` uses the
+          same handler as the button, so this cannot drift into a second submit path.
+        */
+        onKeyDown={(event) => {
+          if ((event.metaKey || event.ctrlKey) && event.key === "Enter") {
+            event.preventDefault();
+            event.currentTarget.closest("form")?.requestSubmit();
+          }
+        }}
+      />
 
       {post.error && (
         <p role="alert" className="text-sm text-destructive">
@@ -159,7 +145,11 @@ export function CommentComposer({
       <div className="flex items-center justify-between gap-2">
         {/* Only near the ceiling: a counter always on says the limit is worth thinking about. */}
         <span className="text-xs text-muted-foreground tabular-nums">
-          {remaining <= MAX_COMMENT_LENGTH * 0.1 ? `${remaining} characters left` : ""}
+          {remaining < 0
+            ? `${-remaining} characters over the limit`
+            : remaining <= MAX_COMMENT_LENGTH * 0.1
+              ? `${remaining} characters left`
+              : ""}
         </span>
         <Button type="submit" size="sm" disabled={body === "" || post.isPending}>
           {post.isPending ? (

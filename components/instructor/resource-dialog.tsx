@@ -2,11 +2,10 @@
 
 import { useMutation, useQuery } from "@tanstack/react-query";
 import * as React from "react";
-import { Eye, Loader2, Pencil } from "lucide-react";
+import { Loader2 } from "lucide-react";
 import { toast } from "sonner";
 
 import { useServerMutation } from "@/hooks/use-server-mutation";
-import { Markdown } from "@/components/markdown";
 import { Button } from "@/components/ui/button";
 import { Checkbox } from "@/components/ui/checkbox";
 import {
@@ -212,8 +211,6 @@ function ResourceForm({
   const [url, setUrl] = React.useState(resource?.url ?? "");
   const [description, setDescription] = React.useState(resource?.description ?? "");
   const [body, setBody] = React.useState(resource?.body ?? "");
-  /** Which markdown field is being read rather than written: one at a time, and none to begin with. */
-  const [previewing, setPreviewing] = React.useState<MarkdownFieldId | null>(null);
 
   const [hasCheck, setHasCheck] = React.useState(resource !== null && resource.check !== null);
   const [objective, setObjective] = React.useState(checkDetail?.objective ?? "");
@@ -427,12 +424,9 @@ function ResourceForm({
             label="Note"
             value={body}
             onChange={setBody}
-            previewing={previewing}
-            onPreviewChange={setPreviewing}
             rows={10}
             maxLength={50_000}
-            placeholder={"## Before you start\n\nRun `npm i` first, then…"}
-            hint="Rendered the same way feedback is."
+            placeholder="Before you start, run npm i, then…"
           />
         )}
 
@@ -452,8 +446,6 @@ function ResourceForm({
           onWaitDaysChange={setWaitDays}
           waitHours={waitHours}
           onWaitHoursChange={setWaitHours}
-          previewing={previewing}
-          onPreviewChange={setPreviewing}
         />
       </div>
 
@@ -470,26 +462,12 @@ function ResourceForm({
   );
 }
 
-/**
- * A markdown box with an Edit/Preview switch.
- *
- * **Preview shows the text as the cohort will read it**, through the same renderer the course page
- * uses. Markdown is written blind otherwise: a heading that needed a blank line above it, or a list
- * that came out as one paragraph, is invisible in the box and obvious the moment it is rendered.
- *
- * One toggle rather than a box beside the text, because the dialog is not wide enough to read prose
- * in half of it, and rather than two tabs, because this is the same Edit/Preview switch the feedback
- * editor already uses. Which field is previewing is held by the form, so one preview is open at a
- * time, and a form always mounts with every field writable — arriving at a form whose text cannot
- * be typed into would be a form that appears not to work.
- */
+/** A labelled `MarkdownEditor`, with a line beneath it when the field needs explaining. */
 function MarkdownField({
   id,
   label,
   value,
   onChange,
-  previewing,
-  onPreviewChange,
   rows,
   maxLength,
   placeholder,
@@ -499,56 +477,27 @@ function MarkdownField({
   label: string;
   value: string;
   onChange: (value: string) => void;
-  previewing: MarkdownFieldId | null;
-  onPreviewChange: (id: MarkdownFieldId | null) => void;
   rows: number;
   maxLength: number;
   placeholder?: string;
-  hint: string;
+  hint?: string;
 }) {
-  const showing = previewing === id;
   const inputId = `resource-${id}`;
 
   return (
     <div className="flex flex-col gap-2">
-      <div className="flex items-center justify-between">
-        {/* Nothing to point at while the rendered text stands in for the box. */}
-        <Label htmlFor={showing ? undefined : inputId}>{label}</Label>
-        <Button
-          type="button"
-          size="sm"
-          variant="ghost"
-          disabled={value.trim() === ""}
-          onClick={() => onPreviewChange(showing ? null : id)}
-        >
-          {showing ? <Pencil data-icon="inline-start" /> : <Eye data-icon="inline-start" />}
-          {showing ? "Edit" : "Preview"}
-        </Button>
-      </div>
-
-      {showing ? (
-        /*
-          Held at roughly the height of the box it stands in for, and scrolling rather than growing
-          past it, so switching back and forth leaves the Save button where it was.
-        */
-        <div className="max-h-[35vh] min-h-24 overflow-y-auto rounded-md border border-border bg-muted/20 p-4">
-          <Markdown content={value} />
-        </div>
-      ) : (
-        <MarkdownEditor
-          id={inputId}
-          ariaLabel={label}
-          value={value}
-          onChange={onChange}
-          rows={rows}
-          placeholder={placeholder}
-          maxLength={maxLength}
-          className="max-h-[35vh] font-mono text-sm"
-        />
-      )}
-      <p className="text-xs text-muted-foreground">
-        {showing ? "How this will look when rendered." : hint}
-      </p>
+      <Label htmlFor={inputId}>{label}</Label>
+      <MarkdownEditor
+        id={inputId}
+        ariaLabel={label}
+        value={value}
+        onChange={onChange}
+        rows={rows}
+        placeholder={placeholder}
+        maxLength={maxLength}
+        className="max-h-[35vh] text-sm"
+      />
+      {hint && <p className="text-xs text-muted-foreground">{hint}</p>}
     </div>
   );
 }
@@ -577,8 +526,6 @@ function CheckSection({
   onWaitDaysChange,
   waitHours,
   onWaitHoursChange,
-  previewing,
-  onPreviewChange,
 }: {
   enabled: boolean;
   onEnabledChange: (enabled: boolean) => void;
@@ -596,8 +543,6 @@ function CheckSection({
   onWaitDaysChange: (value: number) => void;
   waitHours: number;
   onWaitHoursChange: (value: number) => void;
-  previewing: MarkdownFieldId | null;
-  onPreviewChange: (id: MarkdownFieldId | null) => void;
 }) {
   return (
     <div className="flex flex-col gap-4 rounded-lg border border-border p-4">
@@ -642,8 +587,6 @@ function CheckSection({
             label="Question"
             value={question}
             onChange={onQuestionChange}
-            previewing={previewing}
-            onPreviewChange={onPreviewChange}
             rows={4}
             maxLength={10_000}
             hint="A question can show code."
@@ -654,8 +597,6 @@ function CheckSection({
             label="What a level-2 answer looks like"
             value={factsExample}
             onChange={onFactsExampleChange}
-            previewing={previewing}
-            onPreviewChange={onPreviewChange}
             rows={4}
             maxLength={10_000}
             hint="The facts, without the connections between them. Fellows never see this."
@@ -666,8 +607,6 @@ function CheckSection({
             label="What a level-3 answer looks like"
             value={exemplar}
             onChange={onExemplarChange}
-            previewing={previewing}
-            onPreviewChange={onPreviewChange}
             rows={5}
             maxLength={10_000}
             hint={`The facts and the connections. A fellow sees this after their ${ordinal(MAX_ATTEMPTS)} attempt.`}

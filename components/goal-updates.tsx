@@ -1,7 +1,7 @@
 "use client";
 
 import { useMutation } from "@tanstack/react-query";
-import { Eye, Paperclip, Pencil, Plus } from "lucide-react";
+import { Paperclip, Plus } from "lucide-react";
 import * as React from "react";
 import { toast } from "sonner";
 
@@ -211,7 +211,6 @@ function UpdateEditor({
   const settled = useServerMutation();
 
   const [body, setBody] = React.useState(update?.body ?? "");
-  const [previewing, setPreviewing] = React.useState(false);
   const [files, setFiles] = React.useState<File[]>([]);
   const [error, setError] = React.useState<string | null>(null);
   const [busy, setBusy] = React.useState(false);
@@ -340,38 +339,17 @@ function UpdateEditor({
       onSubmit={submit}
       className="flex flex-col gap-3 rounded-md border border-border bg-background p-3"
     >
-      <div className="flex items-center justify-between gap-2">
-        <span className="text-sm font-medium">
-          {update === null ? "New update" : "Edit update"}
-        </span>
-        <Button
-          type="button"
-          variant="ghost"
-          size="xs"
-          disabled={body.trim() === ""}
-          onClick={() => setPreviewing((current) => !current)}
-          data-icon="inline-start"
-        >
-          {previewing ? <Pencil aria-hidden /> : <Eye aria-hidden />}
-          {previewing ? "Edit" : "Preview"}
-        </Button>
-      </div>
+      <span className="text-sm font-medium">{update === null ? "New update" : "Edit update"}</span>
 
-      {previewing ? (
-        <div className="min-h-24 rounded-md border border-border bg-muted/20 p-3">
-          <Markdown content={body} />
-        </div>
-      ) : (
-        <MarkdownEditor
-          autoFocus
-          value={body}
-          onChange={setBody}
-          ariaLabel="Update"
-          rows={4}
-          maxLength={20_000}
-          placeholder="How is it going? What did you try, and what happened?"
-        />
-      )}
+      <MarkdownEditor
+        autoFocus
+        value={body}
+        onChange={setBody}
+        ariaLabel="Update"
+        rows={4}
+        maxLength={20_000}
+        placeholder="How is it going? What did you try, and what happened?"
+      />
 
       {/* Files already attached, each with its own remove — the words above are saved separately. */}
       {update !== null && update.attachments.length > 0 && (

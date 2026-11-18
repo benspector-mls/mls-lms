@@ -457,7 +457,9 @@ function QuestionRow({ row, now }: { row: Waiting; now: Date }) {
           seconds or a conversation. One line: the answer is written on the other screen.
         */}
           <p className="truncate text-sm text-muted-foreground">
-            {row.assignment.title} — {row.excerpt}
+            {row.assignment.title}
+            {/* Empty for a comment that is only code or a table, which has no prose to show. */}
+            {row.excerpt && ` — ${row.excerpt}`}
           </p>
         </div>
 

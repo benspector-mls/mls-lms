@@ -461,6 +461,7 @@ function PanelBody({
                 anchor={anchor}
                 onClearAnchor={() => setAnchor(null)}
                 onPosted={() => setAnnouncement("Comment posted.")}
+                disabled={readOnly}
               />
             </div>
           </fieldset>
@@ -1258,8 +1259,8 @@ function HandInForms({
   if (held >= MAX_SUBMISSION_ARTIFACTS) {
     return (
       <p className="text-sm text-muted-foreground">
-        This submission holds the maximum of {MAX_SUBMISSION_ARTIFACTS} attachments. Remove one
-        to add another.
+        This submission holds the maximum of {MAX_SUBMISSION_ARTIFACTS} attachments. Remove one to
+        add another.
       </p>
     );
   }

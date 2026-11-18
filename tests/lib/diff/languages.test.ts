@@ -1,4 +1,5 @@
 import {
+  CODE_BLOCK_LANGUAGES,
   DIFF_LANGUAGES,
   languageForFence,
   languageForPath,
@@ -118,11 +119,26 @@ describe("languageForFence", () => {
     ["js", "javascript"],
     ["jsx", "javascript"],
     ["bash", "shellscript"],
+    ["markdown", "markdown"],
+    ["md", "markdown"],
   ] as const)("colours a %s fence as %s", (name, language: DiffLanguage) => {
     expect(languageForFence(name)).toBe(language);
   });
 
   it.each(["text", "console", "output", ""])("leaves a %p fence plain", (name) => {
     expect(languageForFence(name)).toBeNull();
+  });
+});
+
+/**
+ * The editor's language picker writes these fence names, so each one has to be a name the
+ * highlighter colours, or a block would be coloured in no place it is shown.
+ */
+describe("CODE_BLOCK_LANGUAGES", () => {
+  it("names a coloured fence for every language but plain text", () => {
+    for (const { fence } of CODE_BLOCK_LANGUAGES) {
+      if (fence === "") expect(languageForFence(fence)).toBeNull();
+      else expect(languageForFence(fence)).not.toBeNull();
+    }
   });
 });
