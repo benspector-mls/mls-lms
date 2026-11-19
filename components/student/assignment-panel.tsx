@@ -480,7 +480,7 @@ function PanelBody({
           Open rather than behind a button, because choosing the tab is the choice. An instructor
           looking through the fellow's account reads the conversation and can send nothing.
         */}
-        <TabsContent value="tutor" className="min-h-0 flex-1 overflow-y-auto px-4 pb-6">
+        <TabsContent value="tutor" className="flex min-h-0 flex-1 flex-col px-4 pb-4">
           <TutorChat
             courseId={assignment.courseId}
             scope={{ assignmentId: assignment.id }}
@@ -489,6 +489,7 @@ function PanelBody({
             disabled={readOnly}
             draft={tutorDraft}
             onDraftChange={setTutorDraft}
+            layout="panel"
           />
         </TabsContent>
       </Tabs>

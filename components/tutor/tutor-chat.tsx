@@ -44,6 +44,7 @@ export function TutorChat({
   disabled = false,
   draft: heldDraft,
   onDraftChange,
+  layout = "page",
 }: {
   courseId: string;
   scope: TutorScope;
@@ -60,6 +61,13 @@ export function TutorChat({
    */
   draft?: string;
   onDraftChange?: (draft: string) => void;
+  /**
+   * Where the conversation scrolls. On the Tutor page the page scrolls and the question box
+   * sticks to the foot of the window. On the assignment panel the chat fills its tab and the
+   * conversation scrolls inside it, with the box a fixed row beneath: a box stuck to the bottom
+   * of a scrolling tab was drawn above the tab's end, with the conversation passing under it.
+   */
+  layout?: "page" | "panel";
 }) {
   const trpc = useTRPC();
   const client = useTRPCClient();
@@ -186,41 +194,48 @@ export function TutorChat({
   }
 
   return (
-    <div className="flex flex-col gap-4">
-      <ol className="flex flex-col gap-3" aria-live="polite">
-        {history.isPending ? (
-          <li className="text-sm text-muted-foreground">Loading the conversation…</li>
-        ) : history.isError ? (
-          <li className="text-sm text-destructive">{history.error.message}</li>
-        ) : turns.length === 0 && !pending ? (
-          <li className="text-sm text-muted-foreground">
-            {about === "course"
-              ? "Ask about anything in this course's lessons: what a term means, why an example works, or what to read next. The Tutor answers from the lessons and names the ones to read."
-              : "Ask what the assignment is asking for, or about an idea it uses. The Tutor explains and points to the lessons; it does not write your code."}
-          </li>
-        ) : (
-          exchanges.map((exchange) => (
-            <li key={exchange.key} className="flex flex-col gap-3">
-              {exchange.question !== undefined && <Question content={exchange.question} />}
-              {exchange.answer && <Answer turn={exchange.answer} lessonsBase={lessonsBase} />}
-              {exchange.pending &&
-                (partial === null ? (
-                  <p className="text-sm text-muted-foreground">Thinking…</p>
-                ) : (
-                  <Markdown className="text-sm" content={partial} />
-                ))}
+    <div className={cn("flex flex-col gap-4", layout === "panel" && "min-h-0 flex-1")}>
+      <div className={cn(layout === "panel" && "min-h-0 flex-1 overflow-y-auto")}>
+        <ol className="flex flex-col gap-3" aria-live="polite">
+          {history.isPending ? (
+            <li className="text-sm text-muted-foreground">Loading the conversation…</li>
+          ) : history.isError ? (
+            <li className="text-sm text-destructive">{history.error.message}</li>
+          ) : turns.length === 0 && !pending ? (
+            <li className="text-sm text-muted-foreground">
+              {about === "course"
+                ? "Ask about anything in this course's lessons: what a term means, why an example works, or what to read next. The Tutor answers from the lessons and names the ones to read."
+                : "Ask what the assignment is asking for, or about an idea it uses. The Tutor explains and points to the lessons; it does not write your code."}
             </li>
-          ))
-        )}
-      </ol>
+          ) : (
+            exchanges.map((exchange) => (
+              <li key={exchange.key} className="flex flex-col gap-3">
+                {exchange.question !== undefined && <Question content={exchange.question} />}
+                {exchange.answer && <Answer turn={exchange.answer} lessonsBase={lessonsBase} />}
+                {exchange.pending &&
+                  (partial === null ? (
+                    <p className="text-sm text-muted-foreground">Thinking…</p>
+                  ) : (
+                    <Markdown className="text-sm" content={partial} />
+                  ))}
+              </li>
+            ))
+          )}
+        </ol>
+        {layout === "panel" && <div ref={endRef} aria-hidden className="h-0" />}
+      </div>
 
       {/*
-        The box stays at the foot of the window while the conversation scrolls behind it, so a
-        fellow returning to a long conversation can ask without first scrolling to its end. It is
-        opaque, with a line above it, so the words passing under it are not read through it.
+        On the page, the box stays at the foot of the window while the conversation scrolls
+        behind it, so a fellow returning to a long conversation can ask without first scrolling
+        to its end. It is opaque, with a line above it, so the words passing under it are not
+        read through it.
       */}
       <form
-        className="sticky bottom-0 z-10 flex flex-col gap-2 border-t border-border bg-background pt-3 pb-4"
+        className={cn(
+          "flex flex-col gap-2 border-t border-border bg-background pt-3 pb-4",
+          layout === "page" && "sticky bottom-0 z-10",
+        )}
         onSubmit={(event) => {
           event.preventDefault();
           send();
@@ -286,7 +301,7 @@ export function TutorChat({
         )}
       </form>
       {/* After the box, so scrolling here brings the end of the conversation out from under it. */}
-      <div ref={endRef} aria-hidden className="h-0" />
+      {layout === "page" && <div ref={endRef} aria-hidden className="h-0" />}
     </div>
   );
 }
