@@ -20,13 +20,17 @@
  *
  * Sonnet is the deployed default and Opus is here because the first cost table was
  * measured on it, so a comparison between the two tiers stays reproducible rather than
- * remembered. Haiku reviews checks for understanding (lib/checks/review.ts). Keyed by the exact model identifier the provider reports, so a model with no
+ * remembered. Haiku reviews checks for understanding (lib/checks/review.ts). Sonnet 5.5 answers
+ * the Tutor (lib/tutor/ask.ts), and Haiku 5.5 is the tier `TUTOR_MODEL` may name instead; its
+ * rate is the one for prompts of 100,000 tokens or fewer, which every Tutor prompt is. Keyed by the exact model identifier the provider reports, so a model with no
  * entry is reported as unpriced instead of being silently costed at another tier's rate.
  */
 export const RATES: Record<string, { input: number; output: number }> = {
   "claude-sonnet-5": { input: 2, output: 10 },
+  "claude-sonnet-5-5": { input: 2, output: 10 },
   "claude-opus-5": { input: 5, output: 25 },
   "claude-haiku-4-5": { input: 1, output: 5 },
+  "claude-haiku-5-5": { input: 0.1, output: 0.5 },
 };
 
 /**

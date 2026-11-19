@@ -8,6 +8,7 @@ const TAB_LABEL: Record<RecordTab, string> = {
   performance: "Performance",
   coaching: "Coaching",
   trends: "Trends",
+  tutor: "Tutor",
 };
 
 /**

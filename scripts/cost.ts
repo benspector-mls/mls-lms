@@ -79,30 +79,38 @@ async function main() {
 
   const filter = process.argv[2];
 
-  const [gradingDrafts, checkAttempts, checkSummaries, coachingSummaries] = await Promise.all([
-    db.gradingDraft.findMany({
-      orderBy: { createdAt: "asc" },
-      select: { createdAt: true, modelMetadata: true },
-    }),
-    db.checkAttempt.findMany({
-      where: { modelMetadata: { not: Prisma.DbNull } },
-      orderBy: { submittedAt: "asc" },
-      select: { submittedAt: true, modelMetadata: true },
-    }),
-    db.checkSummary.findMany({
-      orderBy: { writtenAt: "asc" },
-      select: { writtenAt: true, modelMetadata: true },
-    }),
-    db.coachingSummary.findMany({
-      orderBy: { createdAt: "asc" },
-      select: { createdAt: true, modelMetadata: true },
-    }),
-  ]);
+  const [gradingDrafts, checkAttempts, checkSummaries, coachingSummaries, tutorAnswers] =
+    await Promise.all([
+      db.gradingDraft.findMany({
+        orderBy: { createdAt: "asc" },
+        select: { createdAt: true, modelMetadata: true },
+      }),
+      db.checkAttempt.findMany({
+        where: { modelMetadata: { not: Prisma.DbNull } },
+        orderBy: { submittedAt: "asc" },
+        select: { submittedAt: true, modelMetadata: true },
+      }),
+      db.checkSummary.findMany({
+        orderBy: { writtenAt: "asc" },
+        select: { writtenAt: true, modelMetadata: true },
+      }),
+      db.coachingSummary.findMany({
+        orderBy: { createdAt: "asc" },
+        select: { createdAt: true, modelMetadata: true },
+      }),
+      // Only the Tutor's answers carry usage; the questions are the fellow's own rows.
+      db.tutorMessage.findMany({
+        where: { modelMetadata: { not: Prisma.DbNull } },
+        orderBy: { createdAt: "asc" },
+        select: { createdAt: true, modelMetadata: true },
+      }),
+    ]);
   const drafts = [
     ...gradingDrafts,
     ...checkAttempts.map((a) => ({ createdAt: a.submittedAt, modelMetadata: a.modelMetadata })),
     ...checkSummaries.map((c) => ({ createdAt: c.writtenAt, modelMetadata: c.modelMetadata })),
     ...coachingSummaries,
+    ...tutorAnswers,
   ].sort((a, b) => a.createdAt.getTime() - b.createdAt.getTime());
 
   const priced: Priced[] = [];

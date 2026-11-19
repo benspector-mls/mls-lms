@@ -82,6 +82,7 @@ export const SECTIONS: Record<RecordTab, OutlineSection[]> = {
     { id: "last-few-weeks", label: "Last few weeks" },
     { id: "themes", label: "Themes" },
   ],
+  tutor: [{ id: "conversations", label: "Conversations" }],
 };
 
 type Data = RouterOutputs["programs"]["student"];

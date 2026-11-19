@@ -121,7 +121,7 @@ export function programSettingsHref(programId: string): string {
  * The tabs of a fellow's record, in the order they are offered. They are the Fellows screen's tabs
  * less the roster, because the record is one row of it. Performance is the bare record address.
  */
-export const RECORD_TABS = ["performance", "coaching", "trends"] as const;
+export const RECORD_TABS = ["performance", "coaching", "trends", "tutor"] as const;
 export type RecordTab = (typeof RECORD_TABS)[number];
 
 /**

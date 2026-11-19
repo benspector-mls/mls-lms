@@ -1,6 +1,7 @@
 "use client";
 
 import { ZoomIn } from "lucide-react";
+import { usePathname } from "next/navigation";
 import * as React from "react";
 
 import { Button } from "@/components/ui/button";
@@ -38,6 +39,7 @@ export function LessonTextSizeMenu() {
     not drawn at.
   */
   const [size, setSize] = React.useState<LessonTextSize>("default");
+  const pathname = usePathname();
   React.useEffect(() => {
     try {
       const saved = localStorage.getItem(LESSON_TEXT_SIZE_KEY);
@@ -49,6 +51,12 @@ export function LessonTextSizeMenu() {
       // Storage refused; the default stands.
     }
   }, []);
+
+  /*
+    Not on the Tutor's page, which has no lesson text to size and keeps its question box at the
+    bottom right, where this button would sit on the Ask button.
+  */
+  if (pathname.endsWith("/lessons/tutor")) return null;
 
   const choose = (value: unknown) => {
     if (!isLessonTextSize(value)) return;

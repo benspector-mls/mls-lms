@@ -221,6 +221,7 @@ model Profile {
   extensionsGranted      Submission[]            @relation("ExtensionGrantedBy")
   commentReads           SubmissionCommentRead[] @relation("CommentReads")
   checkAttempts          CheckAttempt[]
+  tutorMessages          TutorMessage[]
 
   @@map("profiles")
   @@schema("public")
@@ -644,6 +645,7 @@ model Course {
   assignments Assignment[]
   courseUnits CourseUnit[]
   teamSets    TeamSet[]
+  tutorMessages TutorMessage[]
 
   /// Redundant against the primary key, and bought for two readers: `CourseInstructor` and
   /// `TeamSet` both point at `(courseId, programId)` together, which is what makes a course of one
@@ -1657,6 +1659,7 @@ model Assignment {
   courseUnit           CourseUnit   @relation(fields: [courseUnitId], references: [id], onDelete: Restrict)
   teamSet              TeamSet?     @relation(fields: [teamSetId, courseId], references: [id, courseId], onDelete: Restrict)
   submissions          Submission[]
+  tutorMessages        TutorMessage[]
   /// Never read. It exists so that the foreign key behind it exists — see
   /// `Submission.assignmentTeamSet`. `submissions` above is the relation to use.
   submissionsByTeamSet Submission[] @relation("SubmissionTeamSet")
@@ -3524,5 +3527,51 @@ model LessonSection {
   @@index([lessonId, position])
   @@index([search], map: "lesson_sections_search_idx", type: Gin)
   @@map("lesson_sections")
+  @@schema("public")
+}
+
+/// Who wrote one turn of a Tutor conversation.
+enum TutorRole {
+  /// The person asking: a fellow, or an instructor trying the Tutor on their own lesson page.
+  USER
+  /// Claude's answer.
+  TUTOR
+
+  @@schema("public")
+}
+
+/// One turn of a conversation with the Tutor: a question about the course's lessons or about one
+/// of its assignments, or Claude's answer to it.
+///
+/// **`assignmentId` is the scope.** Null is the course's own conversation, reached from the bar
+/// above the lessons; set, it is the conversation on that assignment's panel. A fellow has one of
+/// each, under the course.
+///
+/// **Kept under the asker's profile.** A fellow's conversations are read by the program's
+/// instructors on the fellow's record, and the chat says so. An instructor trying the Tutor from
+/// their own lessons stores their turns under their own profile, which no record shows.
+///
+/// Not audited: it is the asker's own record, and the hourly limit on asking counts this table.
+model TutorMessage {
+  id           String    @id @default(uuid()) @db.Uuid
+  profileId    String    @map("profile_id") @db.Uuid
+  courseId     String    @map("course_id") @db.Uuid
+  assignmentId String?   @map("assignment_id") @db.Uuid
+  role         TutorRole
+  content      String
+  /// TUTOR turns: the lesson sections the answer was given, as `{ slug, anchor, heading, title }`,
+  /// for the "Based on" links. Null when none matched.
+  sources      Json?
+  /// TUTOR turns: `{ provider, modelId, promptVersion, usage }`, the shape `check_attempts` and
+  /// the summaries record, so `npm run cost` prices it.
+  modelMetadata Json?    @map("model_metadata")
+  createdAt    DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+
+  profile    Profile     @relation(fields: [profileId], references: [id], onDelete: Cascade)
+  course     Course      @relation(fields: [courseId], references: [id], onDelete: Cascade)
+  assignment Assignment? @relation(fields: [assignmentId], references: [id], onDelete: Cascade)
+
+  @@index([profileId, courseId, assignmentId, createdAt])
+  @@map("tutor_messages")
   @@schema("public")
 }

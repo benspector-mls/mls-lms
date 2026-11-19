@@ -132,12 +132,13 @@ export type Redaction = {
 /**
  * Every way a person's name might be written: the whole name, each part of it, the GitHub login,
  * and the email with and without its domain. A part shorter than two letters is left out, because
- * an initial would hide every "a" and "I" in the record.
+ * an initial would hide every "a" and "I" in the record. Without `parts`, only the whole name,
+ * because a part alone — Will, Grace, Max — is as often an ordinary word.
  */
-function namesOf(person: PersonName): string[] {
+function namesOf(person: PersonName, parts: boolean): string[] {
   const names: string[] = [];
   const full = person.displayName?.trim().replace(/\s+/g, " ");
-  if (full) names.push(full, ...full.split(" "));
+  if (full) names.push(full, ...(parts ? full.split(" ") : []));
   if (person.githubUsername) names.push(person.githubUsername);
   if (person.email) names.push(person.email, person.email.split("@")[0]);
   return names.filter((name) => name.length >= 2);
@@ -155,20 +156,36 @@ function alternation(texts: string[]): string {
     .join("|");
 }
 
+/**
+ * What to hide besides whole names. A coaching record hides the sensitive terms above and each part
+ * of a name; text a fellow typed themselves, as a question to the Tutor, hides neither, because
+ * there "legal" and "court" are about code as often as not, and a name's part alone — Will, Grace,
+ * Max — is as often the ordinary word.
+ */
+export type RedactionOptions = {
+  terms?: readonly string[];
+  nameParts?: boolean;
+};
+
 /** Replaces names and sensitive terms in `text`, and returns how to put them back. */
-export function redact(text: string, names: RedactionNames): Redaction {
+export function redact(
+  text: string,
+  names: RedactionNames,
+  { terms = SENSITIVE_TERMS, nameParts = true }: RedactionOptions = {},
+): Redaction {
   // The fellow's names are claimed first, so a classmate who shares a first name never takes it.
-  const fellowNames = new Set(namesOf(names.fellow).map((name) => name.toLowerCase()));
+  const fellowNames = new Set(namesOf(names.fellow, nameParts).map((name) => name.toLowerCase()));
   const otherNames = new Set(
     names.others
-      .flatMap(namesOf)
+      .flatMap((person) => namesOf(person, nameParts))
       .map((name) => name.toLowerCase())
       .filter((name) => !fellowNames.has(name)),
   );
 
   const nameTexts = [...fellowNames, ...otherNames];
   const nameGroup = nameTexts.length > 0 ? `(?<name>${alternation(nameTexts)})` : "(?<name>(?!))";
-  const termGroup = `(?<term>(?:${alternation([...SENSITIVE_TERMS])})(?:e?s)?)`;
+  const termGroup =
+    terms.length > 0 ? `(?<term>(?:${alternation([...terms])})(?:e?s)?)` : "(?<term>(?!))";
   // A letter, digit or underscore on either side means the match is part of a longer word.
   const pattern = new RegExp(
     `(?<![\\p{L}\\p{N}_])(?:${nameGroup}|${termGroup})(?![\\p{L}\\p{N}_])`,

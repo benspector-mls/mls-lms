@@ -1,10 +1,7 @@
 "use client";
 
-import { TableOfContents } from "lucide-react";
 import * as React from "react";
 
-import { Button } from "@/components/ui/button";
-import { Sheet, SheetContent, SheetTitle } from "@/components/ui/sheet";
 import { cn } from "@/lib/utils";
 
 /** One entry in the outline: the `id` of a `<section>` on the page, and the words that name it. */
@@ -38,9 +35,9 @@ const toneClasses = {
  *
  * **Two layouts, chosen by how wide the page's own column is rather than by the viewport.** When
  * there is room beside the content for a 10rem column, the outline is a list there and stays in
- * view as the page scrolls. When there is not, an **On this page** button floats at the top right
- * of the page, where the title row leaves space, and opens the same list in a panel from the
- * right. The measure is the width of
+ * view as the page scrolls. When there is not, a rail of short bars floats at the right edge of
+ * the window, one per section with the current one dark, and opens into the same list when the
+ * pointer rests on it or it is pressed; see `OutlineRail`. The measure is the width of
  * `<main>`, not the window, because the sidebar takes 16rem of the window when it is open and 3rem
  * when it is collapsed to its rail: whether the column fits is a fact about what is left after the
  * sidebar, and a viewport breakpoint would have to guess.
@@ -49,6 +46,11 @@ const toneClasses = {
  * 48rem for the content, 10rem for the column, 2rem between them and 3rem of page padding, so 63rem;
  * one capped at 56rem needs 71rem. Tailwind needs every variant written out, so each cap has its own
  * strings below rather than a number plugged into one.
+ *
+ * **The rail has a column of its own on a narrow page.** The page's right padding grows by the
+ * rail's width while the rail is shown, and returns to the page's own padding once the side
+ * column fits, so the bars never sit over the text. On a phone the rail is slimmer and its
+ * column 2rem, since every rem of a 24rem page is words on a line.
  *
  * **A page with no sections is one column at every width.** Without that, the grid would keep the
  * outline's narrow column on a wide screen and the content would fall into it.
@@ -106,10 +108,10 @@ export function OutlinedPage({
     <div className="@container">
       {hasOutline && !strip && (
         <div className={cn(FLOATING_TOP, layout.button)}>
-          <OutlinePanel
+          <OutlineRail
             sections={sections}
             active={active}
-            className="absolute top-2 right-4 md:right-6"
+            className="absolute top-[calc((100svh_-_var(--outline-chrome))/2)] right-1 -translate-y-1/2 md:right-4"
           />
         </div>
       )}
@@ -123,7 +125,7 @@ export function OutlinedPage({
               */
               "[--outline-offset:calc(var(--outline-chrome)_+_3.5rem)] [--outline-sticky-top:calc(var(--outline-chrome)_+_3rem)]"
             : "[--outline-offset:calc(var(--outline-chrome)_+_1rem)] [--outline-sticky-top:var(--outline-chrome)]",
-          hasOutline && !strip ? layout.frame : layout.single,
+          hasOutline && !strip ? [layout.frame, layout.rail] : layout.single,
         )}
       >
         {header}
@@ -139,12 +141,11 @@ export function OutlinedPage({
 }
 
 /**
- * A row with no height stuck just under the chrome, which "On this page" floats in at the top right
- * of a narrow page. It takes no room, so it sits over the top of the page — where the title row
- * leaves its right end empty — and stays there as the page scrolls. It is placed before the page so
- * its first position is the page's top, and above stuck headings so they pass beneath it. A
- * `fixed` button would not work: the page is a size container, and a `fixed` element inside one
- * scrolls away with it.
+ * A row with no height stuck just under the chrome, which the outline's rail floats in at the
+ * right edge of a narrow page, halfway down the window. It takes no room, so it sits over the
+ * page and stays there as the page scrolls. It is placed before the page so its first position
+ * is the page's top, and above stuck headings so they pass beneath it. A `fixed` rail would not
+ * work: the page is a size container, and a `fixed` element inside one scrolls away with it.
  */
 const FLOATING_TOP = "pointer-events-none sticky top-(--outline-chrome) z-20 h-0";
 
@@ -159,6 +160,7 @@ const layouts = {
       "max-w-3xl @min-[63rem]:max-w-[60rem] @min-[63rem]:grid-cols-[minmax(0,1fr)_10rem] @min-[63rem]:gap-x-8",
     nav: "hidden @min-[63rem]:sticky @min-[63rem]:col-start-2 @min-[63rem]:row-span-2 @min-[63rem]:row-start-1 @min-[63rem]:block @min-[63rem]:self-start @min-[63rem]:top-[calc(var(--outline-chrome)_+_1rem)]",
     button: "@min-[63rem]:hidden",
+    rail: "pr-8 md:pr-14 @min-[63rem]:pr-4 @min-[63rem]:md:pr-6",
   },
   "4xl": {
     single: "max-w-4xl",
@@ -166,6 +168,7 @@ const layouts = {
       "max-w-4xl @min-[71rem]:max-w-[68rem] @min-[71rem]:grid-cols-[minmax(0,1fr)_10rem] @min-[71rem]:gap-x-8",
     nav: "hidden @min-[71rem]:sticky @min-[71rem]:col-start-2 @min-[71rem]:row-span-2 @min-[71rem]:row-start-1 @min-[71rem]:block @min-[71rem]:self-start @min-[71rem]:top-[calc(var(--outline-chrome)_+_1rem)]",
     button: "@min-[71rem]:hidden",
+    rail: "pr-8 md:pr-14 @min-[71rem]:pr-4 @min-[71rem]:md:pr-6",
   },
 } as const;
 
@@ -223,14 +226,19 @@ function useActiveSection(sections: OutlineSection[]): string | null {
 }
 
 /**
- * The outline on a narrow page: a button floating at the top right of the page, and the panel it
- * opens. `OutlinedPage` places it in a `FLOATING_TOP` row.
+ * The outline on a narrow page: a rail of short bars at the right edge of the window, one per
+ * section with the section being read drawn dark, which opens into the list of sections.
+ * `OutlinedPage` places it in a `FLOATING_TOP` row.
  *
- * **Choosing an entry closes the panel first and moves the page after.** The panel locks the
- * page's scrolling while it is open, so a jump made at the moment of the click would be undone when
- * the lock is released.
+ * **Bars rather than a button**, so the reader's place in the page is always in view without
+ * anything being opened, as the bars at the side of a Notion page show it. A bar for a `###`
+ * heading is shorter than one for a `##`, so the shape of the page is visible in the rail. The
+ * list opens while the pointer rests on the rail and closes when it leaves. A press opens and
+ * closes it as well, for a touch screen, where nothing hovers, and for a keyboard; Escape closes
+ * it, and so does choosing an entry, after the link has moved the page. The rail stays drawn
+ * under the open list, so the press that opened it keeps its focus.
  */
-function OutlinePanel({
+function OutlineRail({
   sections,
   active,
   className,
@@ -240,48 +248,48 @@ function OutlinePanel({
   className?: string;
 }) {
   const [open, setOpen] = React.useState(false);
-  const pending = React.useRef<string | null>(null);
 
   return (
-    <div className={className}>
-      <Sheet
-        open={open}
-        onOpenChange={setOpen}
-        onOpenChangeComplete={(isOpen) => {
-          if (isOpen || pending.current === null) return;
-          const id = pending.current;
-          pending.current = null;
-          document.getElementById(id)?.scrollIntoView();
-          // A step the Back button returns from, as a jump from the column's link is.
-          history.pushState(null, "", `#${id}`);
-        }}
+    <div
+      className={cn("pointer-events-auto", className)}
+      onMouseEnter={() => setOpen(true)}
+      onMouseLeave={() => setOpen(false)}
+      onKeyDown={(event) => {
+        if (event.key === "Escape") setOpen(false);
+      }}
+      onBlur={(event) => {
+        if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setOpen(false);
+      }}
+    >
+      <button
+        type="button"
+        aria-label="On this page"
+        aria-expanded={open}
+        onClick={() => setOpen((isOpen) => !isOpen)}
+        className="flex flex-col items-end gap-1 rounded-md p-1 md:p-2"
       >
-        <Button
-          type="button"
-          variant="outline"
-          className="pointer-events-auto rounded-full shadow-md"
-          onClick={() => setOpen(true)}
-          data-icon="inline-start"
+        {sections.map((section) => (
+          <span
+            key={section.id}
+            aria-hidden
+            className={cn(
+              "block h-0.5 rounded-full transition-colors",
+              section.level === 2 ? "w-2 md:w-2.5" : "w-3 md:w-4",
+              section.id === active ? "bg-foreground" : "bg-muted-foreground/40",
+            )}
+          />
+        ))}
+      </button>
+      {open && (
+        <div
+          className="absolute top-1/2 right-0 max-h-[70svh] w-64 -translate-y-1/2 overflow-y-auto rounded-lg border border-border bg-background p-2 shadow-lg"
+          onClick={(event) => {
+            if ((event.target as HTMLElement).closest("a")) setOpen(false);
+          }}
         >
-          <TableOfContents aria-hidden />
-          On this page
-        </Button>
-        <SheetContent side="right" className="gap-0 p-0">
-          <SheetTitle className="px-4 pt-4 pb-2 text-xs font-medium tracking-wide text-muted-foreground uppercase">
-            On this page
-          </SheetTitle>
-          <div className="min-h-0 overflow-y-auto px-2 pb-4">
-            <OutlineList
-              sections={sections}
-              active={active}
-              onChoose={(id) => {
-                pending.current = id;
-                setOpen(false);
-              }}
-            />
-          </div>
-        </SheetContent>
-      </Sheet>
+          <OutlineList sections={sections} active={active} />
+        </div>
+      )}
     </div>
   );
 }

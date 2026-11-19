@@ -30,6 +30,7 @@ import { submissionCommentsRouter } from "./submission-comments";
 import { teamSetsRouter } from "./team-sets";
 import { testRunsRouter } from "./test-runs";
 import { testStudentsRouter } from "./test-students";
+import { tutorRouter } from "./tutor";
 
 /** Columns safe to send to the browser. Keeps future additions opt-in. */
 const profileFields = {
@@ -386,6 +387,7 @@ export const appRouter = createTRPCRouter({
   testStudents: testStudentsRouter,
   lessons: lessonsRouter,
   curricula: curriculaRouter,
+  tutor: tutorRouter,
 });
 
 // export type definition of API

@@ -1,8 +1,12 @@
+import { GraduationCap } from "lucide-react";
+import Link from "next/link";
 import { Suspense } from "react";
 
 import { LessonTextSizeMenu } from "@/components/lesson/lesson-text-size";
 import { LessonsButton, LessonSearchBox, LessonTree } from "@/components/lesson/lesson-tree";
+import { buttonVariants } from "@/components/ui/button";
 import { courseLessonsHref, instructorLessonsHref } from "@/lib/links";
+import { cn } from "@/lib/utils";
 import { getQueryClient, trpc } from "@/trpc/server";
 
 /** Which side of the application a course's lessons are read from, which decides their address. */
@@ -41,7 +45,7 @@ export function LessonsFrame({
       the floating On this page button all sit below the bar rather than beneath it.
     */
     <div className="@container/lessons w-full [--outline-chrome:calc(7rem_+_var(--view-as-banner,0px))]">
-      <div className="sticky top-[calc(3.5rem_+_var(--view-as-banner,0px))] z-30 flex h-14 items-center gap-3 border-b border-border bg-background px-4 md:px-6">
+      <div className="sticky top-[calc(3.5rem_+_var(--view-as-banner,0px))] z-30 grid h-14 grid-cols-[1fr_minmax(0,28rem)_1fr] items-center gap-3 border-b border-border bg-background px-4 md:px-6">
         <Suspense fallback={null}>
           <BarContents params={params} side={side} />
         </Suspense>
@@ -62,7 +66,10 @@ export function LessonsFrame({
           {/* Magnify, floating at the bottom right at every width; see `LessonTextSizeMenu`. */}
           <div className="pointer-events-none sticky bottom-4 z-20 h-0">
             <div className="pointer-events-auto absolute right-4 bottom-0 md:right-6">
-              <LessonTextSizeMenu />
+              {/* The menu reads the path to stay off the Tutor's page, which a prerender needs a boundary for. */}
+              <Suspense fallback={null}>
+                <LessonTextSizeMenu />
+              </Suspense>
             </div>
           </div>
         </div>
@@ -88,8 +95,8 @@ async function lessonsOf(params: Promise<{ courseId: string }>, side: LessonsSid
 
 /**
  * The bar above the lessons, as GitBook has one: the Lessons button on the left on a page too
- * narrow for the tree's column, and the search box on the right at every width, so a search can be
- * started from anywhere in the lessons.
+ * narrow for the tree's column, Ask the Tutor in the middle, and the search box on the right at
+ * every width, so a search or a question can be started from anywhere in the lessons.
  */
 async function BarContents({
   params,
@@ -103,16 +110,26 @@ async function BarContents({
 
   return (
     <>
-      {course.lessons.length > 0 && (
-        <LessonsButton
-          lessons={course.lessons}
-          lessonsBase={course.lessonsBase}
-          className="@min-[72rem]/lessons:hidden"
-        />
-      )}
-      <div className="ml-auto w-full max-w-xs">
+      <div>
+        {course.lessons.length > 0 && (
+          <LessonsButton
+            lessons={course.lessons}
+            lessonsBase={course.lessonsBase}
+            className="@min-[72rem]/lessons:hidden"
+          />
+        )}
+      </div>
+      <div className="w-full max-w-md justify-self-center">
         <LessonSearchBox lessonsBase={course.lessonsBase} />
       </div>
+      <Link
+        href={`${course.lessonsBase}/tutor`}
+        aria-label="Ask the Tutor"
+        className={cn(buttonVariants({ variant: "outline", size: "sm" }), "gap-2 justify-self-end")}
+      >
+        <GraduationCap aria-hidden />
+        <span className="hidden @min-[40rem]/lessons:inline">Ask the Tutor</span>
+      </Link>
     </>
   );
 }

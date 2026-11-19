@@ -3,7 +3,13 @@
 // ^-- to make sure we can mount the Provider from a server component
 import type { QueryClient } from "@tanstack/react-query";
 import { QueryClientProvider } from "@tanstack/react-query";
-import { createTRPCClient, httpBatchLink, httpLink, splitLink } from "@trpc/client";
+import {
+  createTRPCClient,
+  httpBatchLink,
+  httpBatchStreamLink,
+  httpLink,
+  splitLink,
+} from "@trpc/client";
 import { createTRPCContext } from "@trpc/tanstack-react-query";
 import { useState } from "react";
 import superjson from "superjson";
@@ -83,8 +89,19 @@ export function TRPCReactProvider(
         splitLink({
           condition: (op) => op.type === "mutation",
           // Must be the same transformer as initTRPC.create() in init.ts — if these two
-          // disagree you get decode failures, not a clean error. Both links carry it.
-          true: httpLink({ transformer: superjson, url: getUrl() }),
+          // disagree you get decode failures, not a clean error. Every link carries it.
+          true: splitLink({
+            /*
+              The Tutor's answer is streamed as Claude writes it: `tutor.ask` is a generator, and
+              tRPC refuses a generator's result on any link but this one. The link batches calls
+              made in the same tick, which the paragraph above warns against; the chat sends one
+              question at a time and refuses another until the answer is complete, so this
+              procedure never shares a request.
+            */
+            condition: (op) => op.path === "tutor.ask",
+            true: httpBatchStreamLink({ transformer: superjson, url: getUrl() }),
+            false: httpLink({ transformer: superjson, url: getUrl() }),
+          }),
           false: httpBatchLink({ transformer: superjson, url: getUrl() }),
         }),
       ],

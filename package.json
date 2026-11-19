@@ -35,6 +35,7 @@
     "grade": "tsx --conditions=react-server scripts/grade.ts",
     "calibrate": "tsx --conditions=react-server scripts/calibrate.ts",
     "calibrate:checks": "tsx --conditions=react-server scripts/calibrate-checks.ts",
+    "calibrate:tutor": "tsx --conditions=react-server scripts/calibrate-tutor.ts",
     "cost": "tsx --conditions=react-server scripts/cost.ts",
     "approve": "tsx --conditions=react-server scripts/approve.ts",
     "verify:app": "tsx --conditions=react-server scripts/verify-github-app.ts",

@@ -27,6 +27,7 @@ import { EmptyState } from "@/components/list-states";
 import { Markdown } from "@/components/markdown";
 import { AssignmentKindIcon, SubmissionStatusBadge } from "@/components/status-badge";
 import { SubmittedDocumentRow } from "@/components/submitted-document";
+import { TutorChat } from "@/components/tutor/tutor-chat";
 import { UploadedFileRow } from "@/components/uploaded-file";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { Button, buttonVariants } from "@/components/ui/button";
@@ -42,6 +43,7 @@ import {
 } from "@/components/ui/sheet";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { handInMethodsFor, hasAcceptStep, taskIsSelfMarked } from "@/lib/assignments/spec";
+import { courseLessonsHref } from "@/lib/links";
 import type { AssignmentKind } from "@/lib/generated/prisma/enums";
 import {
   acceptAttributeFor,
@@ -236,6 +238,7 @@ function PanelBody({
     half-typed question would be lost by pressing Feedback and coming back.
   */
   const [draft, setDraft] = React.useState("");
+  const [tutorDraft, setTutorDraft] = React.useState("");
   const [anchor, setAnchor] = React.useState<ComposerAnchor | null>(null);
   const [announcement, setAnnouncement] = React.useState("");
 
@@ -350,6 +353,12 @@ function PanelBody({
               )}
             </TabsTrigger>
           )}
+          {/*
+            The Tutor is a tab beside Comments because both are where a stuck fellow goes; the
+            difference is who answers. Not in a preview, which has no fellow to keep a conversation
+            for.
+          */}
+          {!preview && <TabsTrigger value="tutor">Tutor</TabsTrigger>}
         </TabsList>
 
         {/* The panels scroll, not the panel, so the header stays put while a long report moves. */}
@@ -465,6 +474,22 @@ function PanelBody({
               />
             </div>
           </fieldset>
+        </TabsContent>
+
+        {/*
+          Open rather than behind a button, because choosing the tab is the choice. An instructor
+          looking through the fellow's account reads the conversation and can send nothing.
+        */}
+        <TabsContent value="tutor" className="min-h-0 flex-1 overflow-y-auto px-4 pb-6">
+          <TutorChat
+            courseId={assignment.courseId}
+            scope={{ assignmentId: assignment.id }}
+            audience="fellow"
+            lessonsBase={courseLessonsHref(assignment.courseId)}
+            disabled={readOnly}
+            draft={tutorDraft}
+            onDraftChange={setTutorDraft}
+          />
         </TabsContent>
       </Tabs>
     </>

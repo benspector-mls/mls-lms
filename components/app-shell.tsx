@@ -265,6 +265,7 @@ function useBreadcrumbs(
       { label: "Lessons", href: atStart ? undefined : lessonHref(courseId) },
     ];
     if (lessonSlug === "" && searching) return [...crumbs, { label: "Search results" }];
+    if (lessonSlug === "tutor") return [...crumbs, { label: "Tutor" }];
 
     const lessons = lessonTree.data?.lessons ?? [];
     const slug = lessonSlug === "" ? lessons[0]?.slug : lessonSlug;
