@@ -5,6 +5,7 @@ import { Toaster } from "@/components/ui/sonner";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { TRPCReactProvider } from "@/trpc/client";
 import "./globals.css";
+import { LESSON_TEXT_SIZE_SCRIPT } from "@/lib/lessons/text-size";
 
 const defaultUrl = process.env.VERCEL_URL
   ? `https://${process.env.VERCEL_URL}`
@@ -42,6 +43,14 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en" suppressHydrationWarning>
+      <head>
+        {/*
+          A lesson's saved text size, set on <html> before anything is painted and kept there across
+          moves inside the application, so a lesson never appears at one size and then jumps to
+          another. See lib/lessons/text-size.ts.
+        */}
+        <script dangerouslySetInnerHTML={{ __html: LESSON_TEXT_SIZE_SCRIPT }} />
+      </head>
       <body className={`${geistSans.variable} ${geistMono.variable} antialiased`}>
         <ThemeProvider
           attribute="class"

@@ -448,7 +448,7 @@ export function CoachingSessionForm({
  * layout.
  *
  * The `id` is what the outline links to, and `scroll-mt-(--outline-offset)` is what lands the
- * heading under the sticky outline rather than behind it; see `OutlinedPage`.
+ * heading under the shell's sticky header rather than behind it; see `OutlinedPage`.
  */
 function Part({
   id,

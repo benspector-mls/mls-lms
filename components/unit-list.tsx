@@ -7,7 +7,7 @@ import { cn } from "@/lib/utils";
  *
  * Four call sites, and they are the same three elements at every one: a section divided from what
  * is above it, an uppercase heading, and a list with rules between its rows. The instructor's
- * Curriculum screen draws one for the work in a unit and one for the readings; a student's course
+ * Coursework screen draws one for the work in a unit and one for the readings; a student's course
  * page draws the same two. Written out four times they had already drifted — one pair of screens
  * padded the heading above by ten pixels and the other by twelve — which is the kind of difference
  * nobody sees and everybody half-notices.

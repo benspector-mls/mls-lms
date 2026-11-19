@@ -14,7 +14,7 @@ import { useTRPC } from "@/trpc/client";
  * Which assignment the grading queue beside this is open on, switchable to another in the course.
  *
  * Grouped by module, in curriculum order — the same shape `courseUnits.listForCourse` already
- * computes for the Curriculum screen's own tree, read here rather than recomputed: a unit, the
+ * computes for the Coursework screen's own tree, read here rather than recomputed: a unit, the
  * work in it, in the order an instructor put it in.
  *
  * A combobox rather than a select, because a course has dozens of assignments and finding one by

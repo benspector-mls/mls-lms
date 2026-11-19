@@ -7,6 +7,9 @@ import {
   editAssignmentHref,
   gradebookHref,
   gradingQueueHref,
+  adminLessonsHref,
+  courseLessonsHref,
+  instructorLessonsHref,
   newAssignmentHref,
   programSettingsHref,
   programsHref,
@@ -118,6 +121,25 @@ describe("the Fellows screen and a fellow's record address their tabs", () => {
     // So that the session's address reads as part of the tab it is reached from and returns to.
     expect(coachingSessionHref(PROGRAM, STUDENT, SUBMISSION)).toBe(
       `${programStudentHref(PROGRAM, STUDENT, "coaching")}/${SUBMISSION}`,
+    );
+  });
+});
+
+describe("a course's lessons", () => {
+  it("addresses a lesson under its course, on each side, by its path in the repository", () => {
+    expect(courseLessonsHref(COURSE)).toBe(`/courses/${COURSE}/lessons`);
+    expect(courseLessonsHref(COURSE, "mod-1-python-fundamentals/6-loops")).toBe(
+      `/courses/${COURSE}/lessons/mod-1-python-fundamentals/6-loops`,
+    );
+    expect(instructorLessonsHref(COURSE, "mod-1-python-fundamentals")).toBe(
+      `/instructor/courses/${COURSE}/lessons/mod-1-python-fundamentals`,
+    );
+    expect(adminLessonsHref()).toBe("/admin/lessons");
+  });
+
+  it("travels to the other course's lessons, not to the same lesson there", () => {
+    expect(sameViewInCourse(`/instructor/courses/${COURSE}/lessons/mod-1/6-loops`, OTHER)).toBe(
+      `/instructor/courses/${OTHER}/lessons`,
     );
   });
 });

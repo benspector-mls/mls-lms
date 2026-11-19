@@ -631,10 +631,15 @@ model Course {
   /// would be maintained on every write to earn nothing on a sort of four rows.
   position Int
 
+  /// The curriculum this course's fellows read under its Lessons view, chosen by its instructors on
+  /// its Settings screen. Null shows no Lessons view. A curriculum a course uses cannot be removed.
+  curriculumId String? @map("curriculum_id") @db.Uuid
+
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
   updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
 
   program     Program            @relation(fields: [programId], references: [id], onDelete: Cascade)
+  curriculum  Curriculum?        @relation(fields: [curriculumId], references: [id], onDelete: Restrict)
   instructors CourseInstructor[]
   assignments Assignment[]
   courseUnits CourseUnit[]
@@ -3417,5 +3422,107 @@ model GoalComment {
 
   @@index([goalId, createdAt])
   @@map("goal_comments")
+  @@schema("public")
+}
+
+/// A curriculum: a public GitHub repository laid out for GitBook, which an admin registers on
+/// Admin → Lessons and the sync in lib/lessons/sync.ts copies into `lessons`. A course shows one
+/// whole curriculum, chosen by its instructors; see `Course.curriculumId`.
+model Curriculum {
+  id   String  @id @default(uuid()) @db.Uuid
+  /// What instructors choose it by, such as "Software Engineering".
+  name String
+  /// `owner/repo`.
+  repo String
+  /// A branch to copy. Null copies the repository's default branch.
+  ref  String?
+
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  lessons Lesson[]
+  courses Course[]
+
+  @@map("curricula")
+  @@schema("public")
+}
+
+/// One page of a curriculum, copied from its repository by the sync in lib/lessons/sync.ts. The
+/// repository is where authors write; this row is what the LMS reads, so rendering a lesson,
+/// listing the lessons and searching them never wait on GitHub.
+///
+/// **A lesson is its path.** Nothing in the repository names a page except where its file sits, so
+/// a file that is moved or renamed in `SUMMARY.md` arrives as a new row, and the old row is marked
+/// `removedAt` rather than deleted. Whatever later records a fellow's reading against the old row
+/// keeps pointing at what that fellow actually read.
+model Lesson {
+  id           String @id @default(uuid()) @db.Uuid
+  curriculumId String @map("curriculum_id") @db.Uuid
+  /// The address segment, `mod-1-python-fundamentals/6-loops`, unique within its curriculum. See
+  /// `lessonSlug` in lib/lessons/summary.ts.
+  slug        String
+  /// The file's path in the repository, `mod-1-python-fundamentals/6-loops.md`.
+  path        String
+  /// The link text `SUMMARY.md` gives the page. May hold `code` spans.
+  title       String
+  /// The `##` heading of `SUMMARY.md` the page sits under. Null before the first one.
+  partTitle   String? @map("part_title")
+  moduleSlug  String  @map("module_slug")
+  moduleTitle String  @map("module_title")
+  /// Order in `SUMMARY.md`, from 0.
+  position    Int
+  /// The page's markdown as the repository holds it, less the GitBook settings block some pages
+  /// open with. See `withoutFrontMatter` in lib/lessons/outline.ts.
+  body        String
+  /// The hash of the file's contents, which is how the sync tells a changed lesson from one it can
+  /// leave alone.
+  blobSha     String  @map("blob_sha")
+  /// The commit the body was read at. The page loads its images from this commit too.
+  commitSha   String  @map("commit_sha")
+
+  /// When `SUMMARY.md` stopped listing this page. Cleared if it is listed again.
+  removedAt DateTime? @map("removed_at") @db.Timestamptz(6)
+  syncedAt  DateTime  @map("synced_at") @db.Timestamptz(6)
+  createdAt DateTime  @default(now()) @map("created_at") @db.Timestamptz(6)
+  updatedAt DateTime  @default(now()) @updatedAt @map("updated_at") @db.Timestamptz(6)
+
+  curriculum Curriculum      @relation(fields: [curriculumId], references: [id], onDelete: Cascade)
+  sections   LessonSection[]
+
+  @@unique([curriculumId, slug])
+  @@index([curriculumId, position])
+  @@map("lessons")
+  @@schema("public")
+}
+
+/// A lesson cut at its `##` and `###` headings, as plain words, for full-text search: a result can
+/// then link to the heading its words sit under. Replaced whole whenever the lesson changes.
+///
+/// `search` is a generated column the migration writes by hand, with a GIN index, so Postgres keeps
+/// it current and nothing in the application writes it. The code is read with the `lesson_text`
+/// configuration, which keeps `for`, `if` and `and` because there they are Python; the heading and
+/// the prose are read with Postgres's English one, which leaves them out because there they are
+/// "Code Fences for Blocks of Code" and "if you want". Weighted heading, then code, then prose, so a match in a
+/// heading ranks first. Prisma reads a generation expression as a default, so the `@default` below
+/// is that expression exactly as Postgres stores it; written any other way, `npm run db:diff`
+/// proposes dropping it.
+model LessonSection {
+  id       String                   @id @default(uuid()) @db.Uuid
+  lessonId String                   @map("lesson_id") @db.Uuid
+  position Int
+  heading  String
+  /// The heading's id on the rendered page. See `headingSlugger` in lib/lessons/outline.ts.
+  anchor   String
+  /// The prose, as plain words.
+  text     String
+  /// The code: its fenced blocks' lines and its `inline code`. See `extractSections`.
+  code     String                   @default("")
+  search   Unsupported("tsvector")? @default(dbgenerated("((setweight(to_tsvector('english'::regconfig, heading), 'A'::\"char\") || setweight(to_tsvector('lesson_text'::regconfig, code), 'B'::\"char\")) || setweight(to_tsvector('english'::regconfig, text), 'C'::\"char\"))"))
+
+  lesson Lesson @relation(fields: [lessonId], references: [id], onDelete: Cascade)
+
+  @@index([lessonId, position])
+  @@index([search], map: "lesson_sections_search_idx", type: Gin)
+  @@map("lesson_sections")
   @@schema("public")
 }

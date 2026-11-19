@@ -21,6 +21,14 @@ import { useServerMutation } from "@/hooks/use-server-mutation";
 import { countLabel, Detail } from "@/components/instructor/impact-detail";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import {
+  Select,
+  SelectContent,
+  SelectGroup,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { studentRepoName } from "@/lib/courses/course-slug";
 import { displayNameOf } from "@/lib/people";
 import { programSettingsHref } from "@/lib/links";
@@ -66,6 +74,7 @@ export function CourseSettings({ data }: { data: Data }) {
 
       <NameCard data={data} />
       <PublishCard data={data} />
+      <LessonsCard data={data} />
       <CourseTestCard data={data} />
       <RepositoryNamingCard data={data} />
       <TeachingCard data={data} />
@@ -172,6 +181,87 @@ function NameCard({ data }: { data: Data }) {
           </Button>
         )}
       </form>
+    </section>
+  );
+}
+
+/** The value the select uses for "no curriculum", since a select's values are strings. */
+const NO_CURRICULUM = "none";
+
+/**
+ * Which curriculum this course's fellows read under its Lessons view.
+ *
+ * The list is every curriculum an admin has registered on Admin → Lessons. Choosing one adds a
+ * Lessons row under this course in its fellows' sidebar; choosing none takes the row away. The
+ * curricula are read here rather than with the rest of the screen, because they are the
+ * application's rather than the course's.
+ */
+function LessonsCard({ data }: { data: Data }) {
+  const trpc = useTRPC();
+  const settled = useServerMutation();
+  const curricula = useQuery(trpc.curricula.list.queryOptions());
+
+  const choose = useMutation(
+    trpc.courses.setCurriculum.mutationOptions(
+      settled({
+        onSuccess: (result) =>
+          toast.success(
+            result.curriculumId
+              ? "Fellows read these lessons now."
+              : "This course has no lessons now.",
+          ),
+      }),
+    ),
+  );
+
+  const current = data.course.curriculumId ?? NO_CURRICULUM;
+  const items: Record<string, string> = {
+    [NO_CURRICULUM]: "None",
+    ...(data.course.curriculumId && data.course.curriculum
+      ? { [data.course.curriculumId]: data.course.curriculum.name }
+      : {}),
+    ...Object.fromEntries(
+      (curricula.data ?? []).map((curriculum) => [curriculum.id, curriculum.name]),
+    ),
+  };
+
+  return (
+    <section
+      id="lessons"
+      className="scroll-mt-(--outline-offset) flex flex-col gap-3 rounded-lg border border-border p-4"
+    >
+      <h2 className="text-sm font-medium">Lessons</h2>
+      <label className="flex max-w-sm flex-col gap-1.5">
+        <span className="text-xs font-medium">Curriculum</span>
+        <Select
+          value={current}
+          items={items}
+          disabled={choose.isPending}
+          onValueChange={(value) => {
+            if (typeof value !== "string" || value === current) return;
+            choose.mutate({
+              courseId: data.course.id,
+              curriculumId: value === NO_CURRICULUM ? null : value,
+            });
+          }}
+        >
+          <SelectTrigger className="w-full">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectGroup>
+              {Object.entries(items).map(([value, label]) => (
+                <SelectItem key={value} value={value}>
+                  {label}
+                </SelectItem>
+              ))}
+            </SelectGroup>
+          </SelectContent>
+        </Select>
+      </label>
+      <p className="text-xs text-muted-foreground">
+        Fellows of this course read these lessons under it, in a Lessons row in their sidebar.
+      </p>
     </section>
   );
 }

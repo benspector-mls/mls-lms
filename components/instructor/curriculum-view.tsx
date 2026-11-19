@@ -521,11 +521,10 @@ function UnitSection({
             className={cn(panelSurface, "scroll-mt-(--outline-offset) overflow-clip")}
           >
             {/*
-              Sticky on a wide screen, so an instructor partway down a long unit can still see
-              which unit the rows belong to; the next unit's header pushes it away. Beside the
-              outline's strip on a narrower screen it scrolls normally, because the strip already
-              takes height at the top and `--outline-sticky-top` is undefined there — see
-              `OutlinedPage`. `z-1` keeps rows that scroll under it from painting over it, and
+              Sticky at every width, so an instructor partway down a long unit can still see
+              which unit the rows belong to; the next unit's header pushes it away.
+              `--outline-sticky-top` is the bottom of the shell's header — see `OutlinedPage`.
+              `z-1` keeps rows that scroll under it from painting over it, and
               stays beneath a unit being dragged.
             */}
             <div className="sticky top-(--outline-sticky-top) z-1 flex flex-wrap items-center gap-2 bg-muted px-2 py-2">

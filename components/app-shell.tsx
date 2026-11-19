@@ -7,6 +7,7 @@ import { useQuery, useSuspenseQuery } from "@tanstack/react-query";
 import { PreviewCard as PreviewCardPrimitive } from "@base-ui/react/preview-card";
 import {
   BarChart3,
+  BookOpen,
   CalendarCheck,
   ClipboardList,
   Target,
@@ -88,6 +89,9 @@ import {
   gradebookHref,
   gradingQueueHref,
   gcfHref,
+  adminLessonsHref,
+  courseLessonsHref,
+  instructorLessonsHref,
   myAttendanceHref,
   myGoalsHref,
   fellowsHref,
@@ -100,6 +104,7 @@ import {
   triageHref,
 } from "@/lib/links";
 import { LAST_PLACE_COOKIE, LAST_PLACE_MAX_AGE, viewPlaceOf } from "@/lib/instructor/last-place";
+import { slugFromSegments } from "@/lib/lessons/summary";
 import { initials } from "@/lib/people";
 import { createClient } from "@/lib/supabase/client";
 import { cn } from "@/lib/utils";
@@ -226,6 +231,59 @@ function useBreadcrumbs(
   });
 
   /*
+    A course's lessons, on either side: `/instructor/courses/<id>/lessons/<slug…>` and
+    `/courses/<id>/lessons/<slug…>`. The module and the lesson are steps of the trail, so a reader
+    can climb from a chapter to its module's page, and their titles come from the course's lesson
+    list, fetched only on these screens.
+  */
+  let lessonsCourseId: string | undefined;
+  let lessonSlug = "";
+  if (inCourse && rest[0] === "lessons") {
+    lessonsCourseId = segments[2];
+    lessonSlug = slugFromSegments(rest.slice(1));
+  } else if (segments[0] === "courses" && segments[2] === "lessons") {
+    lessonsCourseId = segments[1];
+    lessonSlug = slugFromSegments(segments.slice(3));
+  }
+  const lessonTree = useQuery({
+    ...trpc.lessons.tree.queryOptions({ courseId: lessonsCourseId ?? "" }),
+    enabled: Boolean(lessonsCourseId),
+  });
+  const searching = Boolean(useSearchParams().get("q")?.trim());
+
+  /**
+   * "Lessons", then the module, then the lesson. The bare address shows the first lesson, or the
+   * results of a search when it carries `?q=`. "Lessons" leads to the lessons' start, as
+   * "Coursework" leads to its list, unless that is the screen open. Titles lose their backticks,
+   * which a breadcrumb cannot draw as code. The module's step leads to the module's page, unless
+   * that page is the one open or is not listed.
+   */
+  const lessonCrumbs = (courseId: string, instructor: boolean): Crumb[] => {
+    const lessonHref = instructor ? instructorLessonsHref : courseLessonsHref;
+    const atStart = lessonSlug === "" && !searching;
+    const crumbs: Crumb[] = [
+      { label: "Lessons", href: atStart ? undefined : lessonHref(courseId) },
+    ];
+    if (lessonSlug === "" && searching) return [...crumbs, { label: "Search results" }];
+
+    const lessons = lessonTree.data?.lessons ?? [];
+    const slug = lessonSlug === "" ? lessons[0]?.slug : lessonSlug;
+    const lesson = lessons.find((entry) => entry.slug === slug);
+    if (!lesson) return crumbs;
+
+    const plain = (title: string) => title.replaceAll("`", "");
+    if (lesson.slug !== lesson.moduleSlug) {
+      const listed = lessons.some((entry) => entry.slug === lesson.moduleSlug);
+      crumbs.push({
+        label: plain(lesson.moduleTitle),
+        href: listed ? lessonHref(courseId, lesson.moduleSlug) : undefined,
+      });
+    }
+    crumbs.push({ label: plain(lesson.title) });
+    return crumbs;
+  };
+
+  /*
     The term as well as the name, because a program runs every term under the same name:
     "Software Engineering Fellowship" is the first step of an identical trail in every year of it,
     and the term is what tells two of them apart.
@@ -308,11 +366,12 @@ function useBreadcrumbs(
     else if (rest[0] === "gradebook") crumbs.push({ label: "Gradebook" });
     else if (rest[0] === "teams") crumbs.push({ label: "Teams" });
     else if (rest[0] === "settings") crumbs.push({ label: "Settings" });
+    else if (rest[0] === "lessons") crumbs.push(...lessonCrumbs(courseId, true));
     else if (rest[0] === "curriculum") {
       // The list is a screen of its own, so it is a step on the trail rather than a heading
       // the deeper screens skip past.
       const listCrumb: Crumb = {
-        label: "Curriculum",
+        label: "Coursework",
         href: rest.length > 1 ? curriculumHref(courseId) : undefined,
       };
       crumbs.push(listCrumb);
@@ -417,7 +476,9 @@ function useBreadcrumbs(
     Neither step leads anywhere, which is what the `false` says. `courseTrail` records why.
   */
   if (segments[0] === "courses" && segments[1]) {
-    return courseTrail(segments[1], false);
+    const crumbs = courseTrail(segments[1], false);
+    if (segments[2] === "lessons") crumbs.push(...lessonCrumbs(segments[1], false));
+    return crumbs;
   }
 
   /*
@@ -432,6 +493,7 @@ function useBreadcrumbs(
       : [{ label: "Coaching forms" }];
   }
   if (segments[0] === "admin" && segments[1] === "competencies") return [{ label: "Competencies" }];
+  if (segments[0] === "admin" && segments[1] === "lessons") return [{ label: "Lessons" }];
   if (segments[0] === "admin") return [{ label: "Staff" }];
 
   /*
@@ -585,7 +647,7 @@ function CourseInitial({ name }: { name: string }) {
 }
 
 /**
- * The program's courses, each opening to its own five views.
+ * The program's courses, each opening to its own six views.
  *
  * **A list rather than a picker**, which is the difference between choosing a course and being shown
  * what there is. A select answered "which one am I in" and hid the rest behind a click; an
@@ -593,11 +655,11 @@ function CourseInitial({ name }: { name: string }) {
  * holds. It is the same shape a fellow's own sidebar has, and it is the shape for the same reason:
  * a flat list can say *which* course but has nothing to say which screen inside it.
  *
- * **Only the course being read expands in the list.** Three courses each showing five views is
- * fifteen rows to hold five destinations, and nobody is choosing among all of them at once — they
+ * **Only the course being read expands in the list.** Three courses each showing six views is
+ * eighteen rows to hold six destinations, and nobody is choosing among all of them at once — they
  * are in one course, looking for one of its parts.
  *
- * **In the collapsed rail every row answers a hover instead**, with that course's five views drawn
+ * **In the collapsed rail every row answers a hover instead**, with that course's six views drawn
  * over the page beside it. The rail is 48 pixels of single letters: the group heading is hidden and
  * the in-list views are hidden with it, so without the panels a collapsed sidebar can name courses
  * and reach nothing inside them. One rule for every row, the open course included, is what makes it
@@ -645,7 +707,7 @@ function CourseList({
 
     The collapsed rail is where a course is a single letter and nothing else — the group heading is
     gone, and the two rules on `SidebarMenuSub` hide the open course's views along with everybody
-    else's. So it is the one state of the sidebar where the five views cannot be read at all, and
+    else's. So it is the one state of the sidebar where the six views cannot be read at all, and
     the panel is the whole of the navigation rather than a second copy of it.
 
     The expanded sidebar needs no panel: it is 16rem of room that already lists the open course's
@@ -677,7 +739,7 @@ function CourseList({
  * **The panel is controlled from here rather than left to hover alone, and the keyboard is why.**
  * The panel opens when the row takes focus, but Base UI portals the popup to the document, so
  * tabbing toward its links blurs the trigger and closes the panel before they can be reached — a
- * keyboard user could see the five views and never press one. The row therefore treats the panel
+ * keyboard user could see the six views and never press one. The row therefore treats the panel
  * the way a menu treats a submenu: ArrowRight — the direction the panel visually sits — opens it
  * and moves focus onto its first link, Escape closes it and hands focus back to the row, and
  * Enter still navigates, exactly as a press does. Hover behaves as it always has; the controlled
@@ -738,7 +800,7 @@ function CourseRow({
           /*
             The tooltip and the panel answer the same hover on the same 32-pixel button, so
             only one of them may be armed. The panel wins wherever it is drawn: its heading
-            carries the course name the tooltip would have shown, and then five destinations
+            carries the course name the tooltip would have shown, and then six destinations
             the tooltip could not. Dropping it also takes `SidebarMenuButton`'s
             `TooltipTrigger` wrapper out of the row, leaving the preview card's trigger
             composed straight onto the link.
@@ -803,7 +865,7 @@ function CourseRow({
 }
 
 /**
- * One course's five views, drawn over the page beside its row.
+ * One course's six views, drawn over the page beside its row.
  *
  * **Portalled to the document rather than positioned inside the row.** Two things in the sidebar
  * would otherwise swallow it. `SidebarContent` scrolls, so it clips anything absolutely positioned
@@ -817,8 +879,8 @@ function CourseRow({
  * second item is.
  *
  * **The view on display is marked**, on the one panel that can have one: the course the reader is
- * already in. In the collapsed rail this is the only place the sidebar says which of the five views
- * is the screen behind it, so a panel without the mark would list five destinations and leave the
+ * already in. In the collapsed rail this is the only place the sidebar says which of the six views
+ * is the screen behind it, so a panel without the mark would list six destinations and leave the
  * reader to work out which one they were standing on. `aria-current` carries it to a screen reader.
  */
 function CourseViewPanel({
@@ -899,7 +961,7 @@ const PROGRAM_VIEWS = [
 ] as const;
 
 /**
- * The five views a course has, in the order they are offered.
+ * The six views a course has, in the order they are offered.
  *
  * They were tabs on one course page until the page had a header, a triage button, a tab bar, and a
  * row of counts competing for the same band of screen. As sidebar items each one is an address,
@@ -913,7 +975,8 @@ const PROGRAM_VIEWS = [
 const COURSE_VIEWS = [
   { title: "Triage", href: triageHref, icon: ListChecks, segment: "triage" },
   { title: "Gradebook", href: gradebookHref, icon: BarChart3, segment: "gradebook" },
-  { title: "Curriculum", href: curriculumHref, icon: Layers, segment: "curriculum" },
+  { title: "Coursework", href: curriculumHref, icon: Layers, segment: "curriculum" },
+  { title: "Lessons", href: instructorLessonsHref, icon: BookOpen, segment: "lessons" },
   { title: "Teams", href: teamsHref, icon: UsersRound, segment: "teams" },
   { title: "Settings", href: courseSettingsHref, icon: Settings, segment: "settings" },
 ] as const;
@@ -1074,6 +1137,8 @@ type StudentCourse = {
   enrolledAs: "ACTIVE" | "REMOVED" | null;
   /** Whether the caller instructs the course's program, which scopes the course switcher. */
   teaches: boolean;
+  /** The curriculum the course shows, which is whether a fellow's row offers Lessons. */
+  curriculumId: string | null;
 };
 
 /**
@@ -1235,6 +1300,8 @@ function StudentPrograms({ courses, pathname }: { courses: StudentCourse[]; path
               {programCourses.map((course) => {
                 const note = courseNote(course);
                 const base = `/courses/${course.id}`;
+                const lessons = courseLessonsHref(course.id);
+                const inLessons = pathname === lessons || pathname.startsWith(`${lessons}/`);
 
                 return (
                   <SidebarMenuItem key={course.id}>
@@ -1262,6 +1329,24 @@ function StudentPrograms({ courses, pathname }: { courses: StudentCourse[]; path
                         )}
                       </span>
                     </SidebarMenuButton>
+                    {/*
+                      Under the course rather than beside it, because the lessons are this
+                      course's: another course of the same program may teach another curriculum.
+                      Only a course with a curriculum has the row.
+                    */}
+                    {course.curriculumId && (
+                      <SidebarMenuSub>
+                        <SidebarMenuSubItem>
+                          <SidebarMenuSubButton
+                            isActive={inLessons}
+                            render={<Link href={lessons} />}
+                          >
+                            <BookOpen />
+                            <span>Lessons</span>
+                          </SidebarMenuSubButton>
+                        </SidebarMenuSubItem>
+                      </SidebarMenuSub>
+                    )}
                   </SidebarMenuItem>
                 );
               })}
@@ -1354,7 +1439,7 @@ function isActiveProgramView(pathname: string, programId: string, segment: strin
 }
 
 /**
- * Which sidebar item the current address belongs to, for a course's five views.
+ * Which sidebar item the current address belongs to, for a course's six views.
  *
  * Two segments need more than a prefix test. **Curriculum** covers its own list *and* every screen
  * filed under it — one assignment's grading queue, its edit form, the new-assignment form — because
@@ -1419,6 +1504,16 @@ function AdminGroup({ isAdmin, pathname }: { isAdmin: boolean; pathname: string 
           >
             <ClipboardList />
             <span>Coaching forms</span>
+          </SidebarMenuButton>
+        </SidebarMenuItem>
+        <SidebarMenuItem>
+          <SidebarMenuButton
+            isActive={pathname === adminLessonsHref()}
+            tooltip="Lessons"
+            render={<Link href={adminLessonsHref()} />}
+          >
+            <BookOpen />
+            <span>Lessons</span>
           </SidebarMenuButton>
         </SidebarMenuItem>
       </SidebarMenu>
@@ -1633,7 +1728,15 @@ export function AppShell({ children }: { children: React.ReactNode }) {
           scrolls, and never moved. `clip` clips without becoming anything's scroll container, so
           sticky children here measure against the viewport, where the page actually scrolls.
         */}
-        <main className="flex-1 overflow-x-clip">{children}</main>
+        {/*
+          `--outline-chrome` is the height of everything stuck above a page's content: the 3.5rem
+          header, and the View-as banner when one shows, whose height `ViewAsBanner` publishes.
+          Everything a page sticks reads it, and a layout that sticks a bar of its own — the
+          lessons — raises it for its pages.
+        */}
+        <main className="flex-1 overflow-x-clip [--outline-chrome:calc(3.5rem_+_var(--view-as-banner,0px))]">
+          {children}
+        </main>
       </SidebarInset>
     </SidebarProvider>
   );

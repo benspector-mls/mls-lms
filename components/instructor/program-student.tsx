@@ -89,8 +89,8 @@ type Coaching = RouterOutputs["coaching"]["forStudent"];
 type Fellows = RouterOutputs["enrollments"]["listForProgram"];
 
 /**
- * The header every tab shares: the fellow's name as the page heading, their details beneath, and
- * the way to the next name.
+ * The header every tab shares: the fellow's name as the page heading with the rename and View-as
+ * buttons beside it, their details beneath, and the way to the next name under those.
  */
 export function StudentIdentity({ data, fellows }: { data: Data; fellows: Fellows }) {
   const name = displayNameOf(data.student, "Unnamed");
@@ -111,16 +111,19 @@ export function StudentIdentity({ data, fellows }: { data: Data; fellows: Fellow
       <div className="flex min-w-0 flex-1 flex-col gap-1">
         <div className="flex flex-wrap items-center gap-2">
           <h1 className="text-xl font-semibold tracking-tight">{name}</h1>
-          {/*
-              Beside the name rather than among the actions on the right, because it is about the
-              name and not about the record: the picker over there moves to another fellow, and a
-              rename sitting next to it would read as something done to the program.
-            */}
+          {/* Beside the name, because it changes the name. */}
           <RenameStudent
             programId={data.program.id}
             studentId={data.student.id}
             displayName={data.student.displayName}
           />
+          {/*
+              The same entry into a fellow's view the roster row offers, so somebody reading a record
+              does not have to go back to the roster to see what the fellow sees. Hidden for a removed
+              fellow, as it is on the roster. In this row rather than at the header's right end,
+              which on a narrow page is where the floating On this page button sits.
+            */}
+          {!removed && <ViewAsButton studentId={data.student.id} programId={data.program.id} />}
           {data.student.testStudentNumber !== null && <TestStudentBadge />}
           {/*
               Said here rather than only implied by a lower rate. Removal is a status rather than a
@@ -159,26 +162,18 @@ export function StudentIdentity({ data, fellows }: { data: Data; fellows: Fellow
             */}
           <span>{data.cohort ? data.cohort.name : "In no cohort"}</span>
         </p>
-      </div>
-
-      {/*
-          The way to the next name. A record is opened from the roster, the gradebook, or a link
-          somebody sent, and reading a term's fellows one after another otherwise means going back
-          to the roster between every one.
-        */}
-      <div className="flex w-full items-center gap-2 sm:w-auto">
         {/*
-            The same entry into a fellow's view the roster row offers, so somebody reading a record
-            does not have to go back to the roster to see what the fellow sees. Hidden for a removed
-            fellow, as it is on the roster.
+            The way to the next name, under the fellow's details rather than at the header's right
+            end, where the floating On this page button sits on a narrow page. A record is opened
+            from the roster, the gradebook, or a link somebody sent, and reading a term's fellows
+            one after another otherwise means going back to the roster between every one.
           */}
-        {!removed && <ViewAsButton studentId={data.student.id} programId={data.program.id} />}
         <ProgramStudentPicker
           programId={data.program.id}
           studentId={data.student.id}
           studentName={name}
           fellows={fellows}
-          className="min-w-0 flex-1 sm:w-56 sm:flex-none"
+          className="mt-1 w-full sm:w-56"
         />
       </div>
     </header>

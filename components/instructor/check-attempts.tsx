@@ -131,7 +131,7 @@ export function CheckAttempts({
               href={curriculumHref(courseId)}
               className={buttonVariants({ variant: "ghost", size: "sm" })}
             >
-              Curriculum
+              Coursework
             </Link>
           </>
         }

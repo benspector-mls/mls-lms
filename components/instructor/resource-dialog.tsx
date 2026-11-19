@@ -64,7 +64,7 @@ type MarkdownFieldId = "body" | "question" | "factsExample" | "exemplar";
 /**
  * A resource as every screen reads one — the whole row, body and all.
  *
- * Exported because `ResourceActions` holds one and hands it straight to this form: the Curriculum
+ * Exported because `ResourceActions` holds one and hands it straight to this form: the Coursework
  * screen's rows carry whole resources now, so nothing has to be fetched to open the form.
  */
 export type Resource = RouterOutputs["resources"]["listForCourse"][number];
@@ -91,7 +91,7 @@ export function ResourceDialog({
 
   /*
     The units this may be filed under, fetched here rather than passed in. The dialog is opened
-    from inside a unit on the Curriculum screen, which already knows which one — but a resource
+    from inside a unit on the Coursework screen, which already knows which one — but a resource
     can be *moved* between units from this form, so it needs the whole list either way, and
     threading it through every call site would be the same query written at each of them.
   */
@@ -102,7 +102,7 @@ export function ResourceDialog({
 
   /*
     The two examples and the answered count, which a fellow must never receive and which are
-    therefore not on the resource row itself. The Curriculum screen has already read this, so
+    therefore not on the resource row itself. The Coursework screen has already read this, so
     opening the dialog finds it in the cache.
   */
   const checks = useQuery({
@@ -355,7 +355,7 @@ function ResourceForm({
           <p className="text-xs text-muted-foreground">
             {resource
               ? "Moving this to another module puts it at the end of that module's list."
-              : "Added at the end of the module. Drag it into place from the Curriculum screen."}
+              : "Added at the end of the module. Drag it into place from the Coursework screen."}
           </p>
         </div>
 

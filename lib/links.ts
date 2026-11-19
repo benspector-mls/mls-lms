@@ -226,8 +226,17 @@ export function ruleSetHref(ruleSetId: string): string {
   return `/instructor/rubrics/rules/${ruleSetId}`;
 }
 
+/**
+ * The curricula: the GitHub repositories the lessons are copied from, which admins register and
+ * every course with lessons chooses from. Under `/admin` beside the competency list, because there
+ * is one set for the application. Takes nothing, like `competenciesHref`.
+ */
+export function adminLessonsHref(): string {
+  return "/admin/lessons";
+}
+
 // ---------------------------------------------------------------------------------------------
-// The course's five views
+// The course's six views
 // ---------------------------------------------------------------------------------------------
 
 export function triageHref(courseId: string): string {
@@ -273,7 +282,7 @@ export function newAssignmentHref(courseId: string, courseUnitId?: string): stri
   const base = `/instructor/courses/${courseId}/curriculum/new`;
   /*
     Carried in the query rather than the path, because it is a starting value for a field on the
-    form rather than a different form. Opened from inside a unit on the Curriculum screen the form
+    form rather than a different form. Opened from inside a unit on the Coursework screen the form
     arrives with that unit chosen and its heading naming it — which is the whole reason that screen
     puts the button inside the unit — and the field stays changeable, so this answers the question
     rather than settling it.
@@ -307,7 +316,7 @@ export function teamsHref(courseId: string): string {
  * The course's own settings: what it is called, how its repositories are named, whether fellows can
  * see it, and how it is retired.
  *
- * The last of the five and the least often opened: these are read in the week a course is set up
+ * The last of the six and the least often opened: these are read in the week a course is set up
  * and rarely again, which is why naming a course and nothing more lands on its triage instead.
  */
 export function courseSettingsHref(courseId: string): string {
@@ -325,6 +334,25 @@ export function courseSettingsHref(courseId: string): string {
 export function studentHref(courseId: string, studentId: string, submissionId?: string): string {
   const base = `/instructor/courses/${courseId}/students/${studentId}`;
   return submissionId ? `${base}?submission=${submissionId}` : base;
+}
+
+/**
+ * A course's lessons as its instructors read them: the curriculum the course shows, or one lesson
+ * of it by its slug — the lesson's path in the repository without `.md`. Under the course, beside
+ * its other views, so the sidebar keeps the course's group while an instructor reads.
+ */
+export function instructorLessonsHref(courseId: string, slug?: string): string {
+  const base = `/instructor/courses/${courseId}/lessons`;
+  return slug ? `${base}/${slug}` : base;
+}
+
+/**
+ * A course's lessons as its fellows read them, beside the course's coursework at `/courses/<id>`.
+ * See `instructorLessonsHref` for the slug.
+ */
+export function courseLessonsHref(courseId: string, slug?: string): string {
+  const base = `/courses/${courseId}/lessons`;
+  return slug ? `${base}/${slug}` : base;
 }
 
 /**
@@ -377,6 +405,8 @@ export function sameViewInCourse(pathname: string, courseId: string): string {
 
   if (rest[0] === "triage") return triageHref(courseId);
   if (rest[0] === "curriculum" && rest.length === 1) return curriculumHref(courseId);
+  // To the other course's first lesson rather than this one's: the two may teach different curricula.
+  if (rest[0] === "lessons") return instructorLessonsHref(courseId);
   if (rest[0] === "gradebook") return gradebookHref(courseId);
   if (rest[0] === "teams") return teamsHref(courseId);
   if (rest[0] === "settings") return courseSettingsHref(courseId);

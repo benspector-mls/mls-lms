@@ -403,10 +403,9 @@ function UnitSection({
           contain phrasing content, so an <h2> within one is invalid markup, and this is
           the shape screen readers expect from a collapsible section anyway.
 
-          Sticky on a wide screen, so a student partway down a long unit can still see which unit
-          the rows belong to; the next unit's heading pushes it away. Beside the outline's strip on
-          a narrower screen it scrolls normally, because the strip already takes height at the top
-          and `--outline-sticky-top` is undefined there — see `OutlinedPage`. The heading carries
+          Sticky at every width, so a student partway down a long unit can still see which unit
+          the rows belong to; the next unit's heading pushes it away. `--outline-sticky-top` is the
+          bottom of the shell's header — see `OutlinedPage`. The heading carries
           its own background because the trigger's hover fill is translucent, and without one the
           rows scrolling underneath would show through a hovered heading.
         */}

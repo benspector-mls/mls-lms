@@ -33,6 +33,7 @@ async function Settings({ params }: { params: Promise<{ courseId: string }> }) {
   const sections: OutlineSection[] = [
     { id: "name", label: "Name" },
     { id: "visibility", label: "Visibility" },
+    { id: "lessons", label: "Lessons" },
     { id: "test", label: data.course.isTest ? "Test course" : "Real course" },
     { id: "short-name", label: "Short name" },
     { id: "instructors", label: "Instructors" },

@@ -117,7 +117,7 @@ export function partCount(category: CourseUnitCategory, count: number): string {
 /**
  * The `id` of a unit's section on a course page, which the page's outline links to.
  *
- * One function for the link and the `id` it has to match, on both the instructor's Curriculum
+ * One function for the link and the `id` it has to match, on both the instructor's Coursework
  * screen and a student's course page. A difference between the two fails silently: the link
  * scrolls nowhere.
  */
@@ -186,7 +186,7 @@ export function compareByPosition(
  * Which unit a new assignment starts in, given what the address asked for.
  *
  * **The `?unit=` in the address is the whole point of the "Add …" button being *inside* a unit on
- * the Curriculum screen.** Pressing it there has already answered "which unit does this go in", so
+ * the Coursework screen.** Pressing it there has already answered "which unit does this go in", so
  * the form arrives with the answer chosen rather than asking again.
  *
  * Three rules, in this order:

@@ -27,7 +27,7 @@ import { cn } from "@/lib/utils";
 /**
  * A list whose rows an instructor puts in order by dragging one.
  *
- * **One component for both lists on the Curriculum screen**, which is the point rather than a
+ * **One component for both lists on the Coursework screen**, which is the point rather than a
  * convenience. The units of a course and the resources inside a unit are two sequences with the
  * same rules — the server assigns every position, a move sends the whole new order, and the
  * refusal for a stale list is a reload — and written twice they would be two answers to the same

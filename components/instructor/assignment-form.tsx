@@ -365,7 +365,7 @@ export function AssignmentForm({
    * The unit this assignment is being written into, from `?unit=`.
    *
    * A starting value for the unit selector rather than a lock: the form opened from inside a
-   * project on the Curriculum screen arrives with it chosen, and an instructor who changes their
+   * project on the Coursework screen arrives with it chosen, and an instructor who changes their
    * mind can still pick another. Ignored when editing, since an existing assignment already
    * carries its own answer.
    */
@@ -379,7 +379,7 @@ export function AssignmentForm({
     `Editor`'s key.
 
     Next.js keeps the last few pages a person visited mounted inside a hidden boundary, so that
-    going back to one restores it as it was left. Saving an assignment leaves for the Curriculum
+    going back to one restores it as it was left. Saving an assignment leaves for the Coursework
     screen, and "Add assignment" there comes back to this same page — which is therefore not
     mounted afresh but revealed, with every field still holding the assignment just saved. The
     second assignment would open as a copy of the first, and the unit it was opened into would be
@@ -416,7 +416,7 @@ export function AssignmentForm({
       onSaved={(assignmentId) => {
         setSaved((count) => count + 1);
         /*
-          To the Curriculum screen, which is where an instructor sees the result in context —
+          To the Coursework screen, which is where an instructor sees the result in context —
           the new row, its draft badge, and its place inside the unit it belongs to.
 
           Written as the bare course address until the cohort's views became seven addresses,
@@ -450,14 +450,14 @@ function Editor({
   existing?: Draft;
   initialCourseUnitId?: string;
   onSaved: (assignmentId: string) => void;
-  /** Leaves for the Curriculum screen without saving. */
+  /** Leaves for the Coursework screen without saving. */
   onDiscarded: () => void;
 }) {
   const trpc = useTRPC();
 
   /**
    * The course's units in the order the instructor put them, which is one sequence across all
-   * three categories — the same order the Curriculum screen and a student's course page show.
+   * three categories — the same order the Coursework screen and a student's course page show.
    *
    * Sorted here rather than trusted from the payload, because the select groups them by category
    * below and a group's items have to stay in course order within it.
@@ -750,7 +750,7 @@ function Editor({
   const canSave = state !== null && checked && errors.length === 0 && !busy;
 
   /*
-    Discarding leaves for the Curriculum screen without saving. It asks first only when the form
+    Discarding leaves for the Coursework screen without saving. It asks first only when the form
     differs from how it opened, because a form with nothing typed into it has nothing to lose.
     Comparing `state` is enough: the kind, the unit and the due date are all written into it.
   */
@@ -771,10 +771,10 @@ function Editor({
    * `distributedAt` is what a student's listing reads. "Create and publish" is not a different
    * kind of creation; it is the two operations an instructor otherwise performs a screen apart.
    *
-   * **A publish that fails still leaves for the Curriculum screen**, and this is the case worth
+   * **A publish that fails still leaves for the Coursework screen**, and this is the case worth
    * being deliberate about. The assignment exists by then. Staying on the form would leave an
    * instructor looking at fields they have already saved, where pressing the button again makes a
-   * second copy; the Curriculum screen shows the draft that was made, with Publish on its row.
+   * second copy; the Coursework screen shows the draft that was made, with Publish on its row.
    */
   async function createAssignment(distribute: boolean) {
     if (!state) return;
@@ -818,7 +818,7 @@ function Editor({
         /*
           The unit it opened into, named up here as well as chosen in the field below.
 
-          Pressing "Add assignment" inside a unit on the Curriculum screen has already answered
+          Pressing "Add assignment" inside a unit on the Coursework screen has already answered
           which unit this goes in, and the form is a long one — a pre-selected field two thirds of
           the way down is an answer somebody has to go looking for to confirm. Saying it in the
           heading is what makes the button's promise visible without scrolling.
@@ -930,7 +930,7 @@ function Editor({
                 <AlertTitle>This course has nothing to put an assignment in yet</AlertTitle>
                 <AlertDescription>
                   Every assignment belongs to a module, a project, or an assessment. Create one on
-                  the Curriculum screen, then come back.
+                  the Coursework screen, then come back.
                 </AlertDescription>
               </Alert>
             </Field>
@@ -1714,7 +1714,7 @@ function Editor({
           */}
           {/*
             Editing an existing assignment saves it and says nothing about publishing: whether
-            students can see it is already decided, and its row on the Curriculum screen is where
+            students can see it is already decided, and its row on the Coursework screen is where
             that is changed. Creating one decides both at once, so both are offered.
           */}
           <div className="flex flex-wrap items-center justify-end gap-2">

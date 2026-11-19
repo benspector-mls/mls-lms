@@ -132,7 +132,7 @@ export function GradebookGrid({
    * cohort, and nothing else — a column of grey dots claiming a term's students have not finished
    * something that does not exist.
    *
-   * This is where the gradebook parts company with the Curriculum screen, which keeps its empty
+   * This is where the gradebook parts company with the Coursework screen, which keeps its empty
    * units deliberately: there, an instructor who has just created a project needs to see it where
    * they put it, or the act of creating it looks like it failed. That is a screen about what a
    * course *contains*. This one is about what students have *done*, and there is nothing to have

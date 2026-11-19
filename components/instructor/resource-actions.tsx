@@ -35,7 +35,7 @@ import { ResourceDialog, type Resource } from "./resource-dialog";
  * feedback somebody has already read, which is what the stricter dialog is protecting.
  *
  * Takes the whole resource rather than an id, and fetches nothing. The row this sits beside is
- * rendered from the same object — the Curriculum screen shows each resource the way a student
+ * rendered from the same object — the Coursework screen shows each resource the way a student
  * meets it, so the body of a note and the id of a video are already here, and the edit form opens
  * on the click instead of after a round trip.
  */
@@ -47,7 +47,7 @@ export function ResourceActions({ courseId, resource }: { courseId: string; reso
 
   /*
     How many fellows have answered this resource's check, so the confirmation can say what goes with
-    it. The Curriculum screen has already asked for this; the answer comes from the cache.
+    it. The Coursework screen has already asked for this; the answer comes from the cache.
   */
   const checks = useQuery({
     ...trpc.checks.forCourse.queryOptions({ courseId }),

@@ -122,7 +122,7 @@ export function CheckForUnderstanding({
           {teaches ? (
             <p className="text-sm text-muted-foreground">
               Fellows answer this here, up to {MAX_ATTEMPTS} times,{" "}
-              {describeAttemptGap(check.retryWaitHours)}. Their attempts are on the Curriculum
+              {describeAttemptGap(check.retryWaitHours)}. Their attempts are on the Coursework
               screen.
             </p>
           ) : (

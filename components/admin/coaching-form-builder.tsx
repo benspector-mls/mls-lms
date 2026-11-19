@@ -60,7 +60,7 @@ type Template = RouterOutputs["coachingTemplates"]["get"];
  * the `updatedAt` this screen loaded, and the server refuses when the row has moved since. The
  * refusal says to reload, which is the only honest answer.
  *
- * Sections and items are both `SortableList`s, nested the way the Curriculum screen nests units
+ * Sections and items are both `SortableList`s, nested the way the Coursework screen nests units
  * and resources: dragging is plain array state here, and the order is whatever is saved.
  */
 export function CoachingFormBuilder({ template }: { template: Template }) {

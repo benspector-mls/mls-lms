@@ -191,7 +191,7 @@ type CodeNode = {
 };
 
 /** Every piece of text under a node, in order. */
-function textOf(node: CodeNode): string {
+export function textOf(node: CodeNode): string {
   if (node.type === "text") return node.value ?? "";
   return (node.children ?? []).map(textOf).join("");
 }
@@ -208,7 +208,7 @@ function textOf(node: CodeNode): string {
  * gives: a fellow or an instructor wrote every character of this, and a string of HTML built
  * around it would be a way to put script in a page.
  */
-function HighlightedCode({
+export function HighlightedCode({
   node,
   language,
   className,

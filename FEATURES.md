@@ -104,9 +104,13 @@ The one refusal is a **competency group that still holds competencies**, which s
 
 **Editing a form cannot change a session.** A session copies the form it was started with, so rewording, reordering, or deleting a form leaves every session already begun exactly as it was — the screen says so beside the controls that would otherwise look dangerous. Deleting the default form only means that starting a session asks which form to use every time, until another is made the default.
 
+### Copying the lessons from GitHub
+
+**Admin → Lessons** lists the curricula courses can show: each a GitHub repository written for GitBook, such as the software engineering curriculum. **Add** one with a name, its repository as `owner/repo`, and a branch if it should not be the default. The LMS copies every curriculum from GitHub each hour. After pushing an edit that should not wait, press **Sync now** on its row: the lessons update at once, and the row lists anything to fix — a page the table of contents links that does not exist, an image a lesson shows that is not in the repository, or a GitBook block the LMS cannot draw, which fellows would otherwise see as plain text. A curriculum no course shows can be removed; one a course shows cannot, until its courses choose another.
+
 ### Reaching every program
 
-An admin passes every check a program makes about who instructs it. So you can open any program's attendance, roster and settings and any of its courses' triage, gradebook and curriculum, archive either, delete either, transfer who owns a program, and remove an instructor from it, without anybody adding you first.
+An admin passes every check a program makes about who instructs it. So you can open any program's attendance, roster and settings and any of its courses' triage, gradebook and coursework, archive either, delete either, transfer who owns a program, and remove an instructor from it, without anybody adding you first.
 
 ---
 
@@ -128,7 +132,7 @@ The person who created the program additionally **owns** it, which means archivi
 
 Opening the application takes you back to the screen you were last on. If you spent Tuesday afternoon in one course's gradebook, Wednesday morning starts there; if you spent it setting up next year's program, it starts on that program's screen, which matters because a program is created with no courses in it at all.
 
-It remembers the screen rather than the exact thing you had open, so a morning spent grading one assignment reopens on that course's curriculum rather than on the assignment — which may have been rewritten or deleted since. A course or program that has been archived, or that you no longer teach, is not reopened; nor is anything, the first time you sign in on a new computer. In all of those cases you land on the newest course you teach, or on the program list if you teach none yet.
+It remembers the screen rather than the exact thing you had open, so a morning spent grading one assignment reopens on that course's coursework rather than on the assignment — which may have been rewritten or deleted since. A course or program that has been archived, or that you no longer teach, is not reopened; nor is anything, the first time you sign in on a new computer. In all of those cases you land on the newest course you teach, or on the program list if you teach none yet.
 
 This is remembered by your browser, so it is per computer rather than per account, and clearing your cookies clears it.
 
@@ -152,7 +156,7 @@ The first thing a new program needs is its roster: who you are expecting, and th
 
 ### Modules, and the order the course is taught in
 
-**Curriculum** is where you create, rename, reorder, and remove them. Each one opens to show what is inside it, so you can see whether a module is in the right place and whether it has anything in it.
+**Coursework** is where you create, rename, reorder, and remove them. Each one opens to show what is inside it, so you can see whether a module is in the right place and whether it has anything in it.
 
 A module cannot be removed while an assignment is still in it. Move or remove the assignments first.
 
@@ -160,7 +164,7 @@ A module cannot be removed while an assignment is still in it. Move or remove th
 
 ### Writing an assignment
 
-**Add assignment**, from inside the module, project, or assessment it belongs to on the **Curriculum** screen. The form opens with that unit already chosen — its heading says which, and **Belongs to** is set to it — so pressing the button inside a unit is the whole of answering "where does this go". The field stays changeable, so reaching for the wrong one is fixed on the form rather than by going back.
+**Add assignment**, from inside the module, project, or assessment it belongs to on the **Coursework** screen. The form opens with that unit already chosen — its heading says which, and **Belongs to** is set to it — so pressing the button inside a unit is the whole of answering "where does this go". The field stays changeable, so reaching for the wrong one is fixed on the form rather than by going back.
 
 Every assignment belongs to a unit and has a title, a point value, a due date, and a **completion threshold** — the share of the points that counts as complete, 75 percent by default, matching the program's Complete/Incomplete policy. The threshold is set under **How it is graded**, and changing it on an assignment that already has grades re-marks every graded submission against the new threshold.
 
@@ -201,7 +205,7 @@ Once fellows have answered, the check's page under the curriculum shows every at
 
 Each fellow may answer up to three times. Every answer is reviewed by Claude the moment it is handed in and placed in one of three categories — **Blocked**, **Understands facts**, or **Making connections** — with two sentences to the fellow saying what the answer showed and what to think about next. Those two sentences never give the answer away, because the fellow may try again. Nothing about a check is graded, due, or in the gradebook: it is a reading of how a concept landed, for them and for you.
 
-The row on the Curriculum screen says how many fellows have answered, as "12 of 25 answered", and opens the **attempts page**: two overviews — **current understanding**, from each fellow's latest attempt, and **first understanding**, from their first — then who asked to go over it with an instructor and who has not answered yet. Beneath is a table of every fellow with their first attempt, their current level, how many attempts they have made, and when; every column sorts, and opening a row shows every response they gave. On any attempt you can set a different level — the fellow then sees yours rather than the review's — or run the review again, which is what to do when an attempt says the review did not run.
+The row on the Coursework screen says how many fellows have answered, as "12 of 25 answered", and opens the **attempts page**: two overviews — **current understanding**, from each fellow's latest attempt, and **first understanding**, from their first — then who asked to go over it with an instructor and who has not answered yet. Beneath is a table of every fellow with their first attempt, their current level, how many attempts they have made, and when; every column sorts, and opening a row shows every response they gave. On any attempt you can set a different level — the fellow then sees yours rather than the review's — or run the review again, which is what to do when an attempt says the review did not run.
 
 Unticking the box removes the check and every attempt at it, and the form says how many fellows' attempts that is before you save. Removing the resource removes its check the same way.
 
@@ -227,7 +231,7 @@ A column on the roster names each fellow's **cohort**, or says "No cohort" where
 
 ### Cohorts, and splitting the marking
 
-**Cohorts** is a section of the program's Settings screen, and cohorts divide the roster between instructors. Create one — "Cohort A" — place fellows in it, and the cohort picker narrows triage, the gradebook, the curriculum list, and an assignment's queue to just those fellows. If you and a co-teacher split a roster, set your cohort once and **every course of the program** defaults to your half.
+**Cohorts** is a section of the program's Settings screen, and cohorts divide the roster between instructors. Create one — "Cohort A" — place fellows in it, and the cohort picker narrows triage, the gradebook, the coursework list, and an assignment's queue to just those fellows. If you and a co-teacher split a roster, set your cohort once and **every course of the program** defaults to your half.
 
 **A fellow is in at most one cohort**, so the screen is a card per cohort with that cohort's fellows listed inside it in alphabetical order. The first card is **No cohort**, and it is always there, because somebody who joined by the link in October and was never placed is invisible to every instructor working a cohort — this is the card that names them. Each cohort card carries how many fellows are in it, a **Rename** and a **Remove**, and every fellow listed has a **Move to** that sends them to another cohort. Every change is saved as you make it. Removing a cohort puts its fellows back in No cohort, and **Reset** does the same for every cohort at once, leaving the cohorts themselves in place.
 
@@ -417,6 +421,10 @@ If it refuses, the message says which of these happened:
 | Somebody else used the place reserved for your account | Ask your instructor to check the list of expected fellows.                                                                                                               |
 | The program has finished                              | It is archived and not taking new fellows.                                                                                                                               |
 | You are no longer enrolled                            | Everything you handed in and were given feedback on is still yours to read. Ask your instructor if that is wrong.                                                         |
+
+### The lessons
+
+A course whose instructors have chosen a curriculum has a **Lessons** row under it in your sidebar. The lessons open with every module listed on the left, where a module's arrow shows its chapters, and "On this page" on the right; on a narrower screen both move behind buttons, and the heading of the section you are reading stays at the top. Links to other lessons open them in place, and every code block has a button to copy it. The magnifier at the top of a lesson makes its text Large or Larger, and the size is remembered on that computer. The search box in the bar above the lessons finds the sections that match the words you type, and opens each at its heading. Code words such as `for` and `if` are looked for in the lessons' code rather than their sentences, so "for" finds `for` loops and not "for example", and "for loop" lists every section about loops with the `for` loops first.
 
 ### Your dashboard
 

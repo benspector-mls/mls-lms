@@ -10,9 +10,11 @@ import { attendanceRouter } from "./attendance";
 import { checksRouter } from "./checks";
 import { gcfRouter } from "./gcf";
 import { coursesRouter } from "./courses";
+import { curriculaRouter } from "./curricula";
 import { programsRouter } from "./programs";
 import { enrollmentsRouter } from "./enrollments";
 import { gradingDraftsRouter } from "./grading-drafts";
+import { lessonsRouter } from "./lessons";
 import { cohortsRouter } from "./cohorts";
 import { coachingRouter } from "./coaching";
 import { coachingSummariesRouter } from "./coaching-summaries";
@@ -382,6 +384,8 @@ export const appRouter = createTRPCRouter({
   gradingDrafts: gradingDraftsRouter,
   staff: staffRouter,
   testStudents: testStudentsRouter,
+  lessons: lessonsRouter,
+  curricula: curriculaRouter,
 });
 
 // export type definition of API

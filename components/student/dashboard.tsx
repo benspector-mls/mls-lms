@@ -57,13 +57,13 @@ import { UpcomingWindowPicker } from "./upcoming-window";
  * **A strip of counts under the title, one per section, each a jump to that section.** The lists
  * are stacked, and a fellow with a few overdue items and a week of work ahead has a dozen rows
  * above New comments before they reach it — so a reply from their instructor was below the fold on
- * a laptop with nothing above the fold to say it existed. The strip is `OutlinedPage`, the same
- * component the profile and settings pages use; it stays stuck under the shell header while the
- * page scrolls, so the counts are readable from anywhere on it. Every section is listed, including
- * the empty ones, because "New comments 0" is the answer to the question a fellow opened the page
- * with and leaving the entry out would make them wonder whether the screen looked. Attendance is
- * not in the strip: it is the first thing beneath it, and a jump to something already in view is a
- * link that does nothing.
+ * a laptop with nothing above the fold to say it existed. The strip is `OutlinedPage` in its strip
+ * mode, at every width rather than as a side column or a button, and it stays stuck under the shell
+ * header while the page scrolls, so the counts are readable from anywhere on it without opening
+ * anything. Every section is listed, including the empty ones, because "New comments 0" is the
+ * answer to the question a fellow opened the page with and leaving the entry out would make them
+ * wonder whether the screen looked. Attendance is not in the strip: it is the first thing beneath
+ * it, and a jump to something already in view is a link that does nothing.
  */
 export function StudentDashboard({
   assignments,
@@ -110,6 +110,7 @@ export function StudentDashboard({
   return (
     <OutlinedPage
       width="4xl"
+      outline="strip"
       sections={outline}
       header={
         <PageHeader

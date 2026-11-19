@@ -35,7 +35,7 @@ async function CourseCurriculum({ params }: { params: Promise<{ courseId: string
       courseId={courseId}
       header={
         <PageHeader
-          title="Curriculum"
+          title="Coursework"
           description="The course as your students meet it. Everything lives in a module, a project, or an assessment."
         />
       }

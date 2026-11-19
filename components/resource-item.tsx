@@ -26,7 +26,7 @@ import { videoEmbedUrl, videoWatchUrl } from "@/lib/resources/spec";
  * `panel`, and this component knows nothing about attempts, answers, or levels — the row is the same
  * row whether or not a question hangs off it.
  *
- * **The instructor's Curriculum screen renders this same component**, with its actions menu passed
+ * **The instructor's Coursework screen renders this same component**, with its actions menu passed
  * in as `actions`. That is the point rather than a convenience: an instructor asking what their
  * cohort will read should be reading the thing itself, and a second rendering built for their side
  * of the application would be a second answer to that question — one that could drift from the

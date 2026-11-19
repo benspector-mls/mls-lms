@@ -7,7 +7,7 @@ import { PageFallback } from "@/components/list-states";
  * Creating an assignment.
  *
  * One form for every assignment in the application, whatever it belongs to. A `?unit=` in the
- * address is what the "Add …" button inside a unit on the Curriculum screen sends, and it does
+ * address is what the "Add …" button inside a unit on the Coursework screen sends, and it does
  * nothing but pre-select which unit the assignment goes in — so there is one place every field is
  * defined rather than a second form that a later field could be added to only one of.
  *

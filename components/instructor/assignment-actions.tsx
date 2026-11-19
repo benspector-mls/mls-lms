@@ -55,7 +55,7 @@ import { RemoveAssignmentDialog } from "./remove-assignment-dialog";
  * is `display: none`, so it is out of the accessibility tree too and a screen reader is never
  * offered one action twice.
  *
- * Its own file because the Curriculum screen draws it on every assignment row inside every
+ * Its own file because the Coursework screen draws it on every assignment row inside every
  * unit. The copy dialog and the typed-confirmation remove dialog are the same two it has
  * always opened.
  *

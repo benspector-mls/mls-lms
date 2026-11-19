@@ -102,6 +102,8 @@ export const coursesRouter = createTRPCRouter({
         name: true,
         publishedAt: true,
         archivedAt: true,
+        // Whether the course has lessons, which is whether a fellow's sidebar offers them.
+        curriculumId: true,
         /*
           The term the course belongs to. The breadcrumb names both — "Software Engineering
           Fellowship (Fall 2026)" — because a program runs every term under the same name, and the
@@ -395,6 +397,9 @@ export const coursesRouter = createTRPCRouter({
         archivedAt: true,
         createdAt: true,
         isTest: true,
+        curriculumId: true,
+        // The chosen curriculum's name, so the Lessons choice names it before the list arrives.
+        curriculum: { select: { name: true } },
         program: {
           select: {
             id: true,
@@ -765,6 +770,8 @@ export const coursesRouter = createTRPCRouter({
         */
         courseUnits: { name: string; position: number; category: CourseUnitCategory }[];
         assignmentIds: string[];
+        /** The curriculum the source's fellows read, which next year's course reads too. */
+        curriculumId: string | null;
       } | null = null;
 
       if (input.copyFromCourseId) {
@@ -782,6 +789,7 @@ export const coursesRouter = createTRPCRouter({
         const found = await ctx.db.course.findUnique({
           where: { id: input.copyFromCourseId },
           select: {
+            curriculumId: true,
             courseUnits: {
               orderBy: { position: "asc" },
               select: { name: true, position: true, category: true },
@@ -800,6 +808,7 @@ export const coursesRouter = createTRPCRouter({
         source = {
           courseUnits: found.courseUnits,
           assignmentIds: found.assignments.map((assignment) => assignment.id),
+          curriculumId: found.curriculumId,
         };
       }
 
@@ -829,6 +838,7 @@ export const coursesRouter = createTRPCRouter({
               name: input.name,
               slug,
               position: (highest._max.position ?? -1) + 1,
+              curriculumId: source?.curriculumId ?? null,
             },
             select: { id: true, name: true, slug: true, programId: true, publishedAt: true },
           })
@@ -1005,6 +1015,32 @@ export const coursesRouter = createTRPCRouter({
         where: { id: input.courseId },
         data: { archivedAt: input.archived ? new Date() : null },
         select: { id: true, name: true, archivedAt: true },
+      });
+    }),
+
+  /**
+   * Choose the curriculum this course's fellows read under its Lessons view, or none.
+   *
+   * Any instructor of the program, like the course's other settings: what a course teaches is the
+   * instructors' decision. Not audited, because it decides what fellows can read rather than who
+   * can see whose work.
+   */
+  setCurriculum: courseProcedure
+    .input(z.object({ curriculumId: z.string().uuid().nullable() }))
+    .mutation(async ({ ctx, input }) => {
+      if (input.curriculumId !== null) {
+        const curriculum = await ctx.db.curriculum.findUnique({
+          where: { id: input.curriculumId },
+          select: { id: true },
+        });
+        if (!curriculum) {
+          throw new TRPCError({ code: "NOT_FOUND", message: "That curriculum no longer exists." });
+        }
+      }
+      return ctx.db.course.update({
+        where: { id: input.courseId },
+        data: { curriculumId: input.curriculumId },
+        select: { id: true, curriculumId: true },
       });
     }),
 
