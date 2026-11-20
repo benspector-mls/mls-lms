@@ -1,0 +1,44 @@
+{
+  "v": 5,
+  "createdOnFiles": { "v": 1, "at": "2026-11-20T15:00:00Z" },
+  "lists": "css",
+  "format": { "v": 1, "shared": ["project/deck.css"] },
+  "title": "Introducing the Marcy LMS",
+  "cover": "cover",
+  "order": [
+    "cover",
+    "agenda",
+    "before",
+    "now",
+    "structure",
+    "accounts",
+    "demo",
+    "demo-checkin",
+    "demo-handin",
+    "demo-grading",
+    "demo-coaching",
+    "groups",
+    "example",
+    "visibility",
+    "ai",
+    "limits",
+    "feedback"
+  ],
+  "sections": {
+    "why": { "description": "Why the LMS exists and how it is organized.", "start": "cover" },
+    "week": { "description": "A live demonstration that follows one fellow through a week.", "start": "demo" },
+    "data": { "description": "How to read the figures the LMS shows about a fellow, and who can see them.", "start": "groups" },
+    "limits": { "description": "Where AI is used, what the LMS does not do yet, and the staff's feedback.", "start": "ai" }
+  },
+  "faces": {
+    "space-grotesk": {
+      "family": "Space Grotesk",
+      "href": "https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300..700&family=Inter:wght@400;600&display=swap"
+    },
+    "inter": {
+      "family": "Inter",
+      "href": "https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@300..700&family=Inter:wght@400;600&display=swap"
+    }
+  },
+  "designSystems": []
+}

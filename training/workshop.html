@@ -1,0 +1,221 @@
+<title>Marcy LMS Workshop</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Space+Grotesk:wght@500;600&display=swap">
+<style>
+  /* Layout: one reading column. The timetable comes first, then one block per exercise in the order it is run. */
+  :root {
+    --bg: #f6f8fb;
+    --surface: #ffffff;
+    --ink: #17202e;
+    --muted: #5a6779;
+    --line: #dbe1ea;
+    --accent: #1f5fbf;
+    --accent-soft: #e6eefb;
+    --warn: #8a3c08;
+    --warn-soft: #fbeee2;
+    --font-display: "Space Grotesk", "Segoe UI", system-ui, sans-serif;
+    --font-body: Inter, "Segoe UI", system-ui, sans-serif;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #10151d; --surface: #171e29; --ink: #e6ebf2; --muted: #9aa7b8; --line: #2a3443;
+      --accent: #7fb0f5; --accent-soft: #1c2a40; --warn: #f0b27a; --warn-soft: #33241a; color-scheme: dark;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #10151d; --surface: #171e29; --ink: #e6ebf2; --muted: #9aa7b8; --line: #2a3443;
+    --accent: #7fb0f5; --accent-soft: #1c2a40; --warn: #f0b27a; --warn-soft: #33241a; color-scheme: dark;
+  }
+  body { background: var(--bg); color: var(--ink); font-family: var(--font-body); font-size: 16px; line-height: 1.6; }
+  .wrap {
+    max-width: 48rem; margin: 0 auto; display: flex; flex-direction: column; gap: 2rem;
+    padding-block: 2rem 4rem;
+    padding-left: max(16px, env(safe-area-inset-left, 0px));
+    padding-right: max(16px, env(safe-area-inset-right, 0px));
+  }
+  h1 { font-family: var(--font-display); font-size: 2.25rem; line-height: 1.15; margin: 0 0 0.5rem; text-wrap: balance; }
+  h2 { font-family: var(--font-display); font-size: 1.45rem; line-height: 1.25; margin: 0; text-wrap: balance; }
+  h3 { font-size: 0.8rem; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); margin: 0; }
+  p, ul, ol { margin: 0; }
+  ul, ol { padding-left: 1.25rem; display: flex; flex-direction: column; gap: 0.35rem; }
+  a { color: var(--accent); }
+  .lede { color: var(--muted); font-size: 1.05rem; }
+  section { display: flex; flex-direction: column; gap: 0.9rem; min-width: 0; }
+  .table-wrap { overflow-x: auto; border: 1px solid var(--line); border-radius: 6px; background: var(--surface); }
+  table { border-collapse: collapse; width: 100%; min-width: 30rem; font-size: 0.95rem; }
+  th, td { text-align: left; vertical-align: top; padding: 0.55rem 0.75rem; border-bottom: 1px solid var(--line); }
+  th { color: var(--muted); font-weight: 600; }
+  tr:last-child td { border-bottom: 0; }
+  td.time { white-space: nowrap; font-variant-numeric: tabular-nums; font-weight: 600; }
+  .exercise { background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 1.5rem; gap: 1.1rem; }
+  .exercise header { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 0.25rem 1rem; }
+  .where { font-size: 0.85rem; font-weight: 600; padding: 0.15rem 0.6rem; border-radius: 999px; background: var(--accent-soft); color: var(--accent); }
+  .where.real { background: var(--warn-soft); color: var(--warn); }
+  .part { display: flex; flex-direction: column; gap: 0.4rem; }
+  .caution { border-left: 4px solid var(--warn); background: var(--warn-soft); padding: 0.75rem 1rem; border-radius: 0 6px 6px 0; }
+  details { border: 1px solid var(--line); border-radius: 8px; background: var(--surface); padding: 1rem 1.25rem; }
+  details[open] { display: flex; flex-direction: column; gap: 0.9rem; }
+  summary { font-family: var(--font-display); font-weight: 600; font-size: 1.15rem; cursor: pointer; }
+  .checks { list-style: none; padding: 0; }
+  .checks label { display: flex; gap: 0.6rem; align-items: flex-start; }
+  .checks input { margin-top: 0.35rem; flex: none; }
+</style>
+<div class="wrap">
+  <header>
+    <h1>Marcy LMS Workshop</h1>
+    <p class="lede">Sixty minutes for the programs team to practice the parts of the LMS each person has not used yet. Keep the <a href="https://claude.ai/artifact/SZph1JNzMk2KLEnZpYufLR">guide</a> and the <a href="https://claude.ai/artifact/R4uG4TtysNP3vfYreABeGU">quick reference</a> open beside this page.</p>
+  </header>
+
+  <section>
+    <h2>By the end you will be able to</h2>
+    <ul>
+      <li>Grade one submission from the all-ungraded queue by drafting or writing, editing, and releasing a report.</li>
+      <li>Record and complete a coaching session for a test student, and identify which answers the fellow will see.</li>
+      <li>Given the Performance tab of your own program, explain why each of three fellows sits in its group, naming the cell that decided it.</li>
+      <li>Use the quick reference to locate the screen for a task you have never performed.</li>
+    </ul>
+  </section>
+
+  <section>
+    <h2>Where you work</h2>
+    <p>Exercises A, B and D change records, so you perform them in the <b>Workshop</b> test program, on the test student assigned to you. A test program is kept out of Salesforce, and a test student is left out of every attendance and performance figure, so nothing you do there touches a real fellow.</p>
+    <p>Exercise C only reads figures, and a test program has none to read, so you perform it in your own real program. Exercise C asks you to change nothing.</p>
+    <p class="caution">Write only invented details about a test student. Generating Themes in Exercise B sends the session answers and notes you typed to the AI model.</p>
+  </section>
+
+  <section>
+    <h2>Timetable</h2>
+    <div class="table-wrap">
+      <table>
+        <tr><th>Minutes</th><th>Activity</th></tr>
+        <tr><td class="time">0–5</td><td>Read both pages of the quick reference and mark every task you have never performed. Start each exercise with the tasks you marked.</td></tr>
+        <tr><td class="time">5–20</td><td>Exercise A: grade a submission and answer a question</td></tr>
+        <tr><td class="time">20–35</td><td>Exercise B: record a coaching session</td></tr>
+        <tr><td class="time">35–47</td><td>Exercise C: explain three fellows’ groups</td></tr>
+        <tr><td class="time">47–55</td><td>Exercise D: one task of your choice</td></tr>
+        <tr><td class="time">55–60</td><td>Each person names one task that was hard to find, and sends it through Send feedback in the account menu.</td></tr>
+      </table>
+    </div>
+  </section>
+
+  <section class="exercise" id="exercise-a">
+    <header><h2>Exercise A: grade a submission and answer a question</h2><span class="where">Workshop test program · 15 minutes</span></header>
+    <div class="part">
+      <h3>Goal</h3>
+      <p>Your test student has handed in a link and asked a question about the assignment. Answer the question, then release a grade and feedback to them.</p>
+    </div>
+    <div class="part">
+      <h3>Work it out in this order</h3>
+      <ol>
+        <li>Open the Workshop course. Which screen opens first, and what is at the top of it?</li>
+        <li>Find your test student’s question and reply to it where they will read it.</li>
+        <li>Open the queue that holds every ungraded submission in the course, and find your test student.</li>
+        <li>Produce a report: press <b>Generate report</b>, or press <b>Write it yourself</b> and fill in each section.</li>
+        <li>Change one score and one sentence, then release the report.</li>
+      </ol>
+    </div>
+    <div class="part">
+      <h3>Check your result</h3>
+      <ul>
+        <li>Your test student has left the <b>To do</b> tab and appears on the <b>Graded</b> tab.</li>
+        <li>Triage no longer lists their question under <b>Unread comments</b>.</li>
+        <li>The gradebook shows a score in their cell. Is the work complete or incomplete, and which setting on the assignment decided that?</li>
+      </ul>
+    </div>
+    <div class="part">
+      <h3>If you cannot proceed</h3>
+      <p>Read <a href="https://claude.ai/artifact/SZph1JNzMk2KLEnZpYufLR#triage-what-is-waiting-on-you">Triage: what is waiting on you</a> and <a href="https://claude.ai/artifact/SZph1JNzMk2KLEnZpYufLR#grading">Grading</a> in the guide.</p>
+    </div>
+  </section>
+
+  <section class="exercise" id="exercise-b">
+    <header><h2>Exercise B: record a coaching session</h2><span class="where">Workshop test program · 15 minutes</span></header>
+    <div class="part">
+      <h3>Goal</h3>
+      <p>Hold an invented coaching conversation with your test student and leave their record as you would after a real one.</p>
+    </div>
+    <div class="part">
+      <h3>Work it out in this order</h3>
+      <ol>
+        <li>Open your test student’s record from the roster and find where coaching lives.</li>
+        <li>Start a coaching session and set the session date to today.</li>
+        <li>Before typing, count the questions labeled <b>Shared with</b> the fellow’s name <b>on completion</b>. Every other question is labeled <b>Staff only</b>. Then answer at least three questions, including one shared and one staff-only.</li>
+        <li>Complete the session. Read the confirmation before you accept it.</li>
+        <li>Write one note about the conversation in the Notes section.</li>
+        <li>Open the Trends tab and generate Themes. Edit one theme that you think is wrong or thin.</li>
+      </ol>
+    </div>
+    <div class="part">
+      <h3>Check your result</h3>
+      <ul>
+        <li>The confirmation named how many answers the fellow will see. Did that number match the shared answers you filled in?</li>
+        <li>The session appears in the Sessions list with today’s date and the name of the form, and it can no longer be edited.</li>
+        <li>Themes lists at least one theme, and your edit is saved. The themes will be short, because a test student’s record holds very little.</li>
+      </ul>
+    </div>
+    <div class="part">
+      <h3>If you cannot proceed</h3>
+      <p>Read <a href="https://claude.ai/artifact/SZph1JNzMk2KLEnZpYufLR#coaching-a-fellow">Coaching a fellow</a> in the guide.</p>
+    </div>
+  </section>
+
+  <section class="exercise" id="exercise-c">
+    <header><h2>Exercise C: explain three fellows’ groups</h2><span class="where real">Your real program · read only · 12 minutes</span></header>
+    <div class="part">
+      <h3>Goal</h3>
+      <p>Explain to the person beside you why three of your fellows sit in the groups they do.</p>
+    </div>
+    <div class="part">
+      <h3>Work it out in this order</h3>
+      <ol>
+        <li>Open the Performance tab of the Fellows screen in your own program.</li>
+        <li>Choose one fellow from each of three different groups. For each one, name the single cell that decided their group and say its rule. Hover the cell to check yourself.</li>
+        <li>Find one cell with no color. What would have to be true before the LMS colors it?</li>
+        <li>Change the dates above the table to the last four weeks. Did any of your three fellows change group, and which cell moved them?</li>
+        <li>Open the Coaching tab and find the same three fellows. How long ago was each one’s latest session?</li>
+      </ol>
+    </div>
+    <div class="part">
+      <h3>Check your result</h3>
+      <ul>
+        <li>Your partner can repeat, for each fellow, which cell decided the group.</li>
+        <li>You changed nothing: dates and filters are choices about what the page shows, and they are kept in the page’s address.</li>
+      </ul>
+    </div>
+    <div class="part">
+      <h3>If you cannot proceed</h3>
+      <p>Read <a href="https://claude.ai/artifact/SZph1JNzMk2KLEnZpYufLR#performance-who-needs-support">Performance: who needs support</a> in the guide, or press <b>How does bucketing work?</b> above the table.</p>
+    </div>
+  </section>
+
+  <section class="exercise" id="exercise-d">
+    <header><h2>Exercise D: one task of your choice</h2><span class="where">Workshop test program · 8 minutes</span></header>
+    <p>Choose the task below that you marked as never performed. Begin anything you name with your initials, so that each person’s work can be told apart.</p>
+    <div class="table-wrap">
+      <table>
+        <tr><th>Task</th><th>Goal</th><th>Check your result</th></tr>
+        <tr><td><a href="https://claude.ai/artifact/SZph1JNzMk2KLEnZpYufLR#readings-notes-and-videos">A check for understanding</a></td><td>Add a resource to the Workshop course and attach one question to it.</td><td>The resource’s row on Coursework shows a count of fellows who have answered.</td></tr>
+        <tr><td><a href="https://claude.ai/artifact/SZph1JNzMk2KLEnZpYufLR#rubrics-and-the-rules-a-report-follows">A rubric</a></td><td>Write a short rubric of your own with two score bands.</td><td>The assignment form lists your rubric when you choose a rubric for a section.</td></tr>
+        <tr><td><a href="https://claude.ai/artifact/SZph1JNzMk2KLEnZpYufLR#writing-an-assignment">An assignment handed in two ways</a></td><td>Write a link or file assignment that accepts both a link and a file. Leave it unpublished.</td><td>The assignment appears in its unit on Coursework, marked as not published.</td></tr>
+        <tr><td><a href="https://claude.ai/artifact/SZph1JNzMk2KLEnZpYufLR#slack-notifications">Slack notifications</a></td><td>Turn on the summary of your grading pile for the days you want it. This changes your own real account.</td><td>Your Profile shows the days and the hour you chose.</td></tr>
+      </table>
+    </div>
+  </section>
+
+  <details>
+    <summary>Preparation for the facilitator, before the session</summary>
+    <p>Each step is performed by an admin on the live LMS. Allow about an hour. Steps 6 and 7 are repeated once per attendee, because two people cannot release the same report and each person needs a question of their own to answer.</p>
+    <ul class="checks">
+      <li><label><input type="checkbox" id="prep-1"> <span>Create a program named Workshop, and press <b>Mark as a test program</b> in its Settings so that it is kept out of Salesforce. A program’s name and term cannot be changed afterwards.</span></label></li>
+      <li><label><input type="checkbox" id="prep-2"> <span>Add one course to it, add one module, and publish the course.</span></label></li>
+      <li><label><input type="checkbox" id="prep-3"> <span>Put every attendee on the program as an instructor, from <b>Admin › Staff › Programs</b> on each person’s row.</span></label></li>
+      <li><label><input type="checkbox" id="prep-4"> <span>Add one test student per attendee from <b>Fellows › Roster › Add test student</b>, and write down which attendee has which test student.</span></label></li>
+      <li><label><input type="checkbox" id="prep-5"> <span>Publish one <b>Link or file upload</b> assignment with at least one section and a rubric, due yesterday, and one resource.</span></label></li>
+      <li><label><input type="checkbox" id="prep-6"> <span>Use <b>View as</b> for each test student: attach a link to the assignment, and write one question on its Comments tab.</span></label></li>
+      <li><label><input type="checkbox" id="prep-7"> <span>While viewing as each test student, add one goal and one discussion topic on their Goals page, so that the coaching form and Themes have something to show.</span></label></li>
+      <li><label><input type="checkbox" id="prep-8"> <span>Generate one report on a spare test student’s submission to confirm that drafting works in this course.</span></label></li>
+      <li><label><input type="checkbox" id="prep-9"> <span>Share the guide, the quick reference and this page with the programs team, and print one quick reference per person.</span></label></li>
+    </ul>
+    <p>During the session, show the fellow’s side once on the shared screen after Exercise A, using View as, because only an admin can view as a test student. After the session, archive the Workshop program.</p>
+  </details>
+</div>

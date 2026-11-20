@@ -1,0 +1,323 @@
+body {
+  font-family: 'Inter', Arial, sans-serif;
+  color: #14213a;
+}
+
+section {
+  padding: 128px;
+  background: #f6f8fb;
+  color: #14213a;
+  display: flex;
+  flex-direction: column;
+}
+
+h1,
+h2,
+h3 {
+  font-family: 'Space Grotesk', Arial, sans-serif;
+  font-weight: 600;
+}
+h1 {
+  font-size: 120px;
+  line-height: 1.05;
+  margin-bottom: 40px;
+}
+h2 {
+  font-size: 68px;
+  line-height: 1.1;
+  margin-bottom: 56px;
+}
+h3 {
+  font-size: 36px;
+  line-height: 1.2;
+}
+
+.eyebrow {
+  font-size: 26px;
+  font-weight: 600;
+  letter-spacing: 3px;
+  text-transform: uppercase;
+  color: #1f5fbf;
+  margin-bottom: 20px;
+}
+.lede {
+  font-size: 36px;
+  line-height: 1.4;
+  color: #44516a;
+}
+.spacer {
+  flex: 1;
+}
+
+/* Slides on the two other backgrounds */
+.dark {
+  background: #14213a;
+  color: #f6f8fb;
+}
+.dark .eyebrow {
+  color: #8fb8f5;
+}
+.dark .lede {
+  color: #b9c6da;
+}
+.accent {
+  background: #1f5fbf;
+  color: #f6f8fb;
+}
+.accent .eyebrow {
+  color: #d5e4fb;
+}
+.accent .lede {
+  color: #e3edfc;
+}
+.cover {
+  justify-content: center;
+}
+.cover .lede {
+  width: 1200px;
+}
+
+/* A row of equal cards */
+.cards {
+  display: flex;
+  gap: 24px;
+}
+.card {
+  flex: 1;
+  background: #ffffff;
+  border: 2px solid #dbe1ea;
+  border-radius: 16px;
+  padding: 36px 32px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+.card .card-title {
+  font-size: 34px;
+}
+.card .card-text {
+  font-size: 28px;
+  line-height: 1.4;
+  color: #44516a;
+}
+.card .tag {
+  font-size: 24px;
+  font-weight: 600;
+  color: #1f5fbf;
+}
+.card .tag-hand {
+  font-size: 24px;
+  font-weight: 600;
+  color: #a8480a;
+}
+.card-hand {
+  border-color: #a8480a;
+}
+.dark .card {
+  background: #1d2d4d;
+  border-color: #34486f;
+}
+.dark .card .card-text {
+  color: #d7e0ee;
+}
+.accent .card {
+  background: #1a4f9f;
+  border-color: #6f9fe0;
+}
+.accent .card .card-title {
+  font-size: 32px;
+}
+
+/* Program and course diagram */
+.diagram {
+  display: flex;
+  align-items: center;
+  gap: 40px;
+}
+.box {
+  background: #ffffff;
+  border: 3px solid #14213a;
+  border-radius: 16px;
+  padding: 36px;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+.box-program {
+  width: 700px;
+}
+.box-course {
+  width: 780px;
+  border-color: #1f5fbf;
+}
+.box .box-kind {
+  font-size: 24px;
+  font-weight: 600;
+  letter-spacing: 3px;
+  text-transform: uppercase;
+  color: #1f5fbf;
+}
+.box .box-name {
+  font-size: 34px;
+}
+.chips {
+  display: flex;
+  gap: 16px;
+}
+.chip {
+  font-size: 26px;
+  font-weight: 600;
+  background: #e6eefb;
+  border-radius: 10px;
+  padding: 12px 18px;
+}
+.courses {
+  display: flex;
+  flex-direction: column;
+  gap: 24px;
+}
+.note {
+  font-size: 30px;
+  line-height: 1.4;
+  color: #44516a;
+}
+
+/* Live demonstration cue slides */
+.cue-row {
+  display: flex;
+  gap: 48px;
+}
+.cue-screen {
+  width: 560px;
+  background: #14213a;
+  border-radius: 16px;
+  padding: 40px;
+  display: flex;
+  flex-direction: column;
+  gap: 20px;
+}
+.cue-screen .cue-label {
+  font-size: 24px;
+  font-weight: 600;
+  letter-spacing: 3px;
+  text-transform: uppercase;
+  color: #8fb8f5;
+}
+.cue-screen .cue-path {
+  font-size: 34px;
+  line-height: 1.35;
+  font-weight: 600;
+  color: #f6f8fb;
+}
+.cue-notice {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 28px;
+}
+.cue-notice .cue-point {
+  font-size: 34px;
+  line-height: 1.35;
+  padding-left: 28px;
+  border-left: 6px solid #1f5fbf;
+}
+
+/* Performance colors. Each band also states its rule in words. */
+.bands {
+  width: 720px;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+.band {
+  border-radius: 12px;
+  padding: 22px 28px;
+  font-size: 32px;
+  font-weight: 600;
+}
+.band-red {
+  background: #a3221b;
+  color: #ffffff;
+}
+.band-yellow {
+  background: #f2c230;
+  color: #14213a;
+}
+.band-green {
+  background: #1b6e40;
+  color: #ffffff;
+}
+.band-none {
+  background: #e3e8ef;
+  color: #14213a;
+}
+.split {
+  display: flex;
+  gap: 64px;
+}
+.groups {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+.group {
+  background: #ffffff;
+  border: 2px solid #dbe1ea;
+  border-radius: 12px;
+  padding: 18px 28px;
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+.group .group-name {
+  font-size: 32px;
+}
+.group .group-rule {
+  font-size: 26px;
+  color: #44516a;
+}
+
+/* One worked example row */
+.row {
+  display: flex;
+  gap: 16px;
+}
+.cell {
+  flex: 1;
+  border-radius: 12px;
+  padding: 24px;
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+.cell .cell-name {
+  font-size: 24px;
+  font-weight: 600;
+}
+.cell .cell-value {
+  font-size: 60px;
+  font-weight: 600;
+  font-family: 'Space Grotesk', Arial, sans-serif;
+}
+.cell .cell-word {
+  font-size: 24px;
+}
+.verdict {
+  margin-top: 48px;
+  font-size: 40px;
+  line-height: 1.35;
+}
+
+/* A step the speaker reveals with a click */
+.fragment {
+  opacity: 0;
+}
+.fragment.visible {
+  opacity: 1;
+}
+
+table.plain {
+  font-size: 28px;
+  color: #14213a;
+}

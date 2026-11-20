@@ -168,7 +168,7 @@ A module cannot be removed while an assignment is still in it. Move or remove th
 
 Every assignment belongs to a unit and has a title, a point value, a due date, and a **completion threshold** — the share of the points that counts as complete, 75 percent by default, matching the program's Complete/Incomplete policy. The threshold is set under **How it is graded**, and changing it on an assignment that already has grades re-marks every graded submission against the new threshold.
 
-**Three kinds, and the kind cannot be changed once the assignment exists**, because changing it would change what its existing submissions are. How a self-directed assignment is handed in *can* be changed afterwards, which is what lets you open an existing assignment up to a second format.
+**Four kinds, and the kind cannot be changed once the assignment exists**, because changing it would change what its existing submissions are. How a self-directed assignment is handed in *can* be changed afterwards, which is what lets you open an existing assignment up to a second format.
 
 **Handed in by** is the other choice that cannot be taken back. Leave it on **Each student, on their own** for ordinary work, or pick a **team set** and the assignment becomes one piece of work per team, with one grade shared by everybody on it. Any kind can be team work — a repository, a document, a file, a link. The readout under the picker says how many teams the set holds and how many fellows are on none of them, because a fellow on no team has nothing to accept.
 
@@ -177,23 +177,38 @@ It is editable up to the moment you publish and fixed afterwards. Turning it on 
 | Kind             | How it reaches the student                                                                                | How they hand it back                                              | How it is graded                        |
 | ---------------- | --------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------ | --------------------------------------- |
 | **Repository**   | You name a template repository; pressing Accept generates a copy for that student                         | A pull request                                                     | A drafted report you review, or by hand |
-| **Google Drive** | You paste a link to a Doc, Sheet, or Slides file; pressing Accept opens Google's own "make a copy" prompt | A link to their copy                                               | By hand                                 |
-| **Link or file** | Nothing is handed out; the assignment is the instructions                                                 | A link to work made anywhere — Canva, Loom, Figma, a deployed site — or a file into private storage, or either, as you choose | By hand                                 |
+| **Google Drive** | You paste a link to a Doc, Sheet, or Slides file; pressing Accept opens Google's own "make a copy" prompt | A link to their copy                                               | By hand, or a drafted report you review |
+| **Link or file** | Nothing is handed out; the assignment is the instructions                                                 | A link to work made anywhere — Canva, Loom, Figma, a deployed site — or a file into private storage, or either, as you choose | By hand, or a drafted report you review |
+| **Task**         | Nothing is handed out; the task is something to do, such as setting up a laptop or joining Slack          | Nothing is handed in; the task is marked done                      | Done or not done, worth one point       |
 
 For a **code** assignment you name two repositories, pasted as ordinary browser addresses:
 
 - The **template**, which every student's repository is generated from. It has to have GitHub's template flag set — the form checks, because otherwise the failure lands on the first student who presses Accept. Private is fine if it is in an organization this deployment covers.
 - The **answer keys**, which are reference solutions the grading model reads. **This repository must be private**, and a public one is refused rather than warned about. You name a *folder* inside it and every file under that folder is used; the form lists exactly which files it resolved to, and names anything it skipped. Pasting the address of the folder you already have open in GitHub fills both fields at once.
 
-For a **link or file** assignment you tick **how fellows may hand it in** — a link, a file, or both. Ticking both is how you run a choose-your-own-path assignment: the same reflection comes back as a Word document from one fellow, a Google Slides link from another, and a two-minute Loom recording from a third, all graded against the same sections. The fellow picks between the two forms on their own screen, and only their most recent hand-in counts — handing in one way replaces what they handed in the other way.
+For a **link or file** assignment you tick **how fellows may hand it in** — a link, a file, or both. Ticking both is how you run a choose-your-own-path assignment: the same reflection comes back as a Word document from one fellow, a Google Slides link from another, and a two-minute Loom recording from a third, all graded against the same sections. The fellow sees both forms on their own screen and can use either or both, because one submission holds up to ten links and files together and you see all of them.
 
 If a file is one of the ways in, you also tick which file types you will accept — PDF, images, Word and plain text, spreadsheets, Jupyter notebooks, Python. The size limit is 25MB and is the same everywhere. Ticking Python accepts a `.py` file and nothing else, which is the right shape for an exercise handed in as one script; Python work spread across several files belongs in a code assignment, where the repository holds all of it.
+
+For a **task** you decide **who marks it done**. **Fellows can mark this done themselves** is ticked to start with, and a fellow then marks the task done on their own screen. Untick it when only you can confirm that the task is done, such as a form whose responses only you can see. You can set either verdict on any task from its queue, which lists the whole roster because a task has no submission to wait for. Marking a task not done sends it back to the fellow, who can see that it came back.
+
+**Sections are what gets scored.** An assignment that collects work is divided into one or more sections, and each section is graded one of two ways. A section graded by the model names a **rubric**, chosen from a list, and has a point value; on a repository assignment it also names a section type (Short Response, Coding Exercises, SQL Queries, or Web Pages and App Code). A section graded by hand has a label and a point value and nothing else. A Drive assignment or a link or file assignment graded by the model has one such section, and its rubric is the whole description of what a resume or a reflection is scored against. Rubrics are written on the [Rubrics screen](#rubrics-and-the-rules-a-report-follows).
 
 Every kind takes **assignment instructions**, written in Markdown, which the student reads in the assignment panel. They are optional: each kind's own screen already states the mechanical steps of handing in, so this is for anything specific to the assignment. For a link assignment this is where you say where to start: a sentence linking to the Canva template your students copy reads better than a bare URL with no explanation of what to do with it.
 
 **An assignment is a draft until you publish it.** Students cannot see an unpublished one at all — a module that is full to you reads as empty to them. Publish and unpublish are on the Assignments list.
 
 **Copy to…** on an assignment's menu carries it into another course you instruct — usually last year's into this year's — matching the module by name where it can and telling you which happened. An archived course takes no copies.
+
+### Rubrics, and the rules a report follows
+
+**Rubrics** is in the sidebar whichever program you are in, and it lists two things on one screen: every rubric, and every rule set.
+
+**A rubric is what the model scores a section against.** It has a **Name**, which is what the assignment form shows when you choose a rubric for a section, and three boxes written in Markdown. **Rubric** holds the criteria and the score bands as the model reads them; a table of bands with a description of each works best. **Guidance** says how the points add up and what each row of the report is. **Sample report** is optional: a finished report of the shape you want, which the model matches for tone and layout.
+
+**Saving a changed rubric saves a new version**, and the confirmation names the version number. A rubric can be changed by the person who wrote it or by an admin. The rubrics that belong to the program can be changed only by an admin, and the form says so; to grade against something different, create a rubric of your own.
+
+**A rule set is the tone, layout and labels that every report follows.** Each program follows the rule set an admin chose for it. A rubric's **Rules** field is left on **Use the program's rules** unless that one rubric needs a different voice, in which case you name a rule set there.
 
 ### Readings, notes, and videos
 
@@ -211,7 +226,7 @@ Unticking the box removes the check and every attempt at it, and the form says h
 
 ### Fellows, and the roster
 
-**Fellows** is one screen with four tabs, each at its own address. **Roster** is who is on the program, in alphabetical order, and is where a program's name leads from everywhere else. **Performance** and **Coaching** are how the same fellows are doing, described under Performance below. The Coaching tab reads one coaching form at a time: a picker above the table offers every form a completed session in the program was run through, and each row is that fellow's latest session through the chosen form, so answers to one form's questions never sit under another's headings. The choice is in the address, as the cohort is, so a link carries it. **Trends** is a placeholder until a roster-wide reading is written. The cohort picker in the header narrows every tab, and the tab links carry it.
+**Fellows** is one screen with four tabs, each at its own address. **Roster** is who is on the program, in alphabetical order, and is where a program's name leads from everywhere else. **Performance** and **Coaching** are how the same fellows are doing; Performance is described under [Performance: who needs support](#performance-who-needs-support). The Coaching tab reads one coaching form at a time: a picker above the table offers every form a completed session in the program was run through, and each row is that fellow's latest session through the chosen form, so answers to one form's questions never sit under another's headings. The choice is in the address, as the cohort is, so a link carries it. **Trends** is a placeholder until a roster-wide reading is written. The cohort picker in the header narrows every tab, and the tab links carry it.
 
 **One roster for the whole program**, entered once rather than once per course. A fellow who joins is a student of every course in it.
 
@@ -228,6 +243,27 @@ If a link goes astray, **regenerate** it. Everybody already in stays in, and the
 A column on the roster names each fellow's **cohort**, or says "No cohort" where nobody has placed them, because that is the question you ask while reading the roster. Placing them is the **Cohorts** section of the program's Settings screen.
 
 **Sort the roster** by clicking Fellow, GitHub or Cohort. Clicking the same heading again reverses it, and a fellow with nothing in that column — no GitHub account yet, nobody having placed them in a cohort — sits at the bottom either way rather than at the top of the blanks. The Enrollment column does not sort, because the removed fellows are already a table of their own below.
+
+### Performance: who needs support
+
+The **Performance** tab of the Fellows screen sorts the roster into four groups, so the fellows to talk to today are at the top instead of somewhere in an alphabetical list. Fellows never see this tab, their group, or any of its colors.
+
+**Every colored cell is a percentage read against the same two bars.** A cell is **red** under 75 percent, **yellow** under 90 percent, and **green** at 90 percent and over. A cell has **no color** when fewer than 4 items sit behind it, because a percentage of two assignments says very little. Hover a cell to read its rule.
+
+**The worst cell on a fellow's row decides their group:**
+
+| Group                         | Rule                                                              |
+| ----------------------------- | ----------------------------------------------------------------- |
+| **Needs support**             | Any red cell                                                      |
+| **Meeting the bar**           | Any yellow cell, and no red cell                                  |
+| **Exceeding expectations**    | Every colored cell is green                                       |
+| **Too early to say**          | Nothing due yet, or fewer than 5 attendance sessions counted      |
+
+**The columns measure four things:** attendance, deadlines hit, assignments submitted, and assignments completed. Some columns read the whole term and some read a **recent window**, which is the last two weeks unless you change the dates above the table. Both are read because they catch different fellows: a fellow at 95 percent attendance for the term who has been late every morning this week is the person to talk to today, and the term figure alone would place them in Exceeding expectations.
+
+**Three controls narrow what the groups are read from.** The dates set the recent window. The measure filter leaves measures out, so you can ask who needs support for attendance and deadlines alone. The course filter reads only the courses you choose. The cohort picker narrows the roster as it does everywhere else. **How does bucketing work?** above the table restates these rules on the screen.
+
+The bars are the same for every program and cannot be changed, so a red cell means the same thing to every instructor who reads it.
 
 ### Cohorts, and splitting the marking
 
@@ -299,7 +335,7 @@ Three things about that figure, so it can be quoted safely. **Only mornings they
 
 ### Coaching a fellow
 
-Open a fellow from the roster and their record has three tabs under their details, each at its own address so a link can name one and the back button returns to one, and each with an **On this page** list beside it — or a rail of bars at the right edge on a narrow screen — that jumps to its sections. **Performance** takes one area at a time, each starting with its last few weeks. **Attendance** shows their recent mornings and when they arrive, then the term's figures and, beneath them, the same **calendar the fellow sees on their own Attendance screen**, square for square, so you can see which mornings they missed, arrived late to, or were excused from, and the two of you can look at the same square in a conversation. **Coursework** is one row per course: where they stand on the whole course, and beneath it that course's recent work and recent checks for understanding. The checks reading says how many of their last five checks they answered, how many ended Blocked, and whether they asked for help on those; unlike attendance and work, it never turns red, because a check is an honest reading rather than a verdict. Last is their **GCF** history. **Coaching** is what passes between a coach and a fellow: what the fellow wants to raise next time, their goals, coaching sessions, and notes, each section saying plainly who can read it. **Trends** is two readings of the fellow: **Last few weeks**, attendance, work and understanding over a recent window in one card, the same card every coaching session opens with, and beneath it **Themes**, described below.
+Open a fellow from the roster and their record has four tabs under their details, each at its own address so a link can name one and the back button returns to one, and each with an **On this page** list beside it — or a rail of bars at the right edge on a narrow screen — that jumps to its sections. **Performance** takes one area at a time, each starting with its last few weeks. **Attendance** shows their recent mornings and when they arrive, then the term's figures and, beneath them, the same **calendar the fellow sees on their own Attendance screen**, square for square, so you can see which mornings they missed, arrived late to, or were excused from, and the two of you can look at the same square in a conversation. **Coursework** is one row per course: where they stand on the whole course, and beneath it that course's recent work and recent checks for understanding. The checks reading says how many of their last five checks they answered, how many ended Blocked, and whether they asked for help on those; unlike attendance and work, it never turns red, because a check is an honest reading rather than a verdict. Last is their **GCF** history. **Coaching** is what passes between a coach and a fellow: what the fellow wants to raise next time, their goals, coaching sessions, and notes, each section saying plainly who can read it. **Trends** is two readings of the fellow: **Last few weeks**, attendance, work and understanding over a recent window in one card, the same card every coaching session opens with, and beneath it **Themes**, described below. **Tutor** lists the fellow's conversations with the Tutor across the program's courses, so you can read what they asked and what they were told.
 
 **You can correct a fellow's name from here.** Signing up fills the name from a GitHub login or an email address, so a roster opens with `bspector` and `amina.k` on it until somebody fixes them — and the fellows who never notice are the ones who never open their Profile screen. The pencil beside the name is the fix. It is the one thing on this page that is not about this program: a person has one name, so it changes what they are called in every course, every gradebook and on their own screen, and it replaces a name they may have chosen themselves. The dialog says so before you save.
 
@@ -327,14 +363,13 @@ Open a fellow from the roster and their record has three tabs under their detail
 
 ### Triage: what is waiting on you
 
-**Triage** is the first screen of a course and answers one question — what do I do next. Work is sorted into piles by what it needs:
+**Triage** is the first screen of a course and answers one question — what do I do next. From top to bottom the screen holds:
 
-- **No report yet** — handed in, nothing generated. The button here generates one.
-- **To grade by hand** — handed in, and nothing about it can be graded automatically. The button here opens an empty draft for you to write.
-- **Drafts ready to review** — a report is waiting for you to read, edit, and approve.
-- **Held for review** — the pipeline could not produce a confident draft and says why.
-- **Grading failed** — the run errored. Try again, or grade it by hand.
-- **Approved, never delivered** — you approved a grade but the comment never reached GitHub. Retry sends it.
+- **Unread comments** — questions fellows have written on their work. They come first because a fellow with a question is stopped until somebody answers, while work awaiting a grade is finished work sitting still. **Mark resolved** takes a question off the list when it needs no written answer, such as one already handled in person.
+- **Grade all ungraded submissions** — a button that opens one queue holding every ungraded submission in the course, across all of its assignments.
+- **Past due** — assignments whose due date has passed, the longest overdue first.
+- **Not yet due** — assignments due later, the soonest first. Assignments with no due date come last.
+- **Resubmissions** — work handed in again after a grade was released. These fellows already have feedback, so grade the first submissions above before these.
 
 Only piles with work in them appear; an empty pile is left off the screen. Each pile can be folded closed from its heading, and every pile is open again the next time you visit.
 
@@ -347,6 +382,10 @@ Because it is the first screen of a course, it is also where a course name takes
 ### Grading
 
 Open an assignment to get its **queue**: every fellow down one side, the work and the review pane on the other. Tabs for All, To do, and Graded. From a fellow's name anywhere you get the other axis — **one fellow's whole record in this course**, every assignment including the ones they never started. A second screen, reached from the roster, is about the *person* rather than the work: their attendance, their cohort, their GCF results, and a row per course of the program. Its **Last few weeks** card, on the Trends tab, is a recent window rather than the term: the last few mornings by the same rule as the attendance screen's list, when they arrive in the morning, overall and by weekday, and whether each course's work has slipped, by the same rule as the gradebook's list.
+
+**All ungraded submissions** is the same queue given a longer list: every submission in the course that is waiting for a grade, whichever assignment it belongs to. Open it with **Grade all ungraded submissions** on Triage, or choose it in the assignment picker above a queue. It follows the cohort picker, so it holds your half of the roster when you have chosen a cohort.
+
+**Answering a fellow's question.** The review pane has a **Comments** tab holding the conversation about that fellow's work, and the tab shows a dot when a reply is owed. A fellow can write there before handing anything in, so the tab is present whether or not there is a report. Write your reply in the same place; the fellow reads it in their own assignment panel. A task's pane holds the same conversation, so you can say why you sent a task back.
 
 **Reading the work beside the grade.** What the grade rests on gets a column of its own, and holds its place while the score and the feedback scroll past it — reading and writing about it are one task, and they belong on the screen together. What goes in that column is whatever the submission has: a PDF or an image handed in; a Python file, syntax-coloured with line numbers, read on the screen rather than downloaded and opened in an editor; a Google Doc, Sheet or Slides deck a student linked, read in place rather than in another tab; the changed files of a pull request, with the diff of each one; the address of a link this application cannot show; or, where none of those exist yet, **How this score was reached** and the test evidence beside the section report rather than under it. It happens on its own, when the review pane is wide enough to hold both, and the screen returns to a single column when it is not. There is no setting: the pane either has the room or it does not, and the preview's own **Hide** is there for when you would rather have the width. The score and the feedback stop widening once they are comfortable to write in, so a bigger window shows you more of the student's work rather than more space around your own writing. To change the split, drag the grip on the line between the two columns: left gives the grade more room, right gives it to the work. The width you choose is remembered in your browser for every student and every assignment, and a double-click on the grip returns it to the default. A PDF opens fitted to the width of its column, with the browser viewer's own row of buttons put away — scrolling moves through the pages, ctrl+scroll changes the size, and **Download** is above the document where it always was. A Python file is drawn as code with its line numbers beside it, and selecting a block copies the code without the numbers. Nothing runs it: it is text on a screen, and **Download** is in the same place.
 
@@ -372,7 +411,7 @@ Test results are an *input* to the rubric rather than the score. Anything the re
 
 Three things are refused rather than warned about, because each one would produce a wrong grade: approving the same draft twice, approving a draft that describes a commit the student has since pushed past, and approving a report whose text states a different score than the one recorded.
 
-**Grading by hand** is the same screen with an empty draft, and the form is already on it: one card per section of the assignment, with an empty score box and an empty feedback box. Filling in either one opens the draft and carries what you wrote onto it — a score the moment you leave its box, a feedback box the moment you open it — so the total, **Discard this feedback** and **Approve and release** appear on a bar pinned to the foot of the form as soon as there is a grade to release. Everything after that is identical. A section left with no score or no feedback is refused rather than released as a zero. Opening a submission and leaving it alone opens no draft, a score typed and cleared out again opens none either, and nothing can open a second draft over the one you have started.
+**Grading by hand** is the same screen with an empty draft, and the form is already on it: one card per section of the assignment, with an empty score box and an empty feedback box. Filling in either one opens the draft and carries what you wrote onto it — a score the moment you leave its box, a feedback box the moment you open it — so the total, **Discard this feedback** and **Release Feedback** appear on a bar pinned to the foot of the form as soon as there is a grade to release. Everything after that is identical. A section left with no score or no feedback is refused rather than released as a zero. Opening a submission and leaving it alone opens no draft, a score typed and cleared out again opens none either, and nothing can open a second draft over the one you have started.
 
 **Writing the report yourself on an assignment the model grades.** Beside **Generate report** is **Write it yourself**, which opens the same empty form — one card per section, scored out of the same points — for when you would rather write the report than read the model's. **Generate a report instead** above the form takes you back as long as nothing has been written. To replace a report the model already wrote, discard it first, and the choice between generating and writing appears in its place. The model's report is kept on record, out of sight, so what it cost is still counted. **Grade again** appears only beside a report the model wrote: generating adds a new report on top rather than replacing the one on screen, so offering it beside your own writing would bury that writing underneath a second report still waiting for review.
 
@@ -388,7 +427,7 @@ Both edges are totalled: a **Completed** row under each assignment title says ho
 
 The **Overview** tab reads the whole course in one row per fellow: completed units per category, then three course-wide figures — completed assignments, handed in late, and missing — then what is waiting on you, the course verdict, and their best GCF. Every column header sorts, most-of-it first, and the late and missing totals are the same ones the CSV has always carried. The same three figures appear on each course row of a fellow's program record.
 
-The Overview's late and missing totals are term-long, and they hide the fellow who finished every module in September and has handed nothing in for a fortnight. That fellow is found on the **Performance** tab of the program's **Fellows** screen, which flags anybody who has missed or handed in late 4 or more of the last 10 assignments due in a course, or fallen short on 2 or more of their last 5 graded.
+The Overview's late and missing totals are term-long, and they hide the fellow who finished every module in September and has handed nothing in for a fortnight. That fellow is found on the **Performance** tab of the program's **Fellows** screen, which reads the last two weeks as well as the term and places in **Needs support** anybody whose share of deadlines hit, assignments submitted, or assignments completed in that window is under 75 percent. See [Performance: who needs support](#performance-who-needs-support).
 
 **Download CSV** gives you the grid as a spreadsheet.
 
@@ -532,6 +571,10 @@ Adding something never replaces anything. What is already attached is listed abo
 
 While your instructor is reading your work, the list is fixed: the forms and the Remove buttons go away and the panel says why. This is not an error, and when their feedback arrives you can attach revised work and ask for another look.
 
+**Asking a question.** The panel's **Comments** tab is a conversation with your instructors about this one assignment, and you can write there before you have handed anything in. Your question goes to the top of your instructor's list of things waiting on them, and their reply appears in the same tab.
+
+**A task has nothing to hand in.** Some assignments are things to do, such as setting up your laptop. You mark a task done yourself, unless it is one that only your instructor can confirm, and the panel says which. If your instructor marks a task not done, it comes back to you to redo.
+
 **What the status means.** There are five words an assignment can carry, and between them they say whose move it is:
 
 | Status          | What it means                                                                  |
@@ -606,13 +649,12 @@ Also absent today:
 - **A cohort divides the roster and nothing else.** It grants no permission and decides nothing about who may grade, and there is no way to hand one assignment to only part of the roster.
 
 - **No running average or grade summary for a fellow.** Scores are per assignment. Instructors read down a fellow's record; fellows read their own progress bar.
-- **No notes.** Neither a fellow's own notes on their work nor a private note an instructor keeps on a fellow.
-- **No settings beyond your display name.**
+- **No notes of a fellow's own.** An instructor can keep staff-only notes on a fellow's record, and a fellow has nowhere to keep notes on their work.
+- **No settings beyond your display name, your calendar feed, and your Slack notifications.**
 - **No way to withdraw yourself from a program.** Ask your instructor.
-- **No comment thread on a submission.** Feedback goes one way; the conversation happens on the pull request or in person.
 - **No summary of one fellow's grades across a whole program.** Their record names every course and where they stand in each; the marks themselves are per course.
 - **Nothing grades itself when a fellow pushes.** An instructor presses the button; one press covers a screen's worth.
-- **No instructor-authored rubrics.** There are four fixed section types, all of them for code, which is why a coding assignment gets a drafted report and a resume does not.
-- **Nothing is sent to Salesforce or the school's LMS.** Grades are still re-entered by hand there.
+- **Nothing reaches Salesforce yet.** This application serves its records in a form Salesforce can be filled from, and the setup that reads them on the Salesforce side is not finished, so grades are still re-entered by hand there.
+- **No reading of trends across a whole roster.** The **Trends** tab of the Fellows screen is a placeholder; each fellow's own trends are on the Trends tab of their record.
 
 What is planned, and in what order, is in [ROADMAP.md](ROADMAP.md).

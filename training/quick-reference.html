@@ -1,0 +1,140 @@
+<title>Marcy LMS Quick Reference</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<link rel="stylesheet" href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600&family=Space+Grotesk:wght@500;600&display=swap">
+<style>
+  /* Layout: two sheets, each one table of task, place and reminder, sized to print on one page each. */
+  :root {
+    --bg: #f6f8fb;
+    --surface: #ffffff;
+    --ink: #17202e;
+    --muted: #5a6779;
+    --line: #dbe1ea;
+    --accent: #1f5fbf;
+    --accent-soft: #e6eefb;
+    --red: #a3221b;
+    --yellow: #f2c230;
+    --green: #1b6e40;
+    --none: #e3e8ef;
+    --on-yellow: #17202e;
+    --on-none: #17202e;
+    --font-display: "Space Grotesk", "Segoe UI", system-ui, sans-serif;
+    --font-body: Inter, "Segoe UI", system-ui, sans-serif;
+  }
+  @media (prefers-color-scheme: dark) {
+    :root:not([data-theme="light"]) {
+      --bg: #10151d; --surface: #171e29; --ink: #e6ebf2; --muted: #9aa7b8; --line: #2a3443;
+      --accent: #7fb0f5; --accent-soft: #1c2a40; --none: #2a3443; --on-none: #e6ebf2; color-scheme: dark;
+    }
+  }
+  :root[data-theme="dark"] {
+    --bg: #10151d; --surface: #171e29; --ink: #e6ebf2; --muted: #9aa7b8; --line: #2a3443;
+    --accent: #7fb0f5; --accent-soft: #1c2a40; --none: #2a3443; --on-none: #e6ebf2; color-scheme: dark;
+  }
+  body { background: var(--bg); color: var(--ink); font-family: var(--font-body); font-size: 14px; line-height: 1.45; }
+  .wrap {
+    max-width: 62rem; margin: 0 auto; display: flex; flex-direction: column; gap: 2rem;
+    padding-block: 1.5rem 3rem;
+    padding-left: max(16px, env(safe-area-inset-left, 0px));
+    padding-right: max(16px, env(safe-area-inset-right, 0px));
+  }
+  .sheet { background: var(--surface); border: 1px solid var(--line); border-radius: 8px; padding: 1.5rem; display: flex; flex-direction: column; gap: 0.9rem; min-width: 0; }
+  .sheet header { display: flex; flex-wrap: wrap; align-items: baseline; justify-content: space-between; gap: 0.25rem 1rem; border-bottom: 2px solid var(--ink); padding-bottom: 0.6rem; }
+  h1 { font-family: var(--font-display); font-size: 1.5rem; line-height: 1.2; margin: 0; text-wrap: balance; }
+  .kicker { color: var(--muted); font-size: 0.8rem; letter-spacing: 0.06em; text-transform: uppercase; margin: 0; }
+  .hint { color: var(--muted); margin: 0; }
+  .table-wrap { overflow-x: auto; }
+  table { border-collapse: collapse; width: 100%; min-width: 38rem; }
+  th { text-align: left; font-size: 0.75rem; letter-spacing: 0.06em; text-transform: uppercase; color: var(--muted); padding: 0 0.6rem 0.35rem 0; }
+  td { vertical-align: top; padding: 0.4rem 0.6rem 0.4rem 0; border-top: 1px solid var(--line); }
+  td.task { width: 27%; font-weight: 600; }
+  td.task a { color: inherit; text-decoration-color: var(--line); text-underline-offset: 3px; }
+  td.task a:hover, td.task a:focus-visible { color: var(--accent); }
+  td.place { width: 30%; color: var(--accent); font-weight: 500; }
+  .rule { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 0.5rem; }
+  .band { border-radius: 6px; padding: 0.45rem 0.6rem; font-weight: 600; font-size: 0.85rem; }
+  .band span { display: block; font-weight: 400; }
+  .red { background: var(--red); color: #ffffff; }
+  .yellow { background: var(--yellow); color: var(--on-yellow); }
+  .green { background: var(--green); color: #ffffff; }
+  .none { background: var(--none); color: var(--on-none); }
+  @media (max-width: 40rem) { .rule { grid-template-columns: repeat(2, minmax(0, 1fr)); } }
+  @page { size: letter; margin: 0.45in; }
+  @media print {
+    :root, :root[data-theme="dark"], :root:not([data-theme="light"]) {
+      --bg: #ffffff; --surface: #ffffff; --ink: #000000; --muted: #444444; --line: #bbbbbb; --accent: #123f85;
+      --accent-soft: #eeeeee; --none: #e3e8ef; --on-none: #000000;
+    }
+    body { font-size: 10.5px; }
+    .wrap { padding: 0; gap: 0; max-width: none; }
+    .sheet { border: 0; padding: 0; break-after: page; }
+    .sheet:last-child { break-after: auto; }
+    .screen-only { display: none; }
+    table { min-width: 0; }
+    .band, .red, .yellow, .green, .none { print-color-adjust: exact; -webkit-print-color-adjust: exact; }
+  }
+</style>
+<div class="wrap">
+  <p class="hint screen-only">Two pages, one for each kind of work. Each task links to its section of the <a href="https://claude.ai/artifact/SZph1JNzMk2KLEnZpYufLR">Marcy LMS Guide</a>.</p>
+
+  <section class="sheet">
+    <header>
+      <h1>Teaching and grading</h1>
+      <p class="kicker">Marcy LMS quick reference · page 1 of 2</p>
+    </header>
+    <div class="table-wrap">
+      <table>
+        <tr><th>Task</th><th>Where</th><th>Remember</th></tr>
+        <tr><td class="task"><a href="https://claude.ai/artifact/SZph1JNzMk2KLEnZpYufLR#attendance">Take the morning check-in</a></td><td class="place">Attendance › Today</td><td>One four-digit code a day covers every course. A program with a schedule opens check-in two hours before class without anyone pressing a button.</td></tr>
+        <tr><td class="task"><a href="https://claude.ai/artifact/SZph1JNzMk2KLEnZpYufLR#attendance">Correct one fellow’s attendance</a></td><td class="place">Attendance › The whole term › a date</td><td>Each fellow has Present, Late, Absent and Excused. The grid shows the last two weeks until you change it.</td></tr>
+        <tr><td class="task"><a href="https://claude.ai/artifact/SZph1JNzMk2KLEnZpYufLR#attendance">Remove a holiday or a break</a></td><td class="place">Attendance › Schedule › Remove days</td><td>A break nobody removes marks every fellow absent. Removing the days afterwards removes those absences.</td></tr>
+        <tr><td class="task"><a href="https://claude.ai/artifact/SZph1JNzMk2KLEnZpYufLR#writing-an-assignment">Write an assignment</a></td><td class="place">Course › Coursework › Add assignment, inside a unit</td><td>The kind is fixed once the assignment exists. Individual or team hand-in is fixed once it is published.</td></tr>
+        <tr><td class="task"><a href="https://claude.ai/artifact/SZph1JNzMk2KLEnZpYufLR#writing-an-assignment">Set what counts as complete</a></td><td class="place">Assignment form › How it is graded</td><td>75 percent of the points unless you change it. Changing it re-marks every submission already graded.</td></tr>
+        <tr><td class="task"><a href="https://claude.ai/artifact/SZph1JNzMk2KLEnZpYufLR#writing-an-assignment">Publish an assignment</a></td><td class="place">Course › Coursework</td><td>Fellows cannot see an unpublished assignment at all.</td></tr>
+        <tr><td class="task"><a href="https://claude.ai/artifact/SZph1JNzMk2KLEnZpYufLR#rubrics-and-the-rules-a-report-follows">Write or change a rubric</a></td><td class="place">Rubrics, then the Rubric field of a section</td><td>Saving a change makes a new version. Only an admin can change the program’s own rubrics.</td></tr>
+        <tr><td class="task"><a href="https://claude.ai/artifact/SZph1JNzMk2KLEnZpYufLR#triage-what-is-waiting-on-you">See what is waiting on you</a></td><td class="place">Course › Triage</td><td>Fellows’ unread comments come first, because a fellow with a question is stopped until somebody answers.</td></tr>
+        <tr><td class="task"><a href="https://claude.ai/artifact/SZph1JNzMk2KLEnZpYufLR#grading">Grade everything that is waiting</a></td><td class="place">Triage › Grade all ungraded submissions</td><td>One queue across every assignment in the course. It holds only your cohort when you have chosen one.</td></tr>
+        <tr><td class="task"><a href="https://claude.ai/artifact/SZph1JNzMk2KLEnZpYufLR#grading">Draft, edit and release a report</a></td><td class="place">Grading queue › Generate report › Release Feedback</td><td>A report is a draft until you approve it. Approving shows the feedback to the fellow at once; no second step exists.</td></tr>
+        <tr><td class="task"><a href="https://claude.ai/artifact/SZph1JNzMk2KLEnZpYufLR#grading">Grade by hand</a></td><td class="place">Grading queue › Write it yourself</td><td>Every section needs a score and feedback. The LMS refuses to release an empty section as a zero.</td></tr>
+        <tr><td class="task"><a href="https://claude.ai/artifact/SZph1JNzMk2KLEnZpYufLR#grading">Answer a fellow’s question</a></td><td class="place">Grading queue › Comments tab</td><td>A dot on the tab means a reply is owed. Mark resolved on Triage clears a question answered in person.</td></tr>
+        <tr><td class="task"><a href="https://claude.ai/artifact/SZph1JNzMk2KLEnZpYufLR#grading">Grade a resubmission</a></td><td class="place">Triage › Resubmissions</td><td>It is graded fresh. Previous feedback lists what the fellow was told in earlier rounds.</td></tr>
+        <tr><td class="task"><a href="https://claude.ai/artifact/SZph1JNzMk2KLEnZpYufLR#the-gradebook">Read or export the gradebook</a></td><td class="place">Course › Gradebook › Overview, Download CSV</td><td>Overview is one row per fellow: completed, late, missing, and what is waiting on you.</td></tr>
+        <tr><td class="task"><a href="https://claude.ai/artifact/SZph1JNzMk2KLEnZpYufLR#cohorts-and-splitting-the-marking">Split the grading with a colleague</a></td><td class="place">Program Settings › Cohorts, then the cohort picker</td><td>A cohort is a filter and grants nothing. Any instructor of the program can still grade any fellow.</td></tr>
+        <tr><td class="task"><a href="https://claude.ai/artifact/SZph1JNzMk2KLEnZpYufLR#slack-notifications">Get Slack messages about your grading</a></td><td class="place">Your name › Profile</td><td>Both settings are off until you turn them on. The LMS sends no email.</td></tr>
+      </table>
+    </div>
+  </section>
+
+  <section class="sheet">
+    <header>
+      <h1>Following and coaching fellows</h1>
+      <p class="kicker">Marcy LMS quick reference · page 2 of 2</p>
+    </header>
+    <div class="rule" aria-label="The color rule on the Performance tab">
+      <p class="band red">Red<span>under 75 percent</span></p>
+      <p class="band yellow">Yellow<span>under 90 percent</span></p>
+      <p class="band green">Green<span>90 percent and over</span></p>
+      <p class="band none">No color<span>fewer than 4 items counted</span></p>
+    </div>
+    <p class="hint">The worst cell on a row decides the group: any red is Needs support; yellow with no red is Meeting the bar; all green is Exceeding expectations; nothing due yet, or fewer than 5 attendance sessions, is Too early to say.</p>
+    <div class="table-wrap">
+      <table>
+        <tr><th>Task</th><th>Where</th><th>Remember</th></tr>
+        <tr><td class="task"><a href="https://claude.ai/artifact/SZph1JNzMk2KLEnZpYufLR#performance-who-needs-support">Find who needs support</a></td><td class="place">Fellows › Performance</td><td>Hover a cell to read its rule. Fellows never see this tab, their group, or the colors.</td></tr>
+        <tr><td class="task"><a href="https://claude.ai/artifact/SZph1JNzMk2KLEnZpYufLR#performance-who-needs-support">Change the weeks being read</a></td><td class="place">Fellows › Performance › the dates above the table</td><td>Recent columns read the last two weeks until you change the dates. Term columns always read the whole term.</td></tr>
+        <tr><td class="task"><a href="https://claude.ai/artifact/SZph1JNzMk2KLEnZpYufLR#performance-who-needs-support">Ask about one measure or one course</a></td><td class="place">Fellows › Performance › measure and course filters</td><td>The groups are then decided by the chosen measures and courses alone.</td></tr>
+        <tr><td class="task"><a href="https://claude.ai/artifact/SZph1JNzMk2KLEnZpYufLR#coaching-a-fellow">Open one fellow’s record</a></td><td class="place">Fellows › Roster › the fellow’s name</td><td>Four tabs: Performance, Coaching, Trends and Tutor. Each tab has its own address, so a link can name one.</td></tr>
+        <tr><td class="task"><a href="https://claude.ai/artifact/SZph1JNzMk2KLEnZpYufLR#coaching-a-fellow">Start a coaching session</a></td><td class="place">Fellow’s record › Coaching › Start coaching session</td><td>It is a draft the fellow cannot see, so you can start it days early. Set the session date to the day you meet.</td></tr>
+        <tr><td class="task"><a href="https://claude.ai/artifact/SZph1JNzMk2KLEnZpYufLR#coaching-a-fellow">Complete a coaching session</a></td><td class="place">The session form › Complete session</td><td>The fellow then sees the dated figures and every answer labeled as shared with them. The form closes to editing.</td></tr>
+        <tr><td class="task"><a href="https://claude.ai/artifact/SZph1JNzMk2KLEnZpYufLR#coaching-a-fellow">Throw away a session started by mistake</a></td><td class="place">The session form › Discard</td><td>Discard is offered on drafts only. A completed session stays on the record.</td></tr>
+        <tr><td class="task"><a href="https://claude.ai/artifact/SZph1JNzMk2KLEnZpYufLR#coaching-a-fellow">Comment on a fellow’s goal</a></td><td class="place">Fellow’s record › Coaching › Goals › a goal</td><td>Goals belong to the fellow and you cannot edit one. A comment cannot be edited, only withdrawn.</td></tr>
+        <tr><td class="task"><a href="https://claude.ai/artifact/SZph1JNzMk2KLEnZpYufLR#coaching-a-fellow">Write a note about a fellow</a></td><td class="place">Fellow’s record › Coaching › Notes</td><td>Fellows never see notes, but a fellow may ask to read their record. Write what you would say to them.</td></tr>
+        <tr><td class="task"><a href="https://claude.ai/artifact/SZph1JNzMk2KLEnZpYufLR#coaching-a-fellow">Prepare with Themes</a></td><td class="place">Fellow’s record › Trends › Themes › Generate</td><td>Staff only. Correct a wrong theme before relying on it, because the next summary builds on your version.</td></tr>
+        <tr><td class="task"><a href="https://claude.ai/artifact/SZph1JNzMk2KLEnZpYufLR#fellows-and-the-roster">Compare fellows’ latest sessions</a></td><td class="place">Fellows › Coaching</td><td>The table reads one coaching form at a time. Choose the form above the table.</td></tr>
+        <tr><td class="task"><a href="https://claude.ai/artifact/SZph1JNzMk2KLEnZpYufLR#coaching-a-fellow">Export a fellow’s coaching history</a></td><td class="place">Fellow’s record › Coaching › Sessions › Download CSV</td><td>The file holds the staff-only answers, so handle it as you would the record itself.</td></tr>
+        <tr><td class="task"><a href="https://claude.ai/artifact/SZph1JNzMk2KLEnZpYufLR#readings-notes-and-videos">Read a check for understanding</a></td><td class="place">Course › Coursework › the check’s row</td><td>A fellow gets up to three attempts and is never graded on one. You can set a different level on any attempt.</td></tr>
+        <tr><td class="task"><a href="https://claude.ai/artifact/SZph1JNzMk2KLEnZpYufLR#coaching-a-fellow">Read what a fellow asked the Tutor</a></td><td class="place">Fellow’s record › Tutor</td><td>Every conversation across the program’s courses is listed.</td></tr>
+        <tr><td class="task"><a href="https://claude.ai/artifact/SZph1JNzMk2KLEnZpYufLR#coaching-a-fellow">Correct a fellow’s name</a></td><td class="place">Fellow’s record › the pencil beside the name</td><td>The new name replaces the old one in every course and on the fellow’s own screen.</td></tr>
+      </table>
+    </div>
+  </section>
+</div>
