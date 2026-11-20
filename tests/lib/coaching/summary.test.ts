@@ -83,6 +83,7 @@ const input: CoachingSummaryInput = {
         actionPlan: "ACTION PLAN",
         marker: "Developing",
         setOn: "2026-09-10",
+        completedOn: null,
         updates: [{ on: "2026-09-25", body: "FELLOW UPDATE", files: 2 }],
         comments: [
           { on: "2026-09-26", by: "coach", body: "COACH COMMENT" },
@@ -194,6 +195,14 @@ describe("buildUserPrompt", () => {
   it("gives each session's temperature, and says so where none was given", () => {
     expect(prompt).toContain("- 2026-10-02: temperature 4.");
     expect(prompt).toContain("- 2026-09-18: no temperature given.");
+  });
+
+  it("says a goal was completed only when the fellow marked it so", () => {
+    expect(prompt).not.toContain("marked this goal completed");
+
+    const goal = { ...input.writing!.goals[0]!, completedOn: "2026-10-01" };
+    const completed = buildUserPrompt({ ...input, writing: { ...input.writing!, goals: [goal] } });
+    expect(completed).toContain("The fellow marked this goal completed on 2026-10-01.");
   });
 
   it("leaves out an empty plan part rather than fencing nothing", () => {

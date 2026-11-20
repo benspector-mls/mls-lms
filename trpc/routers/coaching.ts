@@ -300,6 +300,7 @@ const goalSelect = {
   objectives: true,
   actionPlan: true,
   marker: true,
+  completedAt: true,
   commentsReadAt: true,
   createdAt: true,
   updatedAt: true,
@@ -311,6 +312,16 @@ const goalSelect = {
   updates: { orderBy: { createdAt: "desc" }, select: updateSelect },
   comments: { orderBy: { createdAt: "asc" }, select: commentSelect },
 } as const;
+
+/**
+ * The order one fellow's goals are listed in: the goals still being worked on first, then the
+ * completed ones, each newest first. `nulls: "first"` is what places a goal with no completion
+ * date ahead of every goal that has one.
+ */
+const GOALS_IN_READING_ORDER = [
+  { completedAt: { sort: "desc", nulls: "first" } },
+  { createdAt: "desc" },
+] as const satisfies Prisma.GoalOrderByWithRelationInput[];
 
 type SelectedGoal = Prisma.GoalGetPayload<{ select: typeof goalSelect }>;
 
@@ -343,12 +354,14 @@ function presentGoal(goal: SelectedGoal, viewerId: string) {
 async function assertOwnGoal(ctx: FellowCtx, enrollmentId: string, goalId: string) {
   const goal = await ctx.db.goal.findFirst({
     where: { id: goalId, enrollmentId },
-    select: { id: true },
+    select: { id: true, completedAt: true },
   });
 
   if (!goal) {
     throw new TRPCError({ code: "NOT_FOUND", message: "No such goal of yours." });
   }
+
+  return goal;
 }
 
 /** The same refusal for an update: to anybody but its owner, the id names nothing. */
@@ -496,7 +509,7 @@ export const coachingRouter = createTRPCRouter({
         }),
         ctx.db.goal.findMany({
           where: { enrollmentId: enrollment.id },
-          orderBy: { createdAt: "desc" },
+          orderBy: GOALS_IN_READING_ORDER,
           select: goalSelect,
         }),
         ctx.db.coachingTopic.findMany({
@@ -619,6 +632,7 @@ export const coachingRouter = createTRPCRouter({
             objectives: true,
             actionPlan: true,
             marker: true,
+            completedAt: true,
             createdAt: true,
             updates: { orderBy: { createdAt: "desc" }, take: 1, select: { createdAt: true } },
           },
@@ -716,7 +730,7 @@ export const coachingRouter = createTRPCRouter({
         */
         ctx.db.goal.findMany({
           where: { enrollmentId: session.enrollment.id },
-          orderBy: { createdAt: "desc" },
+          orderBy: GOALS_IN_READING_ORDER,
           select: goalSelect,
         }),
         /*
@@ -968,7 +982,8 @@ export const coachingRouter = createTRPCRouter({
     }),
 
   /**
-   * The fellow rewriting their own goal, including where they say they stand on it.
+   * The fellow rewriting their own goal, including where they say they stand on it and whether
+   * they have completed it.
    *
    * Nothing is frozen and nothing is audited. A goal is a thing being worked on rather than a
    * contract, and a fellow keeping their own record is not an act somebody is held to — the log
@@ -988,11 +1003,25 @@ export const coachingRouter = createTRPCRouter({
         objectives: proseInput.optional(),
         actionPlan: proseInput.optional(),
         marker: markerInput.optional(),
+        /** Absent leaves the goal as it is; true marks it completed; false reopens it. */
+        completed: z.boolean().optional(),
       }),
     )
     .mutation(async ({ ctx, input }) => {
       const enrollmentId = await assertActiveInProgram(ctx, input.programId);
-      await assertOwnGoal(ctx, enrollmentId, input.goalId);
+      const current = await assertOwnGoal(ctx, enrollmentId, input.goalId);
+
+      /*
+        The date is written only when the goal changes state. A goal that is already completed
+        keeps the date it was first completed on, so sending `completed: true` twice does not move
+        the date forward.
+      */
+      let completedAt: Date | null | undefined;
+      if (input.completed === true && current.completedAt === null) {
+        completedAt = new Date();
+      } else if (input.completed === false) {
+        completedAt = null;
+      }
 
       const goal = await ctx.db.goal.update({
         where: { id: input.goalId },
@@ -1009,6 +1038,7 @@ export const coachingRouter = createTRPCRouter({
           ...(input.objectives === undefined ? {} : { objectives: input.objectives }),
           ...(input.actionPlan === undefined ? {} : { actionPlan: input.actionPlan }),
           ...(input.marker === undefined ? {} : { marker: input.marker }),
+          ...(completedAt === undefined ? {} : { completedAt }),
         },
         select: goalSelect,
       });
@@ -1562,7 +1592,7 @@ export const coachingRouter = createTRPCRouter({
         }),
         ctx.db.goal.findMany({
           where: { programId: input.programId, enrollment: { studentId: ctx.profile.id } },
-          orderBy: { createdAt: "desc" },
+          orderBy: GOALS_IN_READING_ORDER,
           select: goalSelect,
         }),
         ctx.db.coachingTopic.findMany({

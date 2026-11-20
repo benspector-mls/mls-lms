@@ -111,6 +111,8 @@ export type PromptGoal = {
   actionPlan: string;
   marker: string | null;
   setOn: Day;
+  /** The day the fellow marked the goal completed, or null while they are still working on it. */
+  completedOn: Day | null;
   updates: { on: Day; body: string; files: number }[];
   comments: { on: Day; by: "coach" | "fellow"; body: string }[];
 };
@@ -281,6 +283,9 @@ function writingLines(writing: PromptWriting): string[] {
       lines.push(`Competency: ${[goal.competency, goal.entry].filter(Boolean).join(" — ")}`);
     }
     lines.push(`Where the fellow places themselves: ${goal.marker ?? "not stated"}.`);
+    if (goal.completedOn !== null) {
+      lines.push(`The fellow marked this goal completed on ${goal.completedOn}.`);
+    }
     lines.push(...fenced("fellow_text", goal.title, ' part="title"'));
     for (const [part, text] of [
       ["success criteria", goal.successCriteria],

@@ -168,6 +168,7 @@ async function readWriting(db: Tx, enrollment: EnrollmentKey): Promise<PromptWri
         objectives: true,
         actionPlan: true,
         marker: true,
+        completedAt: true,
         createdAt: true,
         updates: {
           orderBy: { createdAt: "asc" },
@@ -203,6 +204,7 @@ async function readWriting(db: Tx, enrollment: EnrollmentKey): Promise<PromptWri
       actionPlan: goal.actionPlan,
       marker: goal.marker ? MARKER_META[goal.marker].label : null,
       setOn: schoolDayOf(goal.createdAt),
+      completedOn: goal.completedAt === null ? null : schoolDayOf(goal.completedAt),
       updates: goal.updates.map((update) => ({
         on: schoolDayOf(update.createdAt),
         body: update.body,

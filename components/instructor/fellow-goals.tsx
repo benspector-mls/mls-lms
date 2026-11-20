@@ -5,7 +5,7 @@ import * as React from "react";
 
 import { GoalComments } from "@/components/goal-comments";
 import { GoalUpdates } from "@/components/goal-updates";
-import { GoalMarkerBadge } from "@/components/status-badge";
+import { GoalCompletedBadge, GoalMarkerBadge } from "@/components/status-badge";
 import { Badge } from "@/components/ui/badge";
 import { formatDate } from "@/lib/status";
 import type { RouterOutputs } from "@/trpc/types";
@@ -95,6 +95,7 @@ function GoalCard({ goal, programId }: { goal: Goal; programId: string }) {
           )}
         </span>
 
+        <GoalCompletedBadge completedAt={goal.completedAt} className="mt-0.5 shrink-0" />
         <GoalMarkerBadge marker={goal.marker} className="mt-0.5 shrink-0" />
       </button>
 
@@ -118,7 +119,10 @@ function GoalCard({ goal, programId }: { goal: Goal; programId: string }) {
 
           <GoalComments goal={goal} programId={programId} side="instructor" />
 
-          <span className="text-xs text-muted-foreground">Set {formatDate(goal.createdAt)}</span>
+          <span className="text-xs text-muted-foreground">
+            Set {formatDate(goal.createdAt)}
+            {goal.completedAt !== null && ` · Completed ${formatDate(goal.completedAt)}`}
+          </span>
         </div>
       )}
     </li>

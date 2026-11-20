@@ -3296,6 +3296,12 @@ model Goal {
   /// down. Null until they have placed themselves.
   marker DevelopmentMarker?
 
+  /// When the fellow marked this goal completed, or null while they are still working on it.
+  /// Separate from `marker`: the marker says how well the fellow shows the skill, and this says
+  /// the fellow has finished working on the goal, so a completed goal keeps its marker. Theirs to
+  /// set and to clear, like the rest of the goal.
+  completedAt DateTime? @map("completed_at") @db.Timestamptz(6)
+
   /// The fellow's receipt for the conversation beneath this goal: the `createdAt` of the newest
   /// instructor comment standing when they last opened it, or null if they never have. What the
   /// sidebar count and the "new" labels are computed against.

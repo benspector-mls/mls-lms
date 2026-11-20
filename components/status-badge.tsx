@@ -7,6 +7,7 @@ import {
   AlertTriangle,
   Blocks,
   BookOpen,
+  Check,
   CircleCheck,
   ClipboardCheck,
   Code,
@@ -40,6 +41,7 @@ import {
   CONFIDENCE_META,
   DRAFT_STATUS_META,
   flagMeta,
+  formatDate,
   formatDueDateShort,
   LATENESS_META,
   STUDENT_STATUS_META,
@@ -298,6 +300,36 @@ export function GoalMarkerBadge({
       : MARKER_META[marker];
 
   return <BadgeShell meta={meta} className={className} />;
+}
+
+/**
+ * That the fellow has marked a goal completed, drawn beside the goal's marker badge and absent
+ * while the goal is still being worked on. Both the fellow and an instructor read the
+ * explanation, so the sentence names nobody.
+ */
+export function GoalCompletedBadge({
+  completedAt,
+  className,
+}: {
+  completedAt: Date | null;
+  className?: string;
+}) {
+  if (completedAt === null) return null;
+
+  return (
+    <WithExplanation description={`Marked completed on ${formatDate(completedAt)}.`}>
+      <span
+        className={cn(
+          "inline-flex cursor-help items-center gap-1 rounded-full border px-2 py-0.5 text-xs font-medium whitespace-nowrap",
+          TONE_CLASSES.neutral,
+          className,
+        )}
+      >
+        <Check aria-hidden="true" className="size-3 shrink-0" />
+        Completed
+      </span>
+    </WithExplanation>
+  );
 }
 
 export function AttendanceStatusBadge({

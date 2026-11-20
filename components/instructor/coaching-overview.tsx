@@ -6,7 +6,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import * as React from "react";
 
 import { EmptyState } from "@/components/list-states";
-import { GoalMarkerBadge } from "@/components/status-badge";
+import { GoalCompletedBadge, GoalMarkerBadge } from "@/components/status-badge";
 import { Avatar, AvatarFallback } from "@/components/ui/avatar";
 import { ExpandableFrame } from "@/components/ui/expandable-frame";
 import { Popover, PopoverContent, PopoverTrigger } from "@/components/ui/popover";
@@ -63,7 +63,9 @@ const OTHER = "other";
  *
  * **One goal per group.** A fellow may hold several goals in a group, and the cell shows the one
  * they last worked on — set most recently, or with the newest progress note — and says how many
- * more there are, so a cell with one goal in it is never read as the fellow having only one.
+ * more there are, so a cell with one goal in it is never read as the fellow having only one. A
+ * goal still being worked on is shown ahead of a completed one, and the count of the others
+ * includes the completed ones.
  *
  * A fellow with no completed session has empty session cells and their goals beside them, since
  * goals are the fellow's own and stand without a session. Nothing on the row is flagged.
@@ -465,6 +467,10 @@ function daysLabel(days: number): string {
 /**
  * For each column, the goal the fellow last worked on in it and how many others it hides. A column
  * with no goal has no entry, which the cell draws as empty.
+ *
+ * A goal still being worked on is chosen ahead of a completed one, however recent the completed
+ * one is, because the cell is read to see what the fellow is working on now. A completed goal is
+ * shown only when the column holds no other.
  */
 function newestGoalPerColumn(
   goals: readonly Goal[],
@@ -478,7 +484,7 @@ function newestGoalPerColumn(
 
     if (held === undefined) {
       byColumn.set(key, { goal, more: 0 });
-    } else if (goal.activeAt > held.goal.activeAt) {
+    } else if (isShownAheadOf(goal, held.goal)) {
       byColumn.set(key, { goal, more: held.more + 1 });
     } else {
       held.more += 1;
@@ -486,6 +492,13 @@ function newestGoalPerColumn(
   }
 
   return byColumn;
+}
+
+function isShownAheadOf(goal: Goal, held: Goal): boolean {
+  const goalCompleted = goal.completedAt !== null;
+  const heldCompleted = held.completedAt !== null;
+  if (goalCompleted !== heldCompleted) return heldCompleted;
+  return goal.activeAt > held.activeAt;
 }
 
 /**
@@ -522,6 +535,10 @@ function GoalCell({ column }: { column: { goal: Goal; more: number } | undefined
                   {goal.competencyName}
                 </span>
               )}
+              <GoalCompletedBadge
+                completedAt={goal.completedAt}
+                className="shrink-0 px-1.5 py-0 text-[11px]"
+              />
               <GoalMarkerBadge marker={goal.marker} className="shrink-0 px-1.5 py-0 text-[11px]" />
             </span>
           </button>
@@ -539,7 +556,10 @@ function GoalCell({ column }: { column: { goal: Goal; more: number } | undefined
               {goal.entryKind === "PITFALL" && " · working away from a pitfall"}
             </span>
           )}
-          <GoalMarkerBadge marker={goal.marker} className="self-start" />
+          <span className="flex flex-wrap items-center gap-1.5">
+            <GoalCompletedBadge completedAt={goal.completedAt} />
+            <GoalMarkerBadge marker={goal.marker} />
+          </span>
         </div>
         {goal.successCriteria !== "" && (
           <GoalPart label="What success looks like" text={goal.successCriteria} />

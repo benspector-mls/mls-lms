@@ -1,5 +1,6 @@
 "use client";
 
+import { useMutation } from "@tanstack/react-query";
 import { ChevronDown, ChevronRight, Target } from "lucide-react";
 import * as React from "react";
 
@@ -10,13 +11,15 @@ import { GoalComments } from "@/components/goal-comments";
 import { GoalUpdates } from "@/components/goal-updates";
 import { EmptyState } from "@/components/list-states";
 import { AddGoal, GoalEditor } from "@/components/student/goal-editor";
-import { GoalMarkerBadge } from "@/components/status-badge";
+import { GoalCompletedBadge, GoalMarkerBadge } from "@/components/status-badge";
 import { Badge } from "@/components/ui/badge";
 import { Button } from "@/components/ui/button";
+import { useServerMutation } from "@/hooks/use-server-mutation";
 import { parseSnapshot } from "@/lib/coaching";
 import { groupIdOfGoal, type CompetencyGroup } from "@/lib/competencies";
 import { formatSchoolDay } from "@/lib/school-time";
 import { formatDate } from "@/lib/status";
+import { useTRPC } from "@/trpc/client";
 import type { RouterOutputs } from "@/trpc/types";
 
 type Data = RouterOutputs["coaching"]["myGoals"];
@@ -170,7 +173,8 @@ export function GoalsRecord({
 /**
  * The fellow's goals under one heading per competency group, in the list's order, with the goals
  * written without a competency last. A group the fellow holds no goal in has no heading. Within a
- * group the goals keep the order they arrive in, newest first.
+ * group the goals keep the order they arrive in: the goals still being worked on, newest first,
+ * then the completed goals.
  *
  * `groupIdOfGoal` decides the group, which is the rule the instructors' Coaching tab uses, so a
  * goal sits under the same group on both screens.
@@ -214,6 +218,10 @@ function GoalRow({
 }) {
   const [open, setOpen] = React.useState(false);
   const [editing, setEditing] = React.useState(false);
+  const trpc = useTRPC();
+  const settled = useServerMutation();
+  const setCompleted = useMutation(trpc.coaching.updateGoal.mutationOptions(settled()));
+  const completed = goal.completedAt !== null;
   const hasPlan = goal.successCriteria !== "" || goal.objectives !== "" || goal.actionPlan !== "";
 
   // Instructor comments newer than the receipt on this goal: what the sidebar's count is made of.
@@ -261,6 +269,7 @@ function GoalRow({
             {unread} new
           </Badge>
         )}
+        <GoalCompletedBadge completedAt={goal.completedAt} className="mt-0.5 shrink-0" />
         <GoalMarkerBadge marker={goal.marker} className="mt-0.5 shrink-0" />
       </button>
 
@@ -290,14 +299,23 @@ function GoalRow({
           <GoalComments goal={goal} programId={programId} side="fellow" />
 
           <div className="flex flex-wrap items-center gap-3">
-            <span className="text-xs text-muted-foreground">Set {formatDate(goal.createdAt)}</span>
+            <span className="text-xs text-muted-foreground">
+              Set {formatDate(goal.createdAt)}
+              {goal.completedAt !== null && ` · Completed ${formatDate(goal.completedAt)}`}
+            </span>
             <Button
               type="button"
               variant="outline"
               size="xs"
-              onClick={() => setEditing(true)}
+              disabled={setCompleted.isPending}
+              onClick={() =>
+                setCompleted.mutate({ programId, goalId: goal.id, completed: !completed })
+              }
               className="ml-auto"
             >
+              {completed ? "Reopen goal" : "Mark completed"}
+            </Button>
+            <Button type="button" variant="outline" size="xs" onClick={() => setEditing(true)}>
               Edit goal
             </Button>
           </div>

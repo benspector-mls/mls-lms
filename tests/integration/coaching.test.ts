@@ -757,6 +757,61 @@ describe("goals belong to the fellow", () => {
     });
   });
 
+  it("a fellow marks their own goal completed, and reopens it", async () => {
+    const completed = await asFellow().coaching.updateGoal({
+      programId: world.programId,
+      goalId,
+      completed: true,
+    });
+    expect(completed.completedAt).toBeInstanceOf(Date);
+    // Completing a goal leaves its marker where the fellow put it.
+    expect(completed.marker).toBe("PROFICIENT");
+
+    // A goal that is already completed keeps the date it was first completed on.
+    const again = await asFellow().coaching.updateGoal({
+      programId: world.programId,
+      goalId,
+      completed: true,
+    });
+    expect(again.completedAt).toEqual(completed.completedAt);
+
+    // A goal still being worked on is listed ahead of a completed one, though it was set later.
+    const newer = await asFellow().coaching.setGoal({
+      programId: world.programId,
+      title: "Write a test before the fix.",
+      entryId: null,
+      successCriteria: "",
+      objectives: "",
+      actionPlan: "",
+      marker: null,
+    });
+    // The later tests of this group expect one goal that is not completed, whatever fails here.
+    try {
+      const completedNewer = await asFellow().coaching.updateGoal({
+        programId: world.programId,
+        goalId: newer.id,
+        completed: true,
+      });
+      expect(completedNewer.completedAt).toBeInstanceOf(Date);
+      await asFellow().coaching.updateGoal({
+        programId: world.programId,
+        goalId,
+        completed: false,
+      });
+
+      const listed = await asFellow().coaching.myGoals({ programId: world.programId });
+      expect(listed.goals.map((goal) => goal.id)).toEqual([goalId, newer.id]);
+      expect(listed.goals[0]!.completedAt).toBeNull();
+    } finally {
+      await asFellow().coaching.updateGoal({
+        programId: world.programId,
+        goalId,
+        completed: false,
+      });
+      await asFellow().coaching.deleteGoal({ programId: world.programId, goalId: newer.id });
+    }
+  });
+
   /*
     Nothing on a goal is an instructor's to write — they say what they think in the session. The
     fellow-facing procedures are the only ones there are, and they refuse anybody who is not the
