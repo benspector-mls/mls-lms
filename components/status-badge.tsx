@@ -321,7 +321,7 @@ export function GoalCompletedBadge({
       <span
         className={cn(
           "inline-flex cursor-help items-center gap-1 rounded-full border px-2 py-0.5 text-xs font-medium whitespace-nowrap",
-          TONE_CLASSES.neutral,
+          TONE_CLASSES.success,
           className,
         )}
       >
