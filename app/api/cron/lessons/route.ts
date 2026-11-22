@@ -6,14 +6,17 @@ import { syncCurriculum } from "@/lib/lessons/sync";
 import { db } from "@/lib/prisma";
 
 /**
- * The lesson sync for every curriculum, invoked hourly by the Vercel cron in `vercel.json`.
+ * The lesson sync for every curriculum, invoked every 15 minutes by the Vercel cron in
+ * `vercel.json`.
  *
- * Hourly because an author who pushes a correction expects fellows to see it the same morning, and
- * a run with nothing changed costs two requests to GitHub per curriculum. An admin who cannot wait
- * presses "Sync now" on Admin → Lessons, which runs the same function for one curriculum.
+ * Every 15 minutes because an author who pushes a correction expects fellows to see it within the
+ * class period, and a run with nothing changed costs about four requests to GitHub per curriculum.
+ * The cron runs at 10, 25, 40 and 55 minutes past the hour, which keeps each run from starting at
+ * the same moment as the notifications cron on the hour. An admin who cannot wait presses "Sync
+ * now" on Admin → Lessons, which runs the same function for one curriculum.
  *
  * **One curriculum at a time, and one failing does not stop the rest.** A curriculum whose
- * repository was renamed should not leave every other course's lessons an hour behind.
+ * repository was renamed should not leave every other course's lessons behind.
  *
  * **The bearer check below is the whole of the authorization**, as in
  * `app/api/cron/notifications/route.ts`, which explains why: `/api` is outside the sign-in

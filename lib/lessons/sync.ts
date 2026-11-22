@@ -34,14 +34,16 @@ const FETCH_WIDTH = 6;
  * Copies one curriculum at the head of its branch into the `lessons` and `lesson_sections` tables,
  * touching no other curriculum's rows.
  *
- * Run hourly for every curriculum by the cron in `app/api/cron/lessons/route.ts`, and by an admin's
- * "Sync now" on Admin → Lessons after an edit that should not wait an hour.
+ * Run every 15 minutes for every curriculum by the cron in `app/api/cron/lessons/route.ts`, and by
+ * an admin's "Sync now" on Admin → Lessons after an edit that should not wait for the next run.
  *
- * **Every run reads the summary and the file tree, and only the lessons that changed.** Those two
- * reads are two requests to GitHub. A lesson whose file has the same hash as the stored row keeps
- * its body; it is written only when the summary now says something different about it — its
- * title, its place, its module — or when the commit has moved. So an hour with no edits costs two
- * requests and one read of the table, and the checks for problems below still run on every lesson.
+ * **Every run reads the summary and the file tree, and only the lessons that changed.** A run with
+ * no new commits makes about four requests to GitHub: the branch's latest commit, `SUMMARY.md`,
+ * and the file tree, plus one more when the curriculum names no branch and the default branch has
+ * to be looked up. A lesson whose file has the same hash as the stored row keeps its body; it is
+ * written only when the summary now says something different about it — its title, its place, its
+ * module — or when the commit has moved. So a run with no edits costs those requests and one read
+ * of the table, and the checks for problems below still run on every lesson.
  * Changed files are fetched a few at a time, so a commit that touches every lesson does not wait
  * on fifty requests one after another.
  *
@@ -202,7 +204,7 @@ export async function syncCurriculum(
       const row = { ...fromSummary, body: text, blobSha, commitSha: sha, syncedAt: now };
       await inTransaction(db, async (tx) => {
         /*
-          One writer per lesson at a time. The hourly run and an admin's Sync now can copy the same
+          One writer per lesson at a time. The scheduled run and an admin's Sync now can copy the same
           curriculum at once, and two transactions each deleting the sections the other has not
           committed yet would each add their own, leaving every section twice. The lock is held to
           the end of this transaction; the second writer then deletes what the first wrote.

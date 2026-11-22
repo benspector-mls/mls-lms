@@ -106,7 +106,7 @@ The one refusal is a **competency group that still holds competencies**, which s
 
 ### Copying the lessons from GitHub
 
-**Admin → Lessons** lists the curricula courses can show: each a GitHub repository written for GitBook, such as the software engineering curriculum. **Add** one with a name, its repository as `owner/repo`, and a branch if it should not be the default. The LMS copies every curriculum from GitHub each hour. After pushing an edit that should not wait, press **Sync now** on its row: the lessons update at once, and the row lists anything to fix — a page the table of contents links that does not exist, an image a lesson shows that is not in the repository, or a GitBook block the LMS cannot draw, which fellows would otherwise see as plain text. A curriculum no course shows can be removed; one a course shows cannot, until its courses choose another.
+**Admin → Lessons** lists the curricula courses can show: each a GitHub repository written for GitBook, such as the software engineering curriculum. **Add** one with a name, its repository as `owner/repo`, and a branch if it should not be the default. The LMS copies every curriculum from GitHub every 15 minutes. After pushing an edit that should not wait, press **Sync now** on its row: the lessons update at once, and the row lists anything to fix — a page the table of contents links that does not exist, an image a lesson shows that is not in the repository, or a GitBook block the LMS cannot draw, which fellows would otherwise see as plain text. A curriculum no course shows can be removed; one a course shows cannot, until its courses choose another.
 
 ### Reaching every program
 

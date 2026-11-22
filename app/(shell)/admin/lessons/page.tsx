@@ -20,7 +20,7 @@ export default function AdminLessonsPage() {
     <div className="mx-auto flex w-full max-w-4xl flex-col gap-6 p-4 md:p-6">
       <PageHeader
         title="Lessons"
-        description="The curricula on GitHub that courses show as lessons. Each is copied every hour; a course's instructors choose which one it shows on its Settings screen."
+        description="The curricula on GitHub that courses show as lessons. Each is copied every 15 minutes; a course's instructors choose which one it shows on its Settings screen."
       />
       <Suspense fallback={<PageFallback rows={4} width="4xl" />}>
         <List />

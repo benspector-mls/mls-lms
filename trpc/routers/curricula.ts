@@ -85,10 +85,10 @@ export const curriculaRouter = createTRPCRouter({
   }),
 
   /**
-   * Copy one curriculum now rather than at the next hourly run.
+   * Copy one curriculum now rather than at the next scheduled run.
    *
    * Returns the problems the run found, which Admin → Lessons lists for the admin who pressed the
-   * button. The hourly run's problems go to the function log; the next press shows them again.
+   * button. The scheduled run's problems go to the function log; the next press shows them again.
    */
   sync: adminProcedure.input(curriculumId).mutation(async ({ ctx, input }) => {
     const curriculum = await ctx.db.curriculum.findUnique({

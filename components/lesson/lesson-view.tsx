@@ -35,7 +35,7 @@ function NoLessons({
           title="The lessons have not been copied yet"
           description={
             side === "instructor"
-              ? "An admin copies the curriculum from GitHub with Sync now on Admin → Lessons, and it is copied every hour."
+              ? "An admin copies the curriculum from GitHub with Sync now on Admin → Lessons, and it is copied every 15 minutes."
               : "Check back soon."
           }
         />
