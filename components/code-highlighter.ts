@@ -35,17 +35,19 @@ import { languageForFence, type DiffLanguage } from "@/lib/diff/languages";
  * module — which `useDiffHighlight` catches, leaving the diff in plain monospace. Unhighlighted
  * code is a perfectly good diff; a blank card is not.
  *
- * **Markdown is the one grammar loaded uncompiled, because precompiling breaks its fenced code
- * blocks.** A fence closes only on a line matching the fence that opened it, so the grammar's end
- * pattern refers back to what its begin pattern captured. That reference is filled in at
- * tokenizing time from the pattern's source text, and a precompiled literal has no source text to
- * fill it into, so the precompiler replaces it with a group that never matches. The result is a
- * code block that never closes: every line after a ```` ```python ```` block is coloured as
- * Python. The uncompiled grammar keeps its patterns as strings, which is why the engine is
- * `createJavaScriptRegexEngine` — it compiles a string pattern when it first meets one and passes
- * a precompiled literal straight through, so the other grammars are unaffected. Before adding a
- * language, check its precompiled module for an `end` pattern containing `(?!)`; that is the sign
- * of the same loss.
+ * **Markdown and Python are loaded uncompiled, because precompiling breaks a pattern that
+ * refers back to an earlier match.** A Markdown fence closes only on a line matching the fence
+ * that opened it, so the grammar's end pattern refers back to what its begin pattern captured.
+ * That reference is filled in at tokenizing time from the pattern's source text, and a precompiled
+ * literal has no source text to fill it into, so the precompiler replaces it with a group that
+ * never matches. The result is a code block that never closes: every line after a
+ * ```` ```python ```` block is coloured as Python. Python loses the same reference from the
+ * pattern that closes an f-string on the quote that opened it, so the text of an f-string is read
+ * as code and a `#` inside it starts a comment. The uncompiled grammars keep their patterns as
+ * strings, which is why the engine is `createJavaScriptRegexEngine` — it compiles a string pattern
+ * when it first meets one and passes a precompiled literal straight through, so the other grammars
+ * are unaffected. Before adding a language, check its precompiled module for an `end` pattern
+ * containing `(?!)`; that is the sign of the same loss.
  */
 
 /**
@@ -62,11 +64,11 @@ const GRAMMARS = {
   json: () => import("@shikijs/langs-precompiled/json"),
   css: () => import("@shikijs/langs-precompiled/css"),
   html: () => import("@shikijs/langs-precompiled/html"),
-  // Uncompiled: see the module comment on fenced code blocks.
+  // Uncompiled, as is Python: see the module comment on patterns that refer back.
   markdown: () => import("@shikijs/langs/markdown"),
   sql: () => import("@shikijs/langs-precompiled/sql"),
   shellscript: () => import("@shikijs/langs-precompiled/shellscript"),
-  python: () => import("@shikijs/langs-precompiled/python"),
+  python: () => import("@shikijs/langs/python"),
 } satisfies Record<DiffLanguage, () => Promise<unknown>>;
 
 /** The language name on an opening fence, such as `python` in ```` ```python ````. */
@@ -115,8 +117,8 @@ async function create() {
     [
       import("@shikijs/core"),
       import("@shikijs/engine-javascript"),
-      import("@shikijs/themes/github-light"),
-      import("@shikijs/themes/github-dark"),
+      import("@shikijs/themes/light-plus"),
+      import("@shikijs/themes/dark-plus"),
     ],
   );
 
@@ -191,7 +193,7 @@ export async function highlightDiffLines(
 function themeOptions(language: DiffLanguage) {
   return {
     lang: language,
-    themes: { light: "github-light", dark: "github-dark" },
+    themes: { light: "light-plus", dark: "dark-plus" },
     defaultColor: false,
   } as const;
 }
