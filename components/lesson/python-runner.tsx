@@ -4,7 +4,7 @@ import "@xterm/xterm/css/xterm.css";
 
 import { FitAddon } from "@xterm/addon-fit";
 import { Terminal } from "@xterm/xterm";
-import { Play, RotateCcw, Square } from "lucide-react";
+import { Play, RotateCcw, Square, X } from "lucide-react";
 import * as React from "react";
 
 import { CodeEditor } from "@/components/lesson/code-editor";
@@ -16,7 +16,7 @@ type RunState = "running" | "waiting" | "idle";
 
 /**
  * A Python block being run: its code in an editor, a terminal beneath it for what the program
- * prints and for what the fellow types at `input()`, and Run, Stop and Reset.
+ * prints and for what the fellow types at `input()`, and Run, Stop, Reset and Close.
  *
  * **The program runs in a Web Worker**, built from `PYTHON_WORKER_SOURCE`, so the page stays
  * responsive while it runs and an endless loop is ended by Stop, which throws the worker away;
@@ -40,12 +40,15 @@ export function PythonRunner({
   code: original,
   setup,
   setupMissing,
+  onClose,
 }: {
   code: string;
   /** The Python to run before the block, from the setups it names. */
   setup?: string;
   /** Setups the block names that the page does not define, to say so before running. */
   setupMissing?: string;
+  /** Called by Close; the block that mounted the runner takes it down, which ends the worker. */
+  onClose: () => void;
 }) {
   const [code, setCode] = React.useState(original);
   const [state, setState] = React.useState<RunState>("running");
@@ -207,6 +210,10 @@ export function PythonRunner({
               ? "Running…"
               : "Finished."}
         </span>
+        <Button type="button" variant="ghost" size="xs" className="ml-auto" onClick={onClose}>
+          <X aria-hidden data-icon="inline-start" />
+          Close
+        </Button>
       </div>
       <div ref={host} className="overflow-hidden rounded-md border border-border p-1" />
     </div>

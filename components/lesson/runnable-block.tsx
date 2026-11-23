@@ -61,8 +61,10 @@ function EarlierCode({ code }: { code: string }) {
 /**
  * A code block a fellow can run: the block as it is drawn everywhere, with a Run button beside
  * Copy. Pressing Run replaces the block with the runner for its kind, which holds the code in an
- * editor above a terminal or a frame, and runs it at once. See `lib/lessons/runnable.ts` for
- * which blocks these are.
+ * editor above a terminal or a frame, and runs it at once. The runner's Close puts the block
+ * back as it was, so a fellow who has finished can read on without the editor and the output
+ * taking the room; any edits are gone with it, and the block offers the author's code again.
+ * See `lib/lessons/runnable.ts` for which blocks these are.
  */
 export function RunnableBlock({
   kind,
@@ -90,7 +92,10 @@ export function RunnableBlock({
 
   if (!running) {
     return (
-      <div data-code-block className="my-4 overflow-hidden rounded-md border border-border bg-muted/60">
+      <div
+        data-code-block
+        className="my-4 overflow-hidden rounded-md border border-border bg-muted/60"
+      >
         {setup !== undefined && <EarlierCode code={setup} />}
         {/* The buttons are placed against the block's own code, under any setup strip. */}
         <div className="relative">
@@ -111,8 +116,9 @@ export function RunnableBlock({
     );
   }
 
+  const close = () => setRunning(false);
   if (kind === "python") {
-    return <PythonRunner code={code} setup={setup} setupMissing={setupMissing} />;
+    return <PythonRunner code={code} setup={setup} setupMissing={setupMissing} onClose={close} />;
   }
   return (
     <WebRunner
@@ -120,6 +126,7 @@ export function RunnableBlock({
       html={kind === "web" ? code : ""}
       css={css ?? ""}
       js={kind === "javascript" ? code : (js ?? "")}
+      onClose={close}
     />
   );
 }

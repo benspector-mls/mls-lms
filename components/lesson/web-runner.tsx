@@ -1,6 +1,6 @@
 "use client";
 
-import { Play, RotateCcw } from "lucide-react";
+import { Play, RotateCcw, X } from "lucide-react";
 import * as React from "react";
 
 import { CodeEditor } from "@/components/lesson/code-editor";
@@ -23,18 +23,21 @@ type Log = { level: "log" | "info" | "warn" | "error"; text: string };
  * its console is seen.
  *
  * Run rebuilds the page from the editors; the frame's key changes with every run so that the
- * same page is loaded afresh, which is what a fellow pressing Run again expects.
+ * same page is loaded afresh, which is what a fellow pressing Run again expects. Close hands
+ * back to the block, which takes the runner down.
  */
 export function WebRunner({
   kind,
   html: originalHtml,
   css: originalCss,
   js: originalJs,
+  onClose,
 }: {
   kind: Exclude<RunKind, "python">;
   html: string;
   css: string;
   js: string;
+  onClose: () => void;
 }) {
   const [html, setHtml] = React.useState(originalHtml);
   const [css, setCss] = React.useState(originalCss);
@@ -107,6 +110,10 @@ export function WebRunner({
         <Button type="button" variant="ghost" size="xs" onClick={reset} disabled={untouched}>
           <RotateCcw aria-hidden data-icon="inline-start" />
           Reset
+        </Button>
+        <Button type="button" variant="ghost" size="xs" className="ml-auto" onClick={onClose}>
+          <X aria-hidden data-icon="inline-start" />
+          Close
         </Button>
       </div>
       <iframe
