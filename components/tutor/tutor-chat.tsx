@@ -201,11 +201,10 @@ export function TutorChat({
             <li className="text-sm text-muted-foreground">Loading the conversation…</li>
           ) : history.isError ? (
             <li className="text-sm text-destructive">{history.error.message}</li>
-          ) : turns.length === 0 && !pending ? (
+          ) : turns.length === 0 && !pending && about !== "course" ? (
             <li className="text-sm text-muted-foreground">
-              {about === "course"
-                ? "Ask about anything in this course's lessons: what a term means, why an example works, or what to read next. The Tutor answers from the lessons and names the ones to read."
-                : "Ask what the assignment is asking for, or about an idea it uses. The Tutor explains and points to the lessons; it does not write your code."}
+              Ask what the assignment is asking for, or about an idea it uses. The Tutor explains
+              and points to the lessons; it does not write your code.
             </li>
           ) : (
             exchanges.map((exchange) => (

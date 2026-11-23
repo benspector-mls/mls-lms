@@ -1,6 +1,6 @@
 "use client";
 
-import { Check, CircleCheck, Copy, Info, OctagonAlert, TriangleAlert } from "lucide-react";
+import { CircleCheck, Info, OctagonAlert, TriangleAlert } from "lucide-react";
 import { useTheme } from "next-themes";
 import Link from "next/link";
 import * as React from "react";
@@ -9,11 +9,14 @@ import rehypeRaw from "rehype-raw";
 import rehypeSanitize, { defaultSchema } from "rehype-sanitize";
 import remarkGfm from "remark-gfm";
 
+import { CopyButton } from "@/components/lesson/copy-button";
+import { RunnableBlock } from "@/components/lesson/runnable-block";
 import { HighlightedCode, textOf } from "@/components/markdown";
 import { languageForFence } from "@/lib/diff/languages";
 import { DRIVE_DOC_KIND_LABEL, driveEmbedUrl, parseDriveDocUrl } from "@/lib/drive/embed";
 import { gitbookToHtml } from "@/lib/lessons/gitbook";
 import { rehypeLesson, type LessonLinkOptions } from "@/lib/lessons/rehype-lesson";
+import { markRunnable, type RunKind } from "@/lib/lessons/runnable";
 import { cn } from "@/lib/utils";
 
 /**
@@ -35,6 +38,7 @@ import { cn } from "@/lib/utils";
  * 4. `rehype-sanitize` drops any HTML outside `lessonSanitizeSchema`.
  * 5. `rehypeLesson` gives headings their ids and rewrites links and images
  *    (`lib/lessons/rehype-lesson.ts`).
+ * 6. `markRunnable` marks the code blocks a fellow can run (`lib/lessons/runnable.ts`).
  */
 export function LessonMarkdown({ body, links }: { body: string; links: LessonLinkOptions }) {
   const content = React.useMemo(() => gitbookToHtml(body), [body]);
@@ -65,7 +69,12 @@ export function LessonMarkdown({ body, links }: { body: string; links: LessonLin
       <ReactMarkdown
         remarkPlugins={[remarkGfm]}
         remarkRehypeOptions={{ allowDangerousHtml: true }}
-        rehypePlugins={[rehypeRaw, [rehypeSanitize, lessonSanitizeSchema], [rehypeLesson, links]]}
+        rehypePlugins={[
+          rehypeRaw,
+          [rehypeSanitize, lessonSanitizeSchema],
+          [rehypeLesson, links],
+          rehypeRunnable,
+        ]}
         components={components}
       >
         {content}
@@ -73,6 +82,9 @@ export function LessonMarkdown({ body, links }: { body: string; links: LessonLin
     </div>
   );
 }
+
+/** `markRunnable` as a rehype plugin. */
+const rehypeRunnable = () => markRunnable;
 
 /**
  * What raw HTML a lesson may contain, which is GitHub's list plus what the lessons and the GitBook
@@ -92,9 +104,13 @@ export function LessonMarkdown({ body, links }: { body: string; links: LessonLin
  * **Ids are kept as written.** GitHub's list prefixes every id with `user-content-`, which is what
  * a page holding writing from strangers needs; here it would break a footnote, whose link already
  * carries the prefix, and an anchor an author wrote by hand, whose links do not.
+ *
+ * **Comments are kept** because a lesson's hidden setups and its `uses:` and `not-runnable`
+ * marks are HTML comments, which `markRunnable` reads after this step. React draws no comment.
  */
 const lessonSanitizeSchema = {
   ...defaultSchema,
+  allowComments: true,
   clobber: [],
   tagNames: [...(defaultSchema.tagNames ?? []), "aside", "figure", "figcaption"],
   attributes: {
@@ -215,12 +231,33 @@ const components: Components = {
       String(code.properties.className ?? "").includes("language-mermaid");
     if (isMermaid) return <MermaidDiagram source={textOf(code).replace(/\n$/, "")} />;
 
+    const text = code ? textOf(code).replace(/\n$/, "") : "";
+    const run = node?.properties.dataRun as RunKind | undefined;
+    if (run) {
+      const css = node?.properties.dataRunCss;
+      const js = node?.properties.dataRunJs;
+      const setup = node?.properties.dataSetup;
+      const setupMissing = node?.properties.dataSetupMissing;
+      return (
+        <RunnableBlock
+          kind={run}
+          code={text}
+          css={typeof css === "string" ? css : undefined}
+          js={typeof js === "string" ? js : undefined}
+          setup={typeof setup === "string" ? setup : undefined}
+          setupMissing={typeof setupMissing === "string" ? setupMissing : undefined}
+        >
+          {children}
+        </RunnableBlock>
+      );
+    }
+
     return (
       <div data-code-block className="relative my-4">
         <pre className="overflow-x-auto rounded-md border border-border bg-muted/60 p-3 pr-11 leading-relaxed">
           {children}
         </pre>
-        <CopyButton text={code ? textOf(code).replace(/\n$/, "") : ""} />
+        <CopyButton text={text} />
       </div>
     );
   },
@@ -276,7 +313,7 @@ const components: Components = {
     const title = node?.properties.dataCodeTitle;
     if (typeof title === "string") {
       return (
-        <div className="my-4 overflow-hidden rounded-md border border-border [&_[data-code-block]]:my-0 [&_pre]:rounded-none [&_pre]:border-0">
+        <div className="my-4 overflow-hidden rounded-md border border-border [&_[data-code-block]]:my-0 [&_[data-code-block]]:rounded-none [&_[data-code-block]]:border-0 [&_pre]:rounded-none [&_pre]:border-0">
           {title !== "" && (
             <div className="border-b border-border bg-muted px-3 py-1.5 font-mono text-[0.75em] text-muted-foreground">
               {title}
@@ -314,38 +351,6 @@ const CALLOUTS: Record<string, { icon: React.ElementType; className: string }> =
       "border-emerald-500/30 bg-emerald-500/[0.07] [&>svg]:text-emerald-600 dark:[&>svg]:text-emerald-400",
   },
 };
-
-/**
- * Copies a code block's text, as written rather than as coloured, and shows a check mark for two
- * seconds so the reader knows it worked.
- */
-function CopyButton({ text }: { text: string }) {
-  const [copied, setCopied] = React.useState(false);
-
-  React.useEffect(() => {
-    if (!copied) return;
-    const timer = setTimeout(() => setCopied(false), 2000);
-    return () => clearTimeout(timer);
-  }, [copied]);
-
-  return (
-    <button
-      type="button"
-      aria-label={copied ? "Copied" : "Copy code"}
-      title={copied ? "Copied" : "Copy code"}
-      onClick={() => {
-        void navigator.clipboard.writeText(text).then(() => setCopied(true));
-      }}
-      className="absolute top-2 right-2 rounded-md border border-border bg-background p-1.5 text-muted-foreground hover:text-foreground"
-    >
-      {copied ? (
-        <Check aria-hidden className="size-3.5" />
-      ) : (
-        <Copy aria-hidden className="size-3.5" />
-      )}
-    </button>
-  );
-}
 
 /** GitBook's `{% hint %}`: a boxed note with an icon for its style. An unknown style is drawn as info. */
 function Callout({ tone, children }: { tone: string; children: React.ReactNode }) {
